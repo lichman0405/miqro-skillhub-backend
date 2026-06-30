@@ -10,6 +10,9 @@ import (
 // ReviewTaskRepo implements review.ReviewTaskRepository.
 type ReviewTaskRepo struct{ *DB }
 
+// Compile-time assertion.
+var _ review.ReviewTaskRepository = (*ReviewTaskRepo)(nil)
+
 func NewReviewTaskRepo(db *DB) *ReviewTaskRepo { return &ReviewTaskRepo{DB: db} }
 
 func (r *ReviewTaskRepo) Save(ctx context.Context, t review.ReviewTask) (review.ReviewTask, error) {
@@ -119,6 +122,9 @@ func (r *ReviewTaskRepo) UpdateStatusWithVersion(ctx context.Context, id int64, 
 // PromotionRequestRepo implements review.PromotionRequestRepository.
 type PromotionRequestRepo struct{ *DB }
 
+// Compile-time assertion.
+var _ review.PromotionRequestRepository = (*PromotionRequestRepo)(nil)
+
 func NewPromotionRequestRepo(db *DB) *PromotionRequestRepo { return &PromotionRequestRepo{DB: db} }
 
 func (r *PromotionRequestRepo) Save(ctx context.Context, req review.PromotionRequest) (review.PromotionRequest, error) {
@@ -188,6 +194,11 @@ func (r *PromotionRequestRepo) FindByStatus(ctx context.Context, status string) 
 	}
 	defer rows.Close()
 	return scanPromotionRequests(rows)
+}
+
+func (r *PromotionRequestRepo) Delete(ctx context.Context, id int64) error {
+	_, err := r.exec(ctx, `DELETE FROM promotion_request WHERE id = $1`, id)
+	return err
 }
 
 func (r *PromotionRequestRepo) ExistsByTargetNamespaceID(ctx context.Context, namespaceID int64) (bool, error) {

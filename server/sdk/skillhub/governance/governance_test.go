@@ -53,6 +53,62 @@ func (m *mockUserNotificationRepo) CountUnreadByUserID(_ context.Context, userID
 	}
 	return count, nil
 }
+func (m *mockUserNotificationRepo) FindByUserIDPaged(_ context.Context, userID string, page int, size int) ([]governance.UserNotification, error) {
+	var all []governance.UserNotification
+	for _, n := range m.notifications {
+		if n.UserID == userID {
+			all = append(all, n)
+		}
+	}
+	offset := page * size
+	if offset >= len(all) {
+		return nil, nil
+	}
+	end := offset + size
+	if end > len(all) {
+		end = len(all)
+	}
+	return all[offset:end], nil
+}
+func (m *mockUserNotificationRepo) FindByUserIDAndCategoriesPaged(_ context.Context, userID string, categories []string, page int, size int) ([]governance.UserNotification, error) {
+	catSet := make(map[string]bool, len(categories))
+	for _, c := range categories {
+		catSet[c] = true
+	}
+	var all []governance.UserNotification
+	for _, n := range m.notifications {
+		if n.UserID == userID && catSet[n.Category] {
+			all = append(all, n)
+		}
+	}
+	offset := page * size
+	if offset >= len(all) {
+		return nil, nil
+	}
+	end := offset + size
+	if end > len(all) {
+		end = len(all)
+	}
+	return all[offset:end], nil
+}
+func (m *mockUserNotificationRepo) CountByUserID(_ context.Context, userID string) (int64, error) {
+	var count int64
+	for _, n := range m.notifications {
+		if n.UserID == userID {
+			count++
+		}
+	}
+	return count, nil
+}
+func (m *mockUserNotificationRepo) CountUnreadByUserIDAndCategory(_ context.Context, userID string) (map[string]int64, error) {
+	result := make(map[string]int64)
+	for _, n := range m.notifications {
+		if n.UserID == userID && n.Status == "UNREAD" {
+			result[n.Category]++
+		}
+	}
+	return result, nil
+}
 
 // ============================================================================
 // Tests
@@ -156,6 +212,91 @@ func TestGovernanceNotification_MarkRead_NotFound(t *testing.T) {
 	_, err := svc.MarkRead(context.Background(), 999, "user-1")
 	if err == nil {
 		t.Fatal("expected notFound for non-existent notification")
+	}
+}
+
+// ============================================================================
+// Summary / Inbox / Activity tests
+// ============================================================================
+
+func TestGovernanceNotification_GetSummary(t *testing.T) {
+	repo := newMockUserNotificationRepo()
+	svc := governance.NewGovernanceNotificationService(repo)
+
+	svc.NotifyUser(context.Background(), "user-1", "REVIEW", "TASK", 1, "t1", "{}")
+	svc.NotifyUser(context.Background(), "user-1", "PROMOTION", "PROMO", 2, "t2", "{}")
+	svc.NotifyUser(context.Background(), "user-1", "REVIEW", "TASK", 3, "t3", "{}")
+
+	summary, err := svc.GetSummary(context.Background(), "user-1", "user-1")
+	if err != nil {
+		t.Fatalf("GetSummary failed: %v", err)
+	}
+	if summary.Total != 3 {
+		t.Errorf("expected total 3, got %d", summary.Total)
+	}
+	if summary.Unread != 3 {
+		t.Errorf("expected unread 3, got %d", summary.Unread)
+	}
+	if summary.ByCategory["REVIEW"] != 2 {
+		t.Errorf("expected 2 REVIEW unread, got %d", summary.ByCategory["REVIEW"])
+	}
+	if summary.ByCategory["PROMOTION"] != 1 {
+		t.Errorf("expected 1 PROMOTION unread, got %d", summary.ByCategory["PROMOTION"])
+	}
+}
+
+func TestGovernanceNotification_GetSummary_WrongCaller(t *testing.T) {
+	repo := newMockUserNotificationRepo()
+	svc := governance.NewGovernanceNotificationService(repo)
+	svc.NotifyUser(context.Background(), "user-1", "REVIEW", "TASK", 1, "t1", "{}")
+
+	_, err := svc.GetSummary(context.Background(), "attacker", "user-1")
+	if err == nil {
+		t.Fatal("expected noPermission for mismatched caller in GetSummary")
+	}
+}
+
+func TestGovernanceNotification_GetInbox(t *testing.T) {
+	repo := newMockUserNotificationRepo()
+	svc := governance.NewGovernanceNotificationService(repo)
+
+	svc.NotifyUser(context.Background(), "user-1", "REVIEW", "TASK", 1, "t1", "{}")
+	svc.NotifyUser(context.Background(), "user-1", "PROMOTION", "PROMO", 2, "t2", "{}")
+	svc.NotifyUser(context.Background(), "user-1", "REVIEW", "TASK", 3, "t3", "{}")
+
+	// Page 0, size 2.
+	page1, err := svc.GetInbox(context.Background(), "user-1", "user-1", 0, 2)
+	if err != nil {
+		t.Fatalf("GetInbox failed: %v", err)
+	}
+	if len(page1) != 2 {
+		t.Errorf("expected 2 items on page 0, got %d", len(page1))
+	}
+
+	// Page 1, size 2 — should have 1 remaining.
+	page2, err := svc.GetInbox(context.Background(), "user-1", "user-1", 1, 2)
+	if err != nil {
+		t.Fatalf("GetInbox page 2 failed: %v", err)
+	}
+	if len(page2) != 1 {
+		t.Errorf("expected 1 item on page 1, got %d", len(page2))
+	}
+}
+
+func TestGovernanceNotification_GetActivity(t *testing.T) {
+	repo := newMockUserNotificationRepo()
+	svc := governance.NewGovernanceNotificationService(repo)
+
+	svc.NotifyUser(context.Background(), "user-1", "REVIEW", "TASK", 1, "Review title", "{}")
+	svc.NotifyUser(context.Background(), "user-1", "SOCIAL", "STAR", 2, "Star", "{}")      // not in activity categories
+	svc.NotifyUser(context.Background(), "user-1", "PROMOTION", "PROMO", 3, "Promo title", "{}")
+
+	activity, err := svc.GetActivity(context.Background(), "user-1", "user-1", 0, 10)
+	if err != nil {
+		t.Fatalf("GetActivity failed: %v", err)
+	}
+	if len(activity) != 2 {
+		t.Errorf("expected 2 activity entries (REVIEW+PROMOTION), got %d", len(activity))
 	}
 }
 

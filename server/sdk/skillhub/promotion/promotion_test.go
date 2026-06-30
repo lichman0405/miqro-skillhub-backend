@@ -64,6 +64,7 @@ func (m *mockPromotionRequestRepo) FindByStatus(_ context.Context, status string
 	return out, nil
 }
 func (m *mockPromotionRequestRepo) ExistsByTargetNamespaceID(_ context.Context, nsID int64) (bool, error) { return false, nil }
+func (m *mockPromotionRequestRepo) Delete(_ context.Context, id int64) error                    { delete(m.reqs, id); return nil }
 func (m *mockPromotionRequestRepo) DeleteBySourceOrTargetSkillID(_ context.Context, skillID int64) error { return nil }
 func (m *mockPromotionRequestRepo) UpdateStatusWithVersion(_ context.Context, id int64, status string, reviewedBy string, reviewComment string, targetSkillID *int64, expectedVersion int) (int, error) {
 	r, ok := m.reqs[id]
@@ -447,5 +448,80 @@ func TestPromotion_Reject_Success(t *testing.T) {
 	}
 	if rejected.Status != string(review.ReviewStatusRejected) {
 		t.Errorf("expected REJECTED, got %s", rejected.Status)
+	}
+}
+
+// ============================================================================
+// WithdrawPromotion tests
+// ============================================================================
+
+func TestPromotion_Withdraw_Success(t *testing.T) {
+	reqRepo, _, _, _, _, svc := setupPromotionService()
+	req, _ := svc.SubmitPromotion(context.Background(), 10, 20, 2, "owner-1", ownerRoles(), nil)
+
+	err := svc.WithdrawPromotion(context.Background(), req.ID, "owner-1", nil)
+	if err != nil {
+		t.Fatalf("WithdrawPromotion failed: %v", err)
+	}
+
+	// Verify deleted.
+	found, _ := reqRepo.FindByID(context.Background(), req.ID)
+	if found != nil {
+		t.Error("expected promotion request to be deleted")
+	}
+}
+
+func TestPromotion_Withdraw_RejectNonSubmitter(t *testing.T) {
+	_, _, _, _, _, svc := setupPromotionService()
+	req, _ := svc.SubmitPromotion(context.Background(), 10, 20, 2, "owner-1", ownerRoles(), nil)
+
+	err := svc.WithdrawPromotion(context.Background(), req.ID, "stranger", nil)
+	if err == nil {
+		t.Fatal("expected not_submitter error for non-submitter")
+	}
+	if !contains(err.Error(), "not_submitter") {
+		t.Errorf("expected 'not_submitter', got: %v", err)
+	}
+}
+
+func TestPromotion_Withdraw_SuperAdminCanWithdrawOthers(t *testing.T) {
+	reqRepo, _, _, _, _, svc := setupPromotionService()
+	req, _ := svc.SubmitPromotion(context.Background(), 10, 20, 2, "owner-1", ownerRoles(), nil)
+
+	// SUPER_ADMIN can withdraw someone else's request.
+	err := svc.WithdrawPromotion(context.Background(), req.ID, "super-admin", map[string]bool{"SUPER_ADMIN": true})
+	if err != nil {
+		t.Fatalf("SUPER_ADMIN should be able to withdraw: %v", err)
+	}
+
+	found, _ := reqRepo.FindByID(context.Background(), req.ID)
+	if found != nil {
+		t.Error("expected promotion request to be deleted")
+	}
+}
+
+func TestPromotion_Withdraw_RejectNonPending(t *testing.T) {
+	_, _, _, _, _, svc := setupPromotionService()
+	req, _ := svc.SubmitPromotion(context.Background(), 10, 20, 2, "owner-1", ownerRoles(), nil)
+	svc.ApprovePromotion(context.Background(), req.ID, "plat-admin", "", platformAdmin())
+
+	err := svc.WithdrawPromotion(context.Background(), req.ID, "owner-1", nil)
+	if err == nil {
+		t.Fatal("expected not_pending error for approved request")
+	}
+	if !contains(err.Error(), "not_pending") {
+		t.Errorf("expected 'not_pending', got: %v", err)
+	}
+}
+
+func TestPromotion_Withdraw_NotFound(t *testing.T) {
+	_, _, _, _, _, svc := setupPromotionService()
+
+	err := svc.WithdrawPromotion(context.Background(), 999, "owner-1", nil)
+	if err == nil {
+		t.Fatal("expected not_found error")
+	}
+	if !contains(err.Error(), "not_found") {
+		t.Errorf("expected 'not_found', got: %v", err)
 	}
 }

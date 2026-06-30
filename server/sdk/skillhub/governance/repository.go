@@ -7,7 +7,11 @@ type UserNotificationRepository interface {
 	Save(ctx context.Context, n UserNotification) (UserNotification, error)
 	FindByID(ctx context.Context, id int64) (*UserNotification, error)
 	FindByUserID(ctx context.Context, userID string) ([]UserNotification, error)
+	FindByUserIDPaged(ctx context.Context, userID string, page int, size int) ([]UserNotification, error)
+	FindByUserIDAndCategoriesPaged(ctx context.Context, userID string, categories []string, page int, size int) ([]UserNotification, error)
+	CountByUserID(ctx context.Context, userID string) (int64, error)
 	CountUnreadByUserID(ctx context.Context, userID string) (int64, error)
+	CountUnreadByUserIDAndCategory(ctx context.Context, userID string) (map[string]int64, error)
 }
 
 // NotificationRepository defines the persistence contract for system notifications.

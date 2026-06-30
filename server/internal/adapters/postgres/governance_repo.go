@@ -10,6 +10,9 @@ import (
 // UserNotificationRepo implements governance.UserNotificationRepository.
 type UserNotificationRepo struct{ *DB }
 
+// Compile-time assertion.
+var _ governance.UserNotificationRepository = (*UserNotificationRepo)(nil)
+
 func NewUserNotificationRepo(db *DB) *UserNotificationRepo { return &UserNotificationRepo{DB: db} }
 
 func (r *UserNotificationRepo) Save(ctx context.Context, n governance.UserNotification) (governance.UserNotification, error) {
@@ -67,6 +70,79 @@ func (r *UserNotificationRepo) CountUnreadByUserID(ctx context.Context, userID s
 		`SELECT COUNT(*) FROM user_notification WHERE user_id = $1 AND status = 'UNREAD'`, userID,
 	).Scan(&count)
 	return count, err
+}
+
+func (r *UserNotificationRepo) FindByUserIDPaged(ctx context.Context, userID string, page int, size int) ([]governance.UserNotification, error) {
+	offset := page * size
+	rows, err := r.query(ctx,
+		`SELECT id, user_id, category, entity_type, entity_id, title, body_json, status, created_at, read_at
+		 FROM user_notification WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
+		userID, size, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var notifs []governance.UserNotification
+	for rows.Next() {
+		var n governance.UserNotification
+		if err := rows.Scan(&n.ID, &n.UserID, &n.Category, &n.EntityType, &n.EntityID, &n.Title, &n.BodyJSON, &n.Status, &n.CreatedAt, &n.ReadAt); err != nil {
+			return nil, err
+		}
+		notifs = append(notifs, n)
+	}
+	return notifs, rows.Err()
+}
+
+func (r *UserNotificationRepo) FindByUserIDAndCategoriesPaged(ctx context.Context, userID string, categories []string, page int, size int) ([]governance.UserNotification, error) {
+	offset := page * size
+	rows, err := r.query(ctx,
+		`SELECT id, user_id, category, entity_type, entity_id, title, body_json, status, created_at, read_at
+		 FROM user_notification WHERE user_id = $1 AND category = ANY($2) ORDER BY created_at DESC LIMIT $3 OFFSET $4`,
+		userID, categories, size, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var notifs []governance.UserNotification
+	for rows.Next() {
+		var n governance.UserNotification
+		if err := rows.Scan(&n.ID, &n.UserID, &n.Category, &n.EntityType, &n.EntityID, &n.Title, &n.BodyJSON, &n.Status, &n.CreatedAt, &n.ReadAt); err != nil {
+			return nil, err
+		}
+		notifs = append(notifs, n)
+	}
+	return notifs, rows.Err()
+}
+
+func (r *UserNotificationRepo) CountByUserID(ctx context.Context, userID string) (int64, error) {
+	var count int64
+	err := r.queryRow(ctx,
+		`SELECT COUNT(*) FROM user_notification WHERE user_id = $1`, userID,
+	).Scan(&count)
+	return count, err
+}
+
+func (r *UserNotificationRepo) CountUnreadByUserIDAndCategory(ctx context.Context, userID string) (map[string]int64, error) {
+	rows, err := r.query(ctx,
+		`SELECT category, COUNT(*) FROM user_notification
+		 WHERE user_id = $1 AND status = 'UNREAD' GROUP BY category`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make(map[string]int64)
+	for rows.Next() {
+		var cat string
+		var count int64
+		if err := rows.Scan(&cat, &count); err != nil {
+			return nil, err
+		}
+		result[cat] = count
+	}
+	return result, rows.Err()
 }
 
 // NotificationRepo implements governance.NotificationRepository.

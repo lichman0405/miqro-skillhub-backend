@@ -22,6 +22,12 @@ type ReviewApprovedEvent struct {
 
 func (e ReviewApprovedEvent) EventName() string { return "review.approved" }
 
+// GetSubmittedBy satisfies governance.ReviewApprovedEvent.
+func (e ReviewApprovedEvent) GetSubmittedBy() string { return e.SubmittedBy }
+
+// GetTaskID satisfies governance.ReviewApprovedEvent.
+func (e ReviewApprovedEvent) GetTaskID() int64 { return e.TaskID }
+
 // ReviewRejectedEvent is emitted when a review task is rejected.
 type ReviewRejectedEvent struct {
 	TaskID         int64
@@ -33,3 +39,9 @@ type ReviewRejectedEvent struct {
 }
 
 func (e ReviewRejectedEvent) EventName() string { return "review.rejected" }
+
+// GetSubmittedBy satisfies governance.ReviewRejectedEvent.
+func (e ReviewRejectedEvent) GetSubmittedBy() string { return e.SubmittedBy }
+
+// GetTaskID satisfies governance.ReviewRejectedEvent.
+func (e ReviewRejectedEvent) GetTaskID() int64 { return e.TaskID }

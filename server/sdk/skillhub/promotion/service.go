@@ -375,6 +375,34 @@ func (svc *PromotionService) RejectPromotion(
 	return req, nil
 }
 
+// WithdrawPromotion withdraws a pending promotion request.  Only the submitter
+// or SUPER_ADMIN may withdraw.  The request is deleted from the repository.
+func (svc *PromotionService) WithdrawPromotion(
+	ctx context.Context,
+	promotionID int64,
+	actorID string,
+	platformRoles map[string]bool,
+) error {
+	req, err := svc.promotionRequestRepo.FindByID(ctx, promotionID)
+	if err != nil {
+		return fmt.Errorf("promotion: find: %w", err)
+	}
+	if req == nil {
+		return fmt.Errorf("promotion.not_found %d", promotionID)
+	}
+
+	if !review.IsPending(req.Status) {
+		return fmt.Errorf("promotion.not_pending %d", promotionID)
+	}
+
+	// Only submitter may withdraw, unless SUPER_ADMIN.
+	if req.SubmittedBy != actorID && !platformRoles["SUPER_ADMIN"] {
+		return fmt.Errorf("promotion.withdraw.not_submitter")
+	}
+
+	return svc.promotionRequestRepo.Delete(ctx, promotionID)
+}
+
 func (svc *PromotionService) publishEvent(ctx context.Context, event eventbus.Event) {
 	if svc.eventBus != nil {
 		_ = svc.eventBus.Publish(ctx, event)

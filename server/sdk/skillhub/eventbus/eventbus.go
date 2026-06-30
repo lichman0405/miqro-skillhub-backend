@@ -25,18 +25,23 @@ type Event interface {
 	EventName() string
 }
 
-// Bus is the contract for publishing events.
+// Handler is a callback for consuming published events.
+type Handler func(ctx context.Context, event Event) error
+
+// Bus is the contract for publishing and subscribing to events.
 type Bus interface {
-	// Publish emits an event.  Implementations must be safe for
-	// concurrent use.
+	// Publish emits an event.  Implementations must be safe for concurrent use.
 	Publish(ctx context.Context, event Event) error
+	// Subscribe registers a handler to receive events synchronously when Publish is called.
+	Subscribe(handler Handler)
 }
 
-// NoopBus is a synchronous no-op event bus suitable for tests and
+// NoopBus is a synchronous in-process event bus suitable for tests and
 // early development.
 type NoopBus struct {
 	mu       sync.Mutex
-	Events   []Event // recorded events for test assertions
+	Events   []Event   // recorded events for test assertions
+	handlers []Handler // registered subscribers
 	recorded bool
 }
 
@@ -45,15 +50,25 @@ func NewNoopBus(recorded bool) *NoopBus {
 	return &NoopBus{recorded: recorded}
 }
 
-// Publish records the event when recorded is true; never returns an error.
-func (b *NoopBus) Publish(_ context.Context, event Event) error {
-	if !b.recorded {
-		return nil
+// Publish records the event when recorded is true and invokes all
+// registered handlers synchronously.  Never returns an error.
+func (b *NoopBus) Publish(ctx context.Context, event Event) error {
+	if b.recorded {
+		b.mu.Lock()
+		b.Events = append(b.Events, event)
+		b.mu.Unlock()
 	}
+	for _, h := range b.handlers {
+		_ = h(ctx, event)
+	}
+	return nil
+}
+
+// Subscribe registers a handler to be called for every published event.
+func (b *NoopBus) Subscribe(handler Handler) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.Events = append(b.Events, event)
-	return nil
+	b.handlers = append(b.handlers, handler)
 }
 
 // Reset clears recorded events.

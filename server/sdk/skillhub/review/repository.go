@@ -24,6 +24,7 @@ type PromotionRequestRepository interface {
 	FindBySourceSkillIDAndStatus(ctx context.Context, skillID int64, status string) (*PromotionRequest, error)
 	FindByStatus(ctx context.Context, status string) ([]PromotionRequest, error)
 	ExistsByTargetNamespaceID(ctx context.Context, namespaceID int64) (bool, error)
+	Delete(ctx context.Context, id int64) error
 	DeleteBySourceOrTargetSkillID(ctx context.Context, skillID int64) error
 	UpdateStatusWithVersion(ctx context.Context, id int64, status string, reviewedBy string, reviewComment string, targetSkillID *int64, expectedVersion int) (int, error)
 }
