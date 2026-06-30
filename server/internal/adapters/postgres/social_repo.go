@@ -124,6 +124,21 @@ func (r *SkillRatingRepo) DeleteBySkillID(ctx context.Context, skillID int64) er
 	return err
 }
 
+// UpdateRatingStats implements social.RatingCounterUpdater.
+// Recalculates rating_avg and rating_count from the skill_rating table
+// and updates the corresponding skill row.
+func (r *SkillRatingRepo) UpdateRatingStats(ctx context.Context, skillID int64) error {
+	_, err := r.exec(ctx,
+		`UPDATE skill SET
+		   rating_avg = COALESCE((SELECT AVG(score)::numeric(3,2) FROM skill_rating WHERE skill_id = $1), 0),
+		   rating_count = (SELECT COUNT(*) FROM skill_rating WHERE skill_id = $1)
+		 WHERE id = $1`, skillID)
+	return err
+}
+
+// Compile-time assertion: SkillRatingRepo satisfies social.RatingCounterUpdater.
+var _ social.RatingCounterUpdater = (*SkillRatingRepo)(nil)
+
 // SkillSubscriptionRepo implements social.SkillSubscriptionRepository.
 type SkillSubscriptionRepo struct{ *DB }
 

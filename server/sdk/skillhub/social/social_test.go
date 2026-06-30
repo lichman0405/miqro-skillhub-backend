@@ -190,6 +190,27 @@ func TestSocial_Rate_InvalidScore(t *testing.T) {
 	}
 }
 
+// mockFailingRatingCounterUpdater always returns an error.
+type mockFailingRatingCounterUpdater struct{}
+
+func (c *mockFailingRatingCounterUpdater) UpdateRatingStats(_ context.Context, _ int64) error {
+	return fmt.Errorf("counter update failed")
+}
+
+func TestSocial_Rate_CounterUpdateFails(t *testing.T) {
+	ratingRepo := newMockRatingRepo()
+	failingUpdater := &mockFailingRatingCounterUpdater{}
+	svc := social.NewSkillRatingService(ratingRepo, &alwaysExistsChecker{}, failingUpdater, eventbus.NewNoopBus(true))
+
+	err := svc.Rate(context.Background(), 10, "user-1", 4)
+	if err == nil {
+		t.Fatal("expected error when counter update fails")
+	}
+	if !contains(err.Error(), "update rating stats") {
+		t.Errorf("expected 'update rating stats' in error, got: %v", err)
+	}
+}
+
 func TestSocial_Rate_EventPublished(t *testing.T) {
 	ratingRepo := newMockRatingRepo()
 	counterUpdater := &mockRatingCounterUpdater{}
@@ -204,6 +225,15 @@ func TestSocial_Rate_EventPublished(t *testing.T) {
 	if bus.Events[0].EventName() != "social.rated" {
 		t.Errorf("expected social.rated event, got %s", bus.Events[0].EventName())
 	}
+}
+
+func contains(s, sub string) bool {
+	for i := 0; i <= len(s)-len(sub); i++ {
+		if s[i:i+len(sub)] == sub {
+			return true
+		}
+	}
+	return false
 }
 
 var _ = fmt.Sprintf

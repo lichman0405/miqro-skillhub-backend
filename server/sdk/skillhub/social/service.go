@@ -191,7 +191,9 @@ func (svc *SkillRatingService) Rate(ctx context.Context, skillID int64, userID s
 
 	// Recalculate skill-level rating stats (avg + count).
 	if svc.counterUpdater != nil {
-		_ = svc.counterUpdater.UpdateRatingStats(ctx, skillID)
+		if err := svc.counterUpdater.UpdateRatingStats(ctx, skillID); err != nil {
+			return fmt.Errorf("social: update rating stats: %w", err)
+		}
 	}
 
 	svc.publishEvent(ctx, SkillRatedEvent{SkillID: skillID, UserID: userID, Score: score})
