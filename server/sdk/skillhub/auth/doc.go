@@ -25,6 +25,3 @@
 // Implementation starts in Phase 03.
 package auth
 
-// Service is a placeholder that will hold auth domain logic starting in Phase 03.
-type Service struct{}
-
