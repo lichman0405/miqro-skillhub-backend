@@ -14,10 +14,4 @@
 //	skillhub-domain domain/skill
 //	  SkillMetadataParser — parses YAML frontmatter and body from SKILL.md
 //	  SkillPublishService derives slug from metadata.name(), auto-generates version
-//
-// Implementation starts in Phase 05.
 package packagekit
-
-// Service is a placeholder that will hold package validation logic starting in Phase 05.
-type Service struct{}
-

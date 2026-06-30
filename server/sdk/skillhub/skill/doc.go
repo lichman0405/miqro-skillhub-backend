@@ -14,10 +14,4 @@
 //	  VisibilityChecker: PUBLIC, NAMESPACE_ONLY, PRIVATE
 //	  Tag management
 //	  Download tracking and counters
-//
-// Implementation starts in Phase 05.
 package skill
-
-// Service is a placeholder that will hold skill lifecycle logic starting in Phase 05.
-type Service struct{}
-
