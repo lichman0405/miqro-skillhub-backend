@@ -1,0 +1,7 @@
+# Local planning and agent context are intentionally not committed.
+/docs/
+/.agents/
+
+# Go/Windows build artifacts
+*.exe
+*.test
