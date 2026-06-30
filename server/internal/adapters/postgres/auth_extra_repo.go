@@ -108,6 +108,11 @@ func (r *ApiTokenRepo) UpdateLastUsed(ctx context.Context, id int64) error {
 	return err
 }
 
+func (r *ApiTokenRepo) UpdateExpiration(ctx context.Context, id int64, expiresAt *time.Time) error {
+	_, err := r.exec(ctx, `UPDATE api_token SET expires_at = $2 WHERE id = $1`, id, expiresAt)
+	return err
+}
+
 func (r *ApiTokenRepo) Revoke(ctx context.Context, id int64) error {
 	_, err := r.exec(ctx, `UPDATE api_token SET revoked_at = NOW() WHERE id = $1`, id)
 	return err
@@ -445,6 +450,19 @@ func (r *AccountMergeRequestRepo) Save(ctx context.Context, req auth.AccountMerg
 	return req, nil
 }
 
+func (r *AccountMergeRequestRepo) FindByID(ctx context.Context, id int64) (*auth.AccountMergeRequest, error) {
+	var req auth.AccountMergeRequest
+	err := r.queryRow(ctx,
+		`SELECT id, primary_user_id, secondary_user_id, status, verification_token, token_expires_at, completed_at, created_at
+		 FROM account_merge_request WHERE id = $1`, id,
+	).Scan(&req.ID, &req.PrimaryUserID, &req.SecondaryUserID, &req.Status, &req.VerificationToken,
+		&req.TokenExpiresAt, &req.CompletedAt, &req.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &req, nil
+}
+
 func (r *AccountMergeRequestRepo) FindPendingBySecondaryUserID(ctx context.Context, secondaryUserID string) (*auth.AccountMergeRequest, error) {
 	var req auth.AccountMergeRequest
 	err := r.queryRow(ctx,
@@ -456,4 +474,12 @@ func (r *AccountMergeRequestRepo) FindPendingBySecondaryUserID(ctx context.Conte
 		return nil, err
 	}
 	return &req, nil
+}
+
+func (r *AccountMergeRequestRepo) Update(ctx context.Context, req *auth.AccountMergeRequest) error {
+	_, err := r.exec(ctx,
+		`UPDATE account_merge_request SET primary_user_id=$1, secondary_user_id=$2, status=$3, verification_token=$4, token_expires_at=$5, completed_at=$6
+		 WHERE id = $7`,
+		req.PrimaryUserID, req.SecondaryUserID, req.Status, req.VerificationToken, req.TokenExpiresAt, req.CompletedAt, req.ID)
+	return err
 }

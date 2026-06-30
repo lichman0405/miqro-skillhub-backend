@@ -55,6 +55,8 @@ type DeviceTokenResponse struct {
 }
 
 // DeviceAuthStore abstracts device code storage (Redis or in-memory).
+// It is designed to be implemented by either the Redis adapter (server/internal/adapters/redis)
+// for production use, or an in-memory store for testing.
 type DeviceAuthStore interface {
 	SaveDeviceCode(ctx context.Context, deviceCode string, data DeviceCodeData, ttl time.Duration) error
 	GetDeviceCode(ctx context.Context, deviceCode string) (*DeviceCodeData, error)

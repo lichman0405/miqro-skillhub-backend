@@ -61,6 +61,7 @@ func NewService(cfg ServiceConfig) *Service {
 		cfg.ApiTokenRepo,
 		cfg.UserRoleBindingRepo,
 		cfg.AccountMergeRepo,
+		nil, // namespaceMemberMigrator (Phase 04)
 	)
 
 	policy := NewRouteSecurityPolicyCatalog()

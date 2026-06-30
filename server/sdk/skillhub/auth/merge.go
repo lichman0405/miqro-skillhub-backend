@@ -8,15 +8,21 @@ import (
 	"time"
 )
 
+// NamespaceMembershipMigrator is an optional interface for migrating namespace memberships.
+// It is implemented in Phase 04. If nil, namespace memberships are skipped during merge.
+type NamespaceMembershipMigrator interface {
+	MigrateMemberships(ctx context.Context, primaryUserID, secondaryUserID string) error
+}
+
 // AccountMergeService handles account merging.
 type AccountMergeService struct {
-	userRepo            UserAccountRepository
-	credRepo            LocalCredentialRepository
-	identityBindingRepo IdentityBindingRepository
-	tokenRepo           ApiTokenRepository
-	userRoleBindingRepo UserRoleBindingRepository
-	mergeRepo           AccountMergeRequestRepository
-	// namespaceMemberRepo would be added in Phase 04.
+	userRepo               UserAccountRepository
+	credRepo               LocalCredentialRepository
+	identityBindingRepo    IdentityBindingRepository
+	tokenRepo              ApiTokenRepository
+	userRoleBindingRepo    UserRoleBindingRepository
+	mergeRepo              AccountMergeRequestRepository
+	namespaceMemberMigrator NamespaceMembershipMigrator
 }
 
 // NewAccountMergeService creates a new AccountMergeService.
@@ -27,14 +33,16 @@ func NewAccountMergeService(
 	tokenRepo ApiTokenRepository,
 	userRoleBindingRepo UserRoleBindingRepository,
 	mergeRepo AccountMergeRequestRepository,
+	namespaceMemberMigrator NamespaceMembershipMigrator,
 ) *AccountMergeService {
 	return &AccountMergeService{
-		userRepo:            userRepo,
-		credRepo:            credRepo,
-		identityBindingRepo: identityBindingRepo,
-		tokenRepo:           tokenRepo,
-		userRoleBindingRepo: userRoleBindingRepo,
-		mergeRepo:           mergeRepo,
+		userRepo:               userRepo,
+		credRepo:               credRepo,
+		identityBindingRepo:    identityBindingRepo,
+		tokenRepo:              tokenRepo,
+		userRoleBindingRepo:    userRoleBindingRepo,
+		mergeRepo:              mergeRepo,
+		namespaceMemberMigrator: namespaceMemberMigrator,
 	}
 }
 
@@ -120,17 +128,153 @@ func (s *AccountMergeService) InitiateMerge(ctx context.Context, primaryUserID, 
 }
 
 // ConfirmMerge completes an account merge after verification.
-func (s *AccountMergeService) ConfirmMerge(ctx context.Context, requestID int64, primaryUserID string) error {
-	// This would implement the full merge data migration:
-	// 1. Reassign identity bindings
-	// 2. Reassign API tokens
-	// 3. Merge role bindings
-	// 4. Transfer namespace memberships (Phase 04)
-	// 5. Transfer local credential if primary lacks one
-	// 6. Copy email if primary lacks one
-	// 7. Set secondary status to MERGED
-	// Full implementation requires namespace member repository (Phase 04).
+// rawToken is the verification token returned by InitiateMerge.
+func (s *AccountMergeService) ConfirmMerge(ctx context.Context, requestID int64, primaryUserID string, rawToken string) error {
+	// 1. Load merge request.
+	req, err := s.mergeRepo.FindByID(ctx, requestID)
+	if err != nil {
+		return fmt.Errorf("auth: find merge request: %w", err)
+	}
+	if req == nil {
+		return fmt.Errorf("error.merge.requestNotFound")
+	}
 
-	// For Phase 03, we define the interface and basic validation.
-	return fmt.Errorf("auth.merge.confirm.notImplementedInPhase03")
+	// 2. Verify primary user matches.
+	if req.PrimaryUserID != primaryUserID {
+		return fmt.Errorf("error.merge.wrongPrimaryUser")
+	}
+
+	// 3. Check status.
+	if req.Status != "PENDING" && req.Status != "VERIFIED" {
+		return fmt.Errorf("error.merge.wrongStatus")
+	}
+
+	// 4. Check token expiration.
+	if req.TokenExpiresAt != nil && time.Now().After(*req.TokenExpiresAt) {
+		return fmt.Errorf("error.merge.tokenExpired")
+	}
+
+	// 5. Verify token.
+	if req.VerificationToken == nil {
+		return fmt.Errorf("error.merge.missingToken")
+	}
+	if err := CheckPassword(rawToken, *req.VerificationToken); err != nil {
+		return fmt.Errorf("error.merge.wrongToken")
+	}
+
+	// 6. Load primary and secondary users.
+	primary, err := s.userRepo.FindByID(ctx, primaryUserID)
+	if err != nil || primary == nil || primary.Status != "ACTIVE" {
+		return fmt.Errorf("error.merge.primaryInvalid")
+	}
+
+	secondary, err := s.userRepo.FindByID(ctx, req.SecondaryUserID)
+	if err != nil || secondary == nil || secondary.Status != "ACTIVE" {
+		return fmt.Errorf("error.merge.secondaryInvalid")
+	}
+
+	// 7. Check credential conflict: both users can't have local credentials.
+	primaryCred, _ := s.credRepo.FindByUserID(ctx, primaryUserID)
+	secondaryCred, _ := s.credRepo.FindByUserID(ctx, req.SecondaryUserID)
+	if primaryCred != nil && secondaryCred != nil {
+		return fmt.Errorf("error.merge.credentialConflict")
+	}
+
+	// 8. Reassign identity bindings from secondary to primary.
+	bindings, err := s.identityBindingRepo.FindByUserID(ctx, req.SecondaryUserID)
+	if err != nil {
+		return fmt.Errorf("auth: find identity bindings: %w", err)
+	}
+	for _, binding := range bindings {
+		binding.UserID = primaryUserID
+		if _, err := s.identityBindingRepo.Save(ctx, binding); err != nil {
+			return fmt.Errorf("auth: reassign identity binding %d: %w", binding.ID, err)
+		}
+	}
+
+	// 9. Reassign API tokens from secondary to primary.
+	tokens, err := s.tokenRepo.FindByUserID(ctx, req.SecondaryUserID)
+	if err != nil {
+		return fmt.Errorf("auth: find API tokens: %w", err)
+	}
+	for _, token := range tokens {
+		token.UserID = primaryUserID
+		if token.SubjectType == "USER" {
+			token.SubjectID = primaryUserID
+		}
+		if _, err := s.tokenRepo.Save(ctx, token); err != nil {
+			return fmt.Errorf("auth: reassign token %d: %w", token.ID, err)
+		}
+	}
+
+	// 10. Merge role bindings: move secondary's roles to primary, skip duplicates.
+	secondaryBindings, err := s.userRoleBindingRepo.FindByUserID(ctx, req.SecondaryUserID)
+	if err != nil {
+		return fmt.Errorf("auth: find secondary role bindings: %w", err)
+	}
+	primaryBindings, err := s.userRoleBindingRepo.FindByUserID(ctx, primaryUserID)
+	if err != nil {
+		return fmt.Errorf("auth: find primary role bindings: %w", err)
+	}
+	primaryRoleIDs := make(map[int64]bool)
+	for _, b := range primaryBindings {
+		primaryRoleIDs[b.RoleID] = true
+	}
+	for _, b := range secondaryBindings {
+		if primaryRoleIDs[b.RoleID] {
+			continue // Already bound on primary.
+		}
+		newBinding := UserRoleBinding{
+			UserID: primaryUserID,
+			RoleID: b.RoleID,
+		}
+		if _, err := s.userRoleBindingRepo.Save(ctx, newBinding); err != nil {
+			return fmt.Errorf("auth: merge role binding: %w", err)
+		}
+	}
+	// Remove all role bindings from secondary.
+	if err := s.userRoleBindingRepo.DeleteByUserID(ctx, req.SecondaryUserID); err != nil {
+		return fmt.Errorf("auth: delete secondary role bindings: %w", err)
+	}
+
+	// 11. Transfer local credential from secondary to primary if primary lacks one.
+	if primaryCred == nil && secondaryCred != nil {
+		secondaryCred.UserID = primaryUserID
+		if _, err := s.credRepo.Save(ctx, *secondaryCred); err != nil {
+			return fmt.Errorf("auth: transfer credential: %w", err)
+		}
+	}
+
+	// 12. Copy email from secondary if primary lacks one.
+	if primary.Email == "" && secondary.Email != "" {
+		primary.Email = secondary.Email
+		if _, err := s.userRepo.Save(ctx, *primary); err != nil {
+			return fmt.Errorf("auth: copy email: %w", err)
+		}
+	}
+
+	// 13. Set secondary status to MERGED and link to primary.
+	secondary.Status = "MERGED"
+	secondary.MergedToUserID = &primaryUserID
+	if _, err := s.userRepo.Save(ctx, *secondary); err != nil {
+		return fmt.Errorf("auth: mark secondary merged: %w", err)
+	}
+
+	// 14. Update merge request status to COMPLETED, clear verification token.
+	now := time.Now()
+	req.Status = "COMPLETED"
+	req.VerificationToken = nil
+	req.CompletedAt = &now
+	if err := s.mergeRepo.Update(ctx, req); err != nil {
+		return fmt.Errorf("auth: complete merge request: %w", err)
+	}
+
+	// 15. Migrate namespace memberships (Phase 04).
+	if s.namespaceMemberMigrator != nil {
+		if err := s.namespaceMemberMigrator.MigrateMemberships(ctx, primaryUserID, req.SecondaryUserID); err != nil {
+			return fmt.Errorf("auth: migrate namespace memberships: %w", err)
+		}
+	}
+
+	return nil
 }

@@ -1,6 +1,9 @@
 package auth
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // UserAccountRepository defines the persistence contract for user accounts.
 type UserAccountRepository interface {
@@ -18,6 +21,7 @@ type ApiTokenRepository interface {
 	FindByUserID(ctx context.Context, userID string) ([]ApiToken, error)
 	FindActiveByName(ctx context.Context, userID string, name string) (*ApiToken, error)
 	UpdateLastUsed(ctx context.Context, id int64) error
+	UpdateExpiration(ctx context.Context, id int64, expiresAt *time.Time) error
 	Revoke(ctx context.Context, id int64) error
 }
 
@@ -66,5 +70,7 @@ type PasswordResetRequestRepository interface {
 // AccountMergeRequestRepository defines the persistence contract for account merges.
 type AccountMergeRequestRepository interface {
 	Save(ctx context.Context, req AccountMergeRequest) (AccountMergeRequest, error)
+	FindByID(ctx context.Context, id int64) (*AccountMergeRequest, error)
 	FindPendingBySecondaryUserID(ctx context.Context, secondaryUserID string) (*AccountMergeRequest, error)
+	Update(ctx context.Context, req *AccountMergeRequest) error
 }

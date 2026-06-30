@@ -81,6 +81,16 @@ func (m *mockTokenRepo) UpdateLastUsed(ctx context.Context, id int64) error {
 	return nil
 }
 
+func (m *mockTokenRepo) UpdateExpiration(ctx context.Context, id int64, expiresAt *time.Time) error {
+	t, ok := m.tokens[id]
+	if !ok {
+		return nil
+	}
+	t.ExpiresAt = expiresAt
+	m.tokens[id] = t
+	return nil
+}
+
 func (m *mockTokenRepo) Revoke(ctx context.Context, id int64) error {
 	t, ok := m.tokens[id]
 	if !ok {

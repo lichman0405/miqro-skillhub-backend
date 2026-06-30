@@ -153,6 +153,28 @@ func (s *ApiTokenService) TouchLastUsed(ctx context.Context, tokenID int64) erro
 	return s.repo.UpdateLastUsed(ctx, tokenID)
 }
 
+// UpdateExpiration updates a token's expiration time. Only the owning user can update.
+// The token must not be revoked.
+func (s *ApiTokenService) UpdateExpiration(ctx context.Context, tokenID int64, userID string, expiresAtStr string) error {
+	token, err := s.repo.FindByID(ctx, tokenID)
+	if err != nil {
+		return fmt.Errorf("auth: find token: %w", err)
+	}
+	if token == nil || token.UserID != userID {
+		return fmt.Errorf("error.token.notFound")
+	}
+	if token.RevokedAt != nil {
+		return fmt.Errorf("error.token.revoked")
+	}
+
+	expiresAt, err := ParseExpiresAt(expiresAtStr)
+	if err != nil {
+		return err
+	}
+
+	return s.repo.UpdateExpiration(ctx, tokenID, expiresAt)
+}
+
 // ParseExpiresAt parses an expiration time string. Accepts:
 //
 //	RFC3339 instant, offset datetime, or legacy naive UTC timestamp.
