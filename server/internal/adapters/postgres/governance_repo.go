@@ -20,11 +20,26 @@ func (r *UserNotificationRepo) Save(ctx context.Context, n governance.UserNotifi
 		n.CreatedAt = time.Now()
 	}
 
+	if n.ID == 0 {
+		err := r.queryRow(ctx,
+			`INSERT INTO user_notification (user_id, category, entity_type, entity_id, title, body_json, status, created_at, read_at)
+			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+			 RETURNING id, user_id, category, entity_type, entity_id, title, body_json, status, created_at, read_at`,
+			n.UserID, n.Category, n.EntityType, n.EntityID, n.Title, n.BodyJSON, n.Status, n.CreatedAt, n.ReadAt,
+		).Scan(&n.ID, &n.UserID, &n.Category, &n.EntityType, &n.EntityID, &n.Title, &n.BodyJSON, &n.Status, &n.CreatedAt, &n.ReadAt)
+		if err != nil {
+			return governance.UserNotification{}, err
+		}
+		return n, nil
+	}
+
+	// ID != 0: UPDATE existing row instead of inserting a duplicate.
 	err := r.queryRow(ctx,
-		`INSERT INTO user_notification (user_id, category, entity_type, entity_id, title, body_json, status, created_at, read_at)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+		`UPDATE user_notification SET user_id = $2, category = $3, entity_type = $4, entity_id = $5,
+		   title = $6, body_json = $7, status = $8, created_at = $9, read_at = $10
+		 WHERE id = $1
 		 RETURNING id, user_id, category, entity_type, entity_id, title, body_json, status, created_at, read_at`,
-		n.UserID, n.Category, n.EntityType, n.EntityID, n.Title, n.BodyJSON, n.Status, n.CreatedAt, n.ReadAt,
+		n.ID, n.UserID, n.Category, n.EntityType, n.EntityID, n.Title, n.BodyJSON, n.Status, n.CreatedAt, n.ReadAt,
 	).Scan(&n.ID, &n.UserID, &n.Category, &n.EntityType, &n.EntityID, &n.Title, &n.BodyJSON, &n.Status, &n.CreatedAt, &n.ReadAt)
 	if err != nil {
 		return governance.UserNotification{}, err

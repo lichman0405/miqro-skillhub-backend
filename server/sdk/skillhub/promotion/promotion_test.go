@@ -413,6 +413,52 @@ func TestPromotion_Approve_Success(t *testing.T) {
 	}
 }
 
+func TestPromotion_Approve_NoDuplicateRequest(t *testing.T) {
+	reqRepo, _, _, _, _, svc := setupPromotionService()
+	req, _ := svc.SubmitPromotion(context.Background(), 10, 20, 2, "owner-1", ownerRoles(), nil)
+
+	// Count promotion requests before approve.
+	pending, _ := reqRepo.FindBySourceSkillIDAndStatus(context.Background(), 10, string(review.ReviewStatusPending))
+	if pending == nil {
+		t.Fatal("expected pending request before approve")
+	}
+
+	approved, err := svc.ApprovePromotion(context.Background(), req.ID, "plat-admin", "", platformAdmin())
+	if err != nil {
+		t.Fatalf("ApprovePromotion failed: %v", err)
+	}
+	if approved.TargetSkillID == nil {
+		t.Fatal("expected target_skill_id to be set")
+	}
+
+	// Verify no duplicate: the promotion request count should still be 1 (not 2).
+	// Re-fetch by ID to confirm the original record was updated, not duplicated.
+	refetched, err := reqRepo.FindByID(context.Background(), req.ID)
+	if err != nil {
+		t.Fatalf("FindByID failed: %v", err)
+	}
+	if refetched == nil {
+		t.Fatal("expected promotion request to still exist (updated, not deleted)")
+	}
+	if refetched.Status != string(review.ReviewStatusApproved) {
+		t.Errorf("expected APPROVED, got %s", refetched.Status)
+	}
+	if refetched.TargetSkillID == nil || *refetched.TargetSkillID == 0 {
+		t.Error("expected target_skill_id on updated request")
+	}
+
+	// The original request was updated in-place — verify no second row exists with the same source.
+	allBySource, _ := reqRepo.FindBySourceSkillIDAndStatus(context.Background(), 10, string(review.ReviewStatusApproved))
+	if allBySource == nil {
+		t.Fatal("expected to find the approved request")
+	}
+	// Count all requests for this source skill — should still be 1 total.
+	allPending, _ := reqRepo.FindBySourceSkillIDAndStatus(context.Background(), 10, string(review.ReviewStatusPending))
+	if allPending != nil {
+		t.Error("should no longer have a PENDING request — it was updated in-place")
+	}
+}
+
 func TestPromotion_Approve_RejectNonPlatform(t *testing.T) {
 	_, _, _, _, _, svc := setupPromotionService()
 	req, _ := svc.SubmitPromotion(context.Background(), 10, 20, 2, "owner-1", ownerRoles(), nil)

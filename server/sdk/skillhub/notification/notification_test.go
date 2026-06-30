@@ -270,6 +270,43 @@ func TestNotification_MarkAllRead_WrongCaller(t *testing.T) {
 	}
 }
 
+func TestNotification_MarkRead_NoDuplicate(t *testing.T) {
+	repo := newMockNotificationRepo()
+	svc := notification.NewNotificationService(repo)
+
+	n, _ := svc.Create(context.Background(), "user-1", notification.CategoryReview, "e1", "t1", "{}", "TASK", 1)
+
+	// Verify total count before MarkRead.
+	all, _ := svc.List(context.Background(), "user-1", "user-1", nil)
+	if len(all) != 1 {
+		t.Fatalf("expected 1 notification before MarkRead, got %d", len(all))
+	}
+
+	// MarkRead on the same notification.
+	err := svc.MarkRead(context.Background(), n.ID, "user-1")
+	if err != nil {
+		t.Fatalf("MarkRead failed: %v", err)
+	}
+
+	// Verify total count after MarkRead is still 1 (no duplicate INSERT).
+	allAfter, _ := svc.List(context.Background(), "user-1", "user-1", nil)
+	if len(allAfter) != 1 {
+		t.Fatalf("expected still 1 notification after MarkRead (no duplicate), got %d", len(allAfter))
+	}
+	if allAfter[0].Status != string(notification.NotificationStatusRead) {
+		t.Errorf("expected READ status, got %s", allAfter[0].Status)
+	}
+	if allAfter[0].ReadAt == nil {
+		t.Error("expected ReadAt to be set")
+	}
+
+	// Verify unread count is 0.
+	unread, _ := svc.GetUnreadCount(context.Background(), "user-1", "user-1")
+	if unread != 0 {
+		t.Errorf("expected 0 unread, got %d", unread)
+	}
+}
+
 func TestNotification_DeleteRead(t *testing.T) {
 	repo := newMockNotificationRepo()
 	svc := notification.NewNotificationService(repo)

@@ -205,6 +205,40 @@ func TestGovernanceNotification_CountUnread_WrongCaller(t *testing.T) {
 	}
 }
 
+func TestGovernanceNotification_MarkRead_NoDuplicate(t *testing.T) {
+	repo := newMockUserNotificationRepo()
+	svc := governance.NewGovernanceNotificationService(repo)
+
+	svc.NotifyUser(context.Background(), "user-1", "REVIEW", "TASK", 1, "t1", "{}")
+
+	// Verify total count before MarkRead.
+	allBefore, _ := svc.ListNotifications(context.Background(), "user-1", "user-1")
+	if len(allBefore) != 1 {
+		t.Fatalf("expected 1 notification before MarkRead, got %d", len(allBefore))
+	}
+
+	// MarkRead.
+	n, err := svc.MarkRead(context.Background(), allBefore[0].ID, "user-1")
+	if err != nil {
+		t.Fatalf("MarkRead failed: %v", err)
+	}
+	if n.Status != "READ" {
+		t.Errorf("expected READ, got %s", n.Status)
+	}
+
+	// Verify total count after MarkRead is still 1 (no duplicate INSERT).
+	allAfter, _ := svc.ListNotifications(context.Background(), "user-1", "user-1")
+	if len(allAfter) != 1 {
+		t.Fatalf("expected still 1 notification after MarkRead (no duplicate), got %d", len(allAfter))
+	}
+
+	// Unread count should be 0.
+	unread, _ := svc.CountUnread(context.Background(), "user-1", "user-1")
+	if unread != 0 {
+		t.Errorf("expected 0 unread after MarkRead, got %d", unread)
+	}
+}
+
 func TestGovernanceNotification_MarkRead_NotFound(t *testing.T) {
 	repo := newMockUserNotificationRepo()
 	svc := governance.NewGovernanceNotificationService(repo)

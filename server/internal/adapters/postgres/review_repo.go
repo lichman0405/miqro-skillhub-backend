@@ -132,11 +132,30 @@ func (r *PromotionRequestRepo) Save(ctx context.Context, req review.PromotionReq
 		req.SubmittedAt = time.Now()
 	}
 
+	if req.ID == 0 {
+		err := r.queryRow(ctx,
+			`INSERT INTO promotion_request (source_skill_id, source_version_id, target_namespace_id, target_skill_id, status, version, submitted_by, reviewed_by, review_comment, submitted_at, reviewed_at)
+			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+			 RETURNING id, source_skill_id, source_version_id, target_namespace_id, target_skill_id, status, version, submitted_by, reviewed_by, review_comment, submitted_at, reviewed_at`,
+			req.SourceSkillID, req.SourceVersionID, req.TargetNamespaceID, req.TargetSkillID, req.Status, req.Version,
+			req.SubmittedBy, req.ReviewedBy, req.ReviewComment, req.SubmittedAt, req.ReviewedAt,
+		).Scan(&req.ID, &req.SourceSkillID, &req.SourceVersionID, &req.TargetNamespaceID, &req.TargetSkillID,
+			&req.Status, &req.Version, &req.SubmittedBy, &req.ReviewedBy, &req.ReviewComment, &req.SubmittedAt, &req.ReviewedAt)
+		if err != nil {
+			return review.PromotionRequest{}, err
+		}
+		return req, nil
+	}
+
+	// ID != 0: UPDATE existing row instead of inserting a duplicate.
+	// Used by ApprovePromotion to write back target_skill_id.
 	err := r.queryRow(ctx,
-		`INSERT INTO promotion_request (source_skill_id, source_version_id, target_namespace_id, target_skill_id, status, version, submitted_by, reviewed_by, review_comment, submitted_at, reviewed_at)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+		`UPDATE promotion_request SET source_skill_id = $2, source_version_id = $3, target_namespace_id = $4,
+		   target_skill_id = $5, status = $6, version = $7, submitted_by = $8, reviewed_by = $9,
+		   review_comment = $10, submitted_at = $11, reviewed_at = $12
+		 WHERE id = $1
 		 RETURNING id, source_skill_id, source_version_id, target_namespace_id, target_skill_id, status, version, submitted_by, reviewed_by, review_comment, submitted_at, reviewed_at`,
-		req.SourceSkillID, req.SourceVersionID, req.TargetNamespaceID, req.TargetSkillID, req.Status, req.Version,
+		req.ID, req.SourceSkillID, req.SourceVersionID, req.TargetNamespaceID, req.TargetSkillID, req.Status, req.Version,
 		req.SubmittedBy, req.ReviewedBy, req.ReviewComment, req.SubmittedAt, req.ReviewedAt,
 	).Scan(&req.ID, &req.SourceSkillID, &req.SourceVersionID, &req.TargetNamespaceID, &req.TargetSkillID,
 		&req.Status, &req.Version, &req.SubmittedBy, &req.ReviewedBy, &req.ReviewComment, &req.SubmittedAt, &req.ReviewedAt)
