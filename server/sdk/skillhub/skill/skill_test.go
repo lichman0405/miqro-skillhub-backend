@@ -587,23 +587,48 @@ func TestInstallability_Yanked(t *testing.T) {
 // Tag service tests
 // ============================================================================
 
-func TestTagService_CreateAndList(t *testing.T) {
+// setupTagService creates a fully-wired SkillTagService with a mock skill
+// owned by "owner-1" in namespace 1, plus mock version and tag repos.
+func setupTagService() (*mockSkillRepo, *mockVersionRepo, *mockTagRepo, *skill.SkillTagService) {
+	skillRepo := newMockSkillRepo()
 	versionRepo := newMockVersionRepo()
+	tagRepo := newMockTagRepo()
+
+	// Create a skill owned by "owner-1" in namespace 1.
+	skillRepo.Save(context.Background(), skill.Skill{
+		ID:          1,
+		NamespaceID: 1,
+		OwnerID:     "owner-1",
+		Slug:        "test-skill",
+		Visibility:  "PUBLIC",
+		Status:      "ACTIVE",
+	})
+
+	svc := skill.NewSkillTagService(tagRepo, versionRepo, skillRepo)
+	return skillRepo, versionRepo, tagRepo, svc
+}
+
+// ownerRoles returns userNsRoles granting OWNER in namespace 1.
+func ownerRoles() map[int64]string { return map[int64]string{1: "OWNER"} }
+
+// adminRoles returns userNsRoles granting ADMIN in namespace 1.
+func adminRoles() map[int64]string { return map[int64]string{1: "ADMIN"} }
+
+// memberRoles returns userNsRoles granting MEMBER in namespace 1.
+func memberRoles() map[int64]string { return map[int64]string{1: "MEMBER"} }
+
+func TestTagService_CreateAndList_Success_Owner(t *testing.T) {
+	_, versionRepo, tagRepo, svc := setupTagService()
 	version, _ := versionRepo.Save(context.Background(), skill.SkillVersion{
 		SkillID: 1, Version: "1.0.0", Status: "PUBLISHED",
 	})
-	tagRepo := newMockTagRepo()
-	svc := skill.NewSkillTagService(tagRepo, versionRepo, nil)
 
-	tag, err := svc.CreateTag(context.Background(), 1, "latest", version.Version, "user-1", nil)
+	tag, err := svc.CreateTag(context.Background(), 1, "stable", version.Version, "owner-1", ownerRoles())
 	if err != nil {
-		t.Fatalf("CreateTag failed: %v", err)
+		t.Fatalf("CreateTag (owner) failed: %v", err)
 	}
-	if tag.TagName != "latest" {
-		t.Errorf("expected tag name 'latest', got '%s'", tag.TagName)
-	}
-	if tag.VersionID != version.ID {
-		t.Errorf("expected version ID %d, got %d", version.ID, tag.VersionID)
+	if tag.TagName != "stable" {
+		t.Errorf("expected tag 'stable', got '%s'", tag.TagName)
 	}
 
 	tags, err := svc.ListTags(context.Background(), 1)
@@ -613,37 +638,200 @@ func TestTagService_CreateAndList(t *testing.T) {
 	if len(tags) != 1 {
 		t.Fatalf("expected 1 tag, got %d", len(tags))
 	}
+
+	// Ensure the tag was stored.
+	stored, _ := tagRepo.FindBySkillIDAndTagName(context.Background(), 1, "stable")
+	if stored == nil || stored.VersionID != version.ID {
+		t.Error("tag not found or wrong version in repo")
+	}
 }
 
-func TestTagService_DeleteTag(t *testing.T) {
-	versionRepo := newMockVersionRepo()
-	version, _ := versionRepo.Save(context.Background(), skill.SkillVersion{
+func TestTagService_CreateTag_Success_NamespaceAdmin(t *testing.T) {
+	_, versionRepo, _, svc := setupTagService()
+	versionRepo.Save(context.Background(), skill.SkillVersion{
+		SkillID: 1, Version: "2.0.0", Status: "PUBLISHED",
+	})
+
+	// Namespace ADMIN (not the skill owner) should also be able to create a tag.
+	tag, err := svc.CreateTag(context.Background(), 1, "admin-tag", "2.0.0", "admin-user", adminRoles())
+	if err != nil {
+		t.Fatalf("CreateTag (admin) failed: %v", err)
+	}
+	if tag.TagName != "admin-tag" {
+		t.Errorf("expected tag 'admin-tag', got '%s'", tag.TagName)
+	}
+}
+
+func TestTagService_CreateTag_Unauthorized_Stranger(t *testing.T) {
+	_, versionRepo, _, svc := setupTagService()
+	versionRepo.Save(context.Background(), skill.SkillVersion{
 		SkillID: 1, Version: "1.0.0", Status: "PUBLISHED",
 	})
-	tagRepo := newMockTagRepo()
-	svc := skill.NewSkillTagService(tagRepo, versionRepo, nil)
 
-	svc.CreateTag(context.Background(), 1, "v1", version.Version, "user-1", nil)
-	if err := svc.DeleteTag(context.Background(), 1, "v1"); err != nil {
-		t.Fatalf("DeleteTag failed: %v", err)
+	// A stranger (no role in namespace) cannot create a tag.
+	_, err := svc.CreateTag(context.Background(), 1, "bad-tag", "1.0.0", "stranger", nil)
+	if err == nil {
+		t.Fatal("expected access.denied for stranger")
 	}
+	if !stringsContain(err.Error(), "access.denied") {
+		t.Errorf("expected 'access.denied', got: %v", err)
+	}
+}
+
+func TestTagService_CreateTag_Unauthorized_Member(t *testing.T) {
+	_, versionRepo, _, svc := setupTagService()
+	versionRepo.Save(context.Background(), skill.SkillVersion{
+		SkillID: 1, Version: "1.0.0", Status: "PUBLISHED",
+	})
+
+	// A plain MEMBER cannot create a tag.
+	_, err := svc.CreateTag(context.Background(), 1, "bad-tag", "1.0.0", "member-user", memberRoles())
+	if err == nil {
+		t.Fatal("expected access.denied for plain MEMBER")
+	}
+}
+
+func TestTagService_CreateTag_SkillNotFound(t *testing.T) {
+	skillRepo := newMockSkillRepo()
+	versionRepo := newMockVersionRepo()
+	tagRepo := newMockTagRepo()
+	svc := skill.NewSkillTagService(tagRepo, versionRepo, skillRepo)
+
+	_, err := svc.CreateTag(context.Background(), 999, "tag", "1.0.0", "owner-1", ownerRoles())
+	if err == nil {
+		t.Fatal("expected error for non-existent skill")
+	}
+	if !stringsContain(err.Error(), "notFound") {
+		t.Errorf("expected 'notFound', got: %v", err)
+	}
+}
+
+func TestTagService_CreateTag_OnlyPublishedVersions(t *testing.T) {
+	_, versionRepo, _, svc := setupTagService()
+	versionRepo.Save(context.Background(), skill.SkillVersion{
+		SkillID: 1, Version: "1.0.0", Status: "UPLOADED",
+	})
+
+	_, err := svc.CreateTag(context.Background(), 1, "v1", "1.0.0", "owner-1", ownerRoles())
+	if err == nil {
+		t.Fatal("expected error tagging non-published version")
+	}
+}
+
+func TestTagService_DeleteTag_Success_Owner(t *testing.T) {
+	_, versionRepo, _, svc := setupTagService()
+	versionRepo.Save(context.Background(), skill.SkillVersion{
+		SkillID: 1, Version: "1.0.0", Status: "PUBLISHED",
+	})
+
+	// Create a tag first.
+	svc.CreateTag(context.Background(), 1, "v1", "1.0.0", "owner-1", ownerRoles())
+
+	// Owner can delete it.
+	if err := svc.DeleteTag(context.Background(), 1, "v1", "owner-1", ownerRoles()); err != nil {
+		t.Fatalf("DeleteTag (owner) failed: %v", err)
+	}
+
 	tags, _ := svc.ListTags(context.Background(), 1)
 	if len(tags) != 0 {
 		t.Fatal("expected 0 tags after delete")
 	}
 }
 
-func TestTagService_OnlyPublishedVersions(t *testing.T) {
-	versionRepo := newMockVersionRepo()
+func TestTagService_DeleteTag_Success_NamespaceAdmin(t *testing.T) {
+	_, versionRepo, _, svc := setupTagService()
 	versionRepo.Save(context.Background(), skill.SkillVersion{
-		SkillID: 1, Version: "1.0.0", Status: "UPLOADED",
+		SkillID: 1, Version: "1.0.0", Status: "PUBLISHED",
 	})
-	tagRepo := newMockTagRepo()
-	svc := skill.NewSkillTagService(tagRepo, versionRepo, nil)
 
-	_, err := svc.CreateTag(context.Background(), 1, "latest", "1.0.0", "user-1", nil)
+	// Owner creates a tag.
+	svc.CreateTag(context.Background(), 1, "admin-delete", "1.0.0", "owner-1", ownerRoles())
+
+	// Namespace ADMIN (not the owner) can delete it.
+	if err := svc.DeleteTag(context.Background(), 1, "admin-delete", "admin-user", adminRoles()); err != nil {
+		t.Fatalf("DeleteTag (admin) failed: %v", err)
+	}
+}
+
+func TestTagService_DeleteTag_Unauthorized_Stranger(t *testing.T) {
+	_, versionRepo, _, svc := setupTagService()
+	versionRepo.Save(context.Background(), skill.SkillVersion{
+		SkillID: 1, Version: "1.0.0", Status: "PUBLISHED",
+	})
+
+	svc.CreateTag(context.Background(), 1, "v1", "1.0.0", "owner-1", ownerRoles())
+
+	// A stranger cannot delete it.
+	err := svc.DeleteTag(context.Background(), 1, "v1", "stranger", nil)
 	if err == nil {
-		t.Fatal("expected error tagging non-published version")
+		t.Fatal("expected access.denied for stranger")
+	}
+	if !stringsContain(err.Error(), "access.denied") {
+		t.Errorf("expected 'access.denied', got: %v", err)
+	}
+}
+
+func TestTagService_DeleteTag_Unauthorized_Member(t *testing.T) {
+	_, versionRepo, _, svc := setupTagService()
+	versionRepo.Save(context.Background(), skill.SkillVersion{
+		SkillID: 1, Version: "1.0.0", Status: "PUBLISHED",
+	})
+
+	svc.CreateTag(context.Background(), 1, "v1", "1.0.0", "owner-1", ownerRoles())
+
+	// A plain MEMBER cannot delete it.
+	err := svc.DeleteTag(context.Background(), 1, "v1", "member-user", memberRoles())
+	if err == nil {
+		t.Fatal("expected access.denied for plain MEMBER")
+	}
+}
+
+func TestTagService_DeleteTag_NotFound(t *testing.T) {
+	_, _, _, svc := setupTagService()
+
+	err := svc.DeleteTag(context.Background(), 1, "nonexistent", "owner-1", ownerRoles())
+	if err == nil {
+		t.Fatal("expected error for non-existent tag")
+	}
+	if !stringsContain(err.Error(), "notFound") {
+		t.Errorf("expected 'notFound', got: %v", err)
+	}
+}
+
+func TestTagService_DeleteTag_SkillNotFound(t *testing.T) {
+	skillRepo := newMockSkillRepo()
+	versionRepo := newMockVersionRepo()
+	tagRepo := newMockTagRepo()
+	svc := skill.NewSkillTagService(tagRepo, versionRepo, skillRepo)
+
+	err := svc.DeleteTag(context.Background(), 999, "tag", "owner-1", ownerRoles())
+	if err == nil {
+		t.Fatal("expected error for non-existent skill")
+	}
+}
+
+func TestTagService_UpsertExistingTag(t *testing.T) {
+	_, versionRepo, _, svc := setupTagService()
+	v1, _ := versionRepo.Save(context.Background(), skill.SkillVersion{
+		SkillID: 1, Version: "1.0.0", Status: "PUBLISHED",
+	})
+	v2, _ := versionRepo.Save(context.Background(), skill.SkillVersion{
+		SkillID: 1, Version: "2.0.0", Status: "PUBLISHED",
+	})
+
+	// Create first tag.
+	tag, _ := svc.CreateTag(context.Background(), 1, "movable", v1.Version, "owner-1", ownerRoles())
+	if tag.VersionID != v1.ID {
+		t.Fatalf("expected v1, got %d", tag.VersionID)
+	}
+
+	// Move the tag to v2.
+	tag2, err := svc.CreateTag(context.Background(), 1, "movable", v2.Version, "owner-1", ownerRoles())
+	if err != nil {
+		t.Fatalf("upsert tag failed: %v", err)
+	}
+	if tag2.VersionID != v2.ID {
+		t.Errorf("expected v2 after move, got %d", tag2.VersionID)
 	}
 }
 
@@ -652,6 +840,19 @@ func TestTagService_OnlyPublishedVersions(t *testing.T) {
 // ============================================================================
 
 func ptrInt64(v int64) *int64 { return &v }
+
+func stringsContain(s, sub string) bool {
+	return len(s) >= len(sub) && (s == sub || indexOfSub(s, sub) >= 0)
+}
+
+func indexOfSub(s, sub string) int {
+	for i := 0; i <= len(s)-len(sub); i++ {
+		if s[i:i+len(sub)] == sub {
+			return i
+		}
+	}
+	return -1
+}
 
 var _ = packagekit.SkillMetadata{}
 var _ = namespace.Namespace{}
