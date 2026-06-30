@@ -3,9 +3,10 @@ package repository_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
-	"miqro-skillhub/server/internal/adapters/postgres"
+	postgresadapters "miqro-skillhub/server/internal/adapters/postgres"
 	testutil "miqro-skillhub/server/internal/testutil/postgres"
 	"miqro-skillhub/server/sdk/skillhub/auth"
 	"miqro-skillhub/server/sdk/skillhub/namespace"
@@ -124,7 +125,7 @@ func TestUserAccountRepo_SaveAndFind(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	repo := postgres.NewUserAccountRepo(db)
+	repo := postgresadapters.NewUserAccountRepo(db)
 
 	user := auth.UserAccount{
 		ID:          "test-user-1",
@@ -160,7 +161,7 @@ func TestUserAccountRepo_FindByEmail(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	repo := postgres.NewUserAccountRepo(db)
+	repo := postgresadapters.NewUserAccountRepo(db)
 
 	user := auth.UserAccount{
 		ID:          "test-user-2",
@@ -189,7 +190,7 @@ func TestNamespaceRepo_SaveAndFind(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	repo := postgres.NewNamespaceRepo(db)
+	repo := postgresadapters.NewNamespaceRepo(db)
 
 	ns := namespace.Namespace{
 		Slug:        "test-team",
@@ -225,7 +226,7 @@ func TestNamespaceRepo_SlugUpsert(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	repo := postgres.NewNamespaceRepo(db)
+	repo := postgresadapters.NewNamespaceRepo(db)
 
 	ns1 := namespace.Namespace{Slug: "unique-slug", DisplayName: "First", Type: "TEAM", Status: "ACTIVE"}
 	_, err := repo.Save(ctx, ns1)
@@ -251,20 +252,20 @@ func TestNamespaceMemberRepo_CRUD(t *testing.T) {
 
 	ctx := context.Background()
 
-	userRepo := postgres.NewUserAccountRepo(db)
+	userRepo := postgresadapters.NewUserAccountRepo(db)
 	_, err := userRepo.Save(ctx, auth.UserAccount{ID: "member-user-1", DisplayName: "Member User", Status: "ACTIVE"})
 	if err != nil {
 		t.Fatalf("Create user failed: %v", err)
 	}
 
 	ns := namespace.Namespace{Slug: "member-test", DisplayName: "Member Test", Type: "TEAM", Status: "ACTIVE"}
-	nsRepo := postgres.NewNamespaceRepo(db)
+	nsRepo := postgresadapters.NewNamespaceRepo(db)
 	savedNS, err := nsRepo.Save(ctx, ns)
 	if err != nil {
 		t.Fatalf("Create namespace failed: %v", err)
 	}
 
-	memberRepo := postgres.NewNamespaceMemberRepo(db)
+	memberRepo := postgresadapters.NewNamespaceMemberRepo(db)
 	member := namespace.NamespaceMember{
 		NamespaceID: savedNS.ID,
 		UserID:      "member-user-1",
@@ -285,5 +286,97 @@ func TestNamespaceMemberRepo_CRUD(t *testing.T) {
 	}
 	if found.Role != "OWNER" {
 		t.Errorf("Expected role 'OWNER', got %q", found.Role)
+	}
+}
+
+func TestTransactor_RollbackOnError(t *testing.T) {
+	db := testutil.TestDB(t)
+	if db == nil {
+		return
+	}
+
+	ctx := context.Background()
+	transactor := postgresadapters.NewTransactor(db.Pool)
+	userRepo := postgresadapters.NewUserAccountRepo(db)
+
+	err := transactor.WithinTx(ctx, func(txCtx context.Context) error {
+		_, saveErr := userRepo.Save(txCtx, auth.UserAccount{
+			ID:          "rollback-user",
+			DisplayName: "Rollback Test",
+			Status:      "ACTIVE",
+		})
+		if saveErr != nil {
+			return saveErr
+		}
+		return fmt.Errorf("intentional rollback")
+	})
+
+	if err == nil {
+		t.Error("Expected error from WithinTx, got nil")
+	}
+
+	// Verify the user was NOT persisted (rolled back).
+	_, err = userRepo.FindByID(ctx, "rollback-user")
+	if err == nil {
+		t.Error("Expected user to be rolled back, but it was found")
+	}
+}
+
+func TestTransactor_CommitOnSuccess(t *testing.T) {
+	db := testutil.TestDB(t)
+	if db == nil {
+		return
+	}
+
+	ctx := context.Background()
+	transactor := postgresadapters.NewTransactor(db.Pool)
+	userRepo := postgresadapters.NewUserAccountRepo(db)
+
+	err := transactor.WithinTx(ctx, func(txCtx context.Context) error {
+		_, saveErr := userRepo.Save(txCtx, auth.UserAccount{
+			ID:          "commit-user",
+			DisplayName: "Commit Test",
+			Status:      "ACTIVE",
+		})
+		return saveErr
+	})
+
+	if err != nil {
+		t.Fatalf("WithinTx failed: %v", err)
+	}
+
+	found, err := userRepo.FindByID(ctx, "commit-user")
+	if err != nil {
+		t.Fatalf("Expected user to be committed, but FindByID failed: %v", err)
+	}
+	if found.DisplayName != "Commit Test" {
+		t.Errorf("Expected 'Commit Test', got %q", found.DisplayName)
+	}
+}
+
+func TestMigrateUp_IsIdempotent(t *testing.T) {
+	db := testutil.TestDB(t)
+	if db == nil {
+		return
+	}
+
+	ctx := context.Background()
+
+	// First run.
+	if err := postgresadapters.MigrateUp(ctx, db.Pool); err != nil {
+		t.Fatalf("First MigrateUp failed: %v", err)
+	}
+
+	// Second run should succeed (all migrations already applied).
+	if err := postgresadapters.MigrateUp(ctx, db.Pool); err != nil {
+		t.Fatalf("Second MigrateUp (idempotency check) failed: %v", err)
+	}
+
+	var roleCount int
+	if err := db.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM role`).Scan(&roleCount); err != nil {
+		t.Fatalf("Failed to count roles: %v", err)
+	}
+	if roleCount != 4 {
+		t.Errorf("Expected 4 roles, got %d (seed was duplicated)", roleCount)
 	}
 }

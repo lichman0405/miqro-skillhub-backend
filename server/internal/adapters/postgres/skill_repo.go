@@ -20,7 +20,7 @@ func NewSkillRepo(db *DB) *SkillRepo {
 
 func (r *SkillRepo) FindByID(ctx context.Context, id int64) (*skill.Skill, error) {
 	var s skill.Skill
-	err := r.DB.Pool.QueryRow(ctx,
+	err := r.DB.queryRow(ctx,
 		`SELECT id, namespace_id, slug, display_name, summary, owner_id, source_skill_id,
 		        visibility, status, latest_version_id, download_count, star_count,
 		        rating_avg, rating_count, subscription_count, hidden, hidden_at, hidden_by,
@@ -37,7 +37,7 @@ func (r *SkillRepo) FindByID(ctx context.Context, id int64) (*skill.Skill, error
 }
 
 func (r *SkillRepo) FindByIDs(ctx context.Context, ids []int64) ([]skill.Skill, error) {
-	rows, err := r.DB.Pool.Query(ctx,
+	rows, err := r.DB.query(ctx,
 		`SELECT id, namespace_id, slug, display_name, summary, owner_id, source_skill_id,
 		        visibility, status, latest_version_id, download_count, star_count,
 		        rating_avg, rating_count, subscription_count, hidden, hidden_at, hidden_by,
@@ -51,7 +51,7 @@ func (r *SkillRepo) FindByIDs(ctx context.Context, ids []int64) ([]skill.Skill, 
 }
 
 func (r *SkillRepo) FindAll(ctx context.Context) ([]skill.Skill, error) {
-	rows, err := r.DB.Pool.Query(ctx,
+	rows, err := r.DB.query(ctx,
 		`SELECT id, namespace_id, slug, display_name, summary, owner_id, source_skill_id,
 		        visibility, status, latest_version_id, download_count, star_count,
 		        rating_avg, rating_count, subscription_count, hidden, hidden_at, hidden_by,
@@ -65,7 +65,7 @@ func (r *SkillRepo) FindAll(ctx context.Context) ([]skill.Skill, error) {
 }
 
 func (r *SkillRepo) FindByNamespaceIDAndSlug(ctx context.Context, namespaceID int64, slug string) ([]skill.Skill, error) {
-	rows, err := r.DB.Pool.Query(ctx,
+	rows, err := r.DB.query(ctx,
 		`SELECT id, namespace_id, slug, display_name, summary, owner_id, source_skill_id,
 		        visibility, status, latest_version_id, download_count, star_count,
 		        rating_avg, rating_count, subscription_count, hidden, hidden_at, hidden_by,
@@ -79,7 +79,7 @@ func (r *SkillRepo) FindByNamespaceIDAndSlug(ctx context.Context, namespaceID in
 }
 
 func (r *SkillRepo) FindByNamespaceSlugAndSlug(ctx context.Context, namespaceSlug string, slug string) ([]skill.Skill, error) {
-	rows, err := r.DB.Pool.Query(ctx,
+	rows, err := r.DB.query(ctx,
 		`SELECT s.id, s.namespace_id, s.slug, s.display_name, s.summary, s.owner_id, s.source_skill_id,
 		        s.visibility, s.status, s.latest_version_id, s.download_count, s.star_count,
 		        s.rating_avg, s.rating_count, s.subscription_count, s.hidden, s.hidden_at, s.hidden_by,
@@ -95,7 +95,7 @@ func (r *SkillRepo) FindByNamespaceSlugAndSlug(ctx context.Context, namespaceSlu
 
 func (r *SkillRepo) FindByNamespaceIDSlugOwner(ctx context.Context, namespaceID int64, slug string, ownerID string) (*skill.Skill, error) {
 	var s skill.Skill
-	err := r.DB.Pool.QueryRow(ctx,
+	err := r.DB.queryRow(ctx,
 		`SELECT id, namespace_id, slug, display_name, summary, owner_id, source_skill_id,
 		        visibility, status, latest_version_id, download_count, star_count,
 		        rating_avg, rating_count, subscription_count, hidden, hidden_at, hidden_by,
@@ -113,7 +113,7 @@ func (r *SkillRepo) FindByNamespaceIDSlugOwner(ctx context.Context, namespaceID 
 }
 
 func (r *SkillRepo) FindByOwnerID(ctx context.Context, ownerID string) ([]skill.Skill, error) {
-	rows, err := r.DB.Pool.Query(ctx,
+	rows, err := r.DB.query(ctx,
 		`SELECT id, namespace_id, slug, display_name, summary, owner_id, source_skill_id,
 		        visibility, status, latest_version_id, download_count, star_count,
 		        rating_avg, rating_count, subscription_count, hidden, hidden_at, hidden_by,
@@ -127,7 +127,7 @@ func (r *SkillRepo) FindByOwnerID(ctx context.Context, ownerID string) ([]skill.
 }
 
 func (r *SkillRepo) FindBySlug(ctx context.Context, slug string) ([]skill.Skill, error) {
-	rows, err := r.DB.Pool.Query(ctx,
+	rows, err := r.DB.query(ctx,
 		`SELECT id, namespace_id, slug, display_name, summary, owner_id, source_skill_id,
 		        visibility, status, latest_version_id, download_count, star_count,
 		        rating_avg, rating_count, subscription_count, hidden, hidden_at, hidden_by,
@@ -142,7 +142,7 @@ func (r *SkillRepo) FindBySlug(ctx context.Context, slug string) ([]skill.Skill,
 
 func (r *SkillRepo) ExistsByNamespaceID(ctx context.Context, namespaceID int64) (bool, error) {
 	var exists bool
-	err := r.DB.Pool.QueryRow(ctx,
+	err := r.DB.queryRow(ctx,
 		`SELECT EXISTS(SELECT 1 FROM skill WHERE namespace_id = $1)`, namespaceID,
 	).Scan(&exists)
 	return exists, err
@@ -155,7 +155,7 @@ func (r *SkillRepo) Save(ctx context.Context, s skill.Skill) (skill.Skill, error
 	}
 	s.UpdatedAt = now
 
-	err := r.DB.Pool.QueryRow(ctx,
+	err := r.DB.queryRow(ctx,
 		`INSERT INTO skill (namespace_id, slug, display_name, summary, owner_id, source_skill_id,
 		                    visibility, status, latest_version_id, download_count, star_count,
 		                    rating_avg, rating_count, subscription_count, hidden, hidden_at, hidden_by,
@@ -180,24 +180,24 @@ func (r *SkillRepo) Save(ctx context.Context, s skill.Skill) (skill.Skill, error
 }
 
 func (r *SkillRepo) Delete(ctx context.Context, id int64) error {
-	_, err := r.DB.Pool.Exec(ctx, `DELETE FROM skill WHERE id = $1`, id)
+	_, err := r.DB.exec(ctx, `DELETE FROM skill WHERE id = $1`, id)
 	return err
 }
 
 func (r *SkillRepo) IncrementDownloadCount(ctx context.Context, skillID int64) error {
-	_, err := r.DB.Pool.Exec(ctx,
+	_, err := r.DB.exec(ctx,
 		`UPDATE skill SET download_count = download_count + 1 WHERE id = $1`, skillID)
 	return err
 }
 
 func (r *SkillRepo) IncrementSubscriptionCount(ctx context.Context, skillID int64) error {
-	_, err := r.DB.Pool.Exec(ctx,
+	_, err := r.DB.exec(ctx,
 		`UPDATE skill SET subscription_count = subscription_count + 1 WHERE id = $1`, skillID)
 	return err
 }
 
 func (r *SkillRepo) DecrementSubscriptionCount(ctx context.Context, skillID int64) error {
-	_, err := r.DB.Pool.Exec(ctx,
+	_, err := r.DB.exec(ctx,
 		`UPDATE skill SET subscription_count = CASE WHEN subscription_count > 0 THEN subscription_count - 1 ELSE 0 END WHERE id = $1`, skillID)
 	return err
 }
@@ -229,7 +229,7 @@ func NewSkillVersionRepo(db *DB) *SkillVersionRepo {
 
 func (r *SkillVersionRepo) FindByID(ctx context.Context, id int64) (*skill.SkillVersion, error) {
 	var v skill.SkillVersion
-	err := r.DB.Pool.QueryRow(ctx,
+	err := r.DB.queryRow(ctx,
 		`SELECT id, skill_id, version, status, changelog, parsed_metadata_json, manifest_json,
 		        requested_visibility, file_count, total_size, bundle_ready, download_ready,
 		        published_at, yanked_at, yanked_by, yank_reason, created_by, created_at
@@ -245,7 +245,7 @@ func (r *SkillVersionRepo) FindByID(ctx context.Context, id int64) (*skill.Skill
 }
 
 func (r *SkillVersionRepo) FindByIDs(ctx context.Context, ids []int64) ([]skill.SkillVersion, error) {
-	rows, err := r.DB.Pool.Query(ctx,
+	rows, err := r.DB.query(ctx,
 		`SELECT id, skill_id, version, status, changelog, parsed_metadata_json, manifest_json,
 		        requested_visibility, file_count, total_size, bundle_ready, download_ready,
 		        published_at, yanked_at, yanked_by, yank_reason, created_by, created_at
@@ -258,7 +258,7 @@ func (r *SkillVersionRepo) FindByIDs(ctx context.Context, ids []int64) ([]skill.
 }
 
 func (r *SkillVersionRepo) FindBySkillID(ctx context.Context, skillID int64) ([]skill.SkillVersion, error) {
-	rows, err := r.DB.Pool.Query(ctx,
+	rows, err := r.DB.query(ctx,
 		`SELECT id, skill_id, version, status, changelog, parsed_metadata_json, manifest_json,
 		        requested_visibility, file_count, total_size, bundle_ready, download_ready,
 		        published_at, yanked_at, yanked_by, yank_reason, created_by, created_at
@@ -272,7 +272,7 @@ func (r *SkillVersionRepo) FindBySkillID(ctx context.Context, skillID int64) ([]
 
 func (r *SkillVersionRepo) FindBySkillIDAndVersion(ctx context.Context, skillID int64, version string) (*skill.SkillVersion, error) {
 	var v skill.SkillVersion
-	err := r.DB.Pool.QueryRow(ctx,
+	err := r.DB.queryRow(ctx,
 		`SELECT id, skill_id, version, status, changelog, parsed_metadata_json, manifest_json,
 		        requested_visibility, file_count, total_size, bundle_ready, download_ready,
 		        published_at, yanked_at, yanked_by, yank_reason, created_by, created_at
@@ -288,7 +288,7 @@ func (r *SkillVersionRepo) FindBySkillIDAndVersion(ctx context.Context, skillID 
 }
 
 func (r *SkillVersionRepo) FindBySkillIDAndStatus(ctx context.Context, skillID int64, status string) ([]skill.SkillVersion, error) {
-	rows, err := r.DB.Pool.Query(ctx,
+	rows, err := r.DB.query(ctx,
 		`SELECT id, skill_id, version, status, changelog, parsed_metadata_json, manifest_json,
 		        requested_visibility, file_count, total_size, bundle_ready, download_ready,
 		        published_at, yanked_at, yanked_by, yank_reason, created_by, created_at
@@ -305,7 +305,7 @@ func (r *SkillVersionRepo) Save(ctx context.Context, v skill.SkillVersion) (skil
 		v.CreatedAt = time.Now()
 	}
 
-	err := r.DB.Pool.QueryRow(ctx,
+	err := r.DB.queryRow(ctx,
 		`INSERT INTO skill_version (skill_id, version, status, changelog, parsed_metadata_json, manifest_json,
 		                            requested_visibility, file_count, total_size, bundle_ready, download_ready,
 		                            published_at, yanked_at, yanked_by, yank_reason, created_by, created_at)
@@ -331,12 +331,12 @@ func (r *SkillVersionRepo) Save(ctx context.Context, v skill.SkillVersion) (skil
 }
 
 func (r *SkillVersionRepo) Delete(ctx context.Context, id int64) error {
-	_, err := r.DB.Pool.Exec(ctx, `DELETE FROM skill_version WHERE id = $1`, id)
+	_, err := r.DB.exec(ctx, `DELETE FROM skill_version WHERE id = $1`, id)
 	return err
 }
 
 func (r *SkillVersionRepo) DeleteBySkillID(ctx context.Context, skillID int64) error {
-	_, err := r.DB.Pool.Exec(ctx, `DELETE FROM skill_version WHERE skill_id = $1`, skillID)
+	_, err := r.DB.exec(ctx, `DELETE FROM skill_version WHERE skill_id = $1`, skillID)
 	return err
 }
 

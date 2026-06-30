@@ -18,7 +18,7 @@ func NewNamespaceRepo(db *DB) *NamespaceRepo {
 
 func (r *NamespaceRepo) FindByID(ctx context.Context, id int64) (*namespace.Namespace, error) {
 	var n namespace.Namespace
-	err := r.DB.Pool.QueryRow(ctx,
+	err := r.DB.queryRow(ctx,
 		`SELECT id, slug, display_name, type, description, avatar_url, status, created_by, created_at, updated_at
 		 FROM namespace WHERE id = $1`, id,
 	).Scan(&n.ID, &n.Slug, &n.DisplayName, &n.Type, &n.Description, &n.AvatarURL, &n.Status, &n.CreatedBy, &n.CreatedAt, &n.UpdatedAt)
@@ -29,7 +29,7 @@ func (r *NamespaceRepo) FindByID(ctx context.Context, id int64) (*namespace.Name
 }
 
 func (r *NamespaceRepo) FindByIDs(ctx context.Context, ids []int64) ([]namespace.Namespace, error) {
-	rows, err := r.DB.Pool.Query(ctx,
+	rows, err := r.DB.query(ctx,
 		`SELECT id, slug, display_name, type, description, avatar_url, status, created_by, created_at, updated_at
 		 FROM namespace WHERE id = ANY($1)`, ids)
 	if err != nil {
@@ -50,7 +50,7 @@ func (r *NamespaceRepo) FindByIDs(ctx context.Context, ids []int64) ([]namespace
 
 func (r *NamespaceRepo) FindBySlug(ctx context.Context, slug string) (*namespace.Namespace, error) {
 	var n namespace.Namespace
-	err := r.DB.Pool.QueryRow(ctx,
+	err := r.DB.queryRow(ctx,
 		`SELECT id, slug, display_name, type, description, avatar_url, status, created_by, created_at, updated_at
 		 FROM namespace WHERE slug = $1`, slug,
 	).Scan(&n.ID, &n.Slug, &n.DisplayName, &n.Type, &n.Description, &n.AvatarURL, &n.Status, &n.CreatedBy, &n.CreatedAt, &n.UpdatedAt)
@@ -61,7 +61,7 @@ func (r *NamespaceRepo) FindBySlug(ctx context.Context, slug string) (*namespace
 }
 
 func (r *NamespaceRepo) FindByStatus(ctx context.Context, status string) ([]namespace.Namespace, error) {
-	rows, err := r.DB.Pool.Query(ctx,
+	rows, err := r.DB.query(ctx,
 		`SELECT id, slug, display_name, type, description, avatar_url, status, created_by, created_at, updated_at
 		 FROM namespace WHERE status = $1 ORDER BY created_at DESC`, status)
 	if err != nil {
@@ -87,7 +87,7 @@ func (r *NamespaceRepo) Save(ctx context.Context, n namespace.Namespace) (namesp
 	}
 	n.UpdatedAt = now
 
-	err := r.DB.Pool.QueryRow(ctx,
+	err := r.DB.queryRow(ctx,
 		`INSERT INTO namespace (slug, display_name, type, description, avatar_url, status, created_by, created_at, updated_at)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		 ON CONFLICT (slug) DO UPDATE SET
@@ -107,7 +107,7 @@ func (r *NamespaceRepo) Save(ctx context.Context, n namespace.Namespace) (namesp
 }
 
 func (r *NamespaceRepo) Delete(ctx context.Context, id int64) error {
-	_, err := r.DB.Pool.Exec(ctx, `DELETE FROM namespace WHERE id = $1`, id)
+	_, err := r.DB.exec(ctx, `DELETE FROM namespace WHERE id = $1`, id)
 	return err
 }
 
@@ -127,7 +127,7 @@ func (r *NamespaceMemberRepo) Save(ctx context.Context, m namespace.NamespaceMem
 	}
 	m.UpdatedAt = now
 
-	err := r.DB.Pool.QueryRow(ctx,
+	err := r.DB.queryRow(ctx,
 		`INSERT INTO namespace_member (namespace_id, user_id, role, created_at, updated_at)
 		 VALUES ($1, $2, $3, $4, $5)
 		 ON CONFLICT (namespace_id, user_id) DO UPDATE SET
@@ -144,7 +144,7 @@ func (r *NamespaceMemberRepo) Save(ctx context.Context, m namespace.NamespaceMem
 
 func (r *NamespaceMemberRepo) FindByNamespaceAndUser(ctx context.Context, namespaceID int64, userID string) (*namespace.NamespaceMember, error) {
 	var m namespace.NamespaceMember
-	err := r.DB.Pool.QueryRow(ctx,
+	err := r.DB.queryRow(ctx,
 		`SELECT id, namespace_id, user_id, role, created_at, updated_at
 		 FROM namespace_member WHERE namespace_id = $1 AND user_id = $2`, namespaceID, userID,
 	).Scan(&m.ID, &m.NamespaceID, &m.UserID, &m.Role, &m.CreatedAt, &m.UpdatedAt)
@@ -155,7 +155,7 @@ func (r *NamespaceMemberRepo) FindByNamespaceAndUser(ctx context.Context, namesp
 }
 
 func (r *NamespaceMemberRepo) FindByUserID(ctx context.Context, userID string) ([]namespace.NamespaceMember, error) {
-	rows, err := r.DB.Pool.Query(ctx,
+	rows, err := r.DB.query(ctx,
 		`SELECT id, namespace_id, user_id, role, created_at, updated_at
 		 FROM namespace_member WHERE user_id = $1`, userID)
 	if err != nil {
@@ -175,7 +175,7 @@ func (r *NamespaceMemberRepo) FindByUserID(ctx context.Context, userID string) (
 }
 
 func (r *NamespaceMemberRepo) FindByNamespaceID(ctx context.Context, namespaceID int64) ([]namespace.NamespaceMember, error) {
-	rows, err := r.DB.Pool.Query(ctx,
+	rows, err := r.DB.query(ctx,
 		`SELECT id, namespace_id, user_id, role, created_at, updated_at
 		 FROM namespace_member WHERE namespace_id = $1`, namespaceID)
 	if err != nil {
@@ -195,7 +195,7 @@ func (r *NamespaceMemberRepo) FindByNamespaceID(ctx context.Context, namespaceID
 }
 
 func (r *NamespaceMemberRepo) FindByNamespaceIDAndRoles(ctx context.Context, namespaceID int64, roles []string) ([]namespace.NamespaceMember, error) {
-	rows, err := r.DB.Pool.Query(ctx,
+	rows, err := r.DB.query(ctx,
 		`SELECT id, namespace_id, user_id, role, created_at, updated_at
 		 FROM namespace_member WHERE namespace_id = $1 AND role = ANY($2)`, namespaceID, roles)
 	if err != nil {
@@ -215,13 +215,13 @@ func (r *NamespaceMemberRepo) FindByNamespaceIDAndRoles(ctx context.Context, nam
 }
 
 func (r *NamespaceMemberRepo) DeleteByNamespaceAndUser(ctx context.Context, namespaceID int64, userID string) error {
-	_, err := r.DB.Pool.Exec(ctx,
+	_, err := r.DB.exec(ctx,
 		`DELETE FROM namespace_member WHERE namespace_id = $1 AND user_id = $2`, namespaceID, userID)
 	return err
 }
 
 func (r *NamespaceMemberRepo) DeleteByNamespaceID(ctx context.Context, namespaceID int64) error {
-	_, err := r.DB.Pool.Exec(ctx,
+	_, err := r.DB.exec(ctx,
 		`DELETE FROM namespace_member WHERE namespace_id = $1`, namespaceID)
 	return err
 }

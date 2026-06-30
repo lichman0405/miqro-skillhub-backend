@@ -18,7 +18,7 @@ func NewUserAccountRepo(db *DB) *UserAccountRepo {
 
 func (r *UserAccountRepo) FindByID(ctx context.Context, id string) (*auth.UserAccount, error) {
 	var u auth.UserAccount
-	err := r.DB.Pool.QueryRow(ctx,
+	err := r.DB.queryRow(ctx,
 		`SELECT id, display_name, email, avatar_url, status, merged_to_user_id, system_account, created_at, updated_at
 		 FROM user_account WHERE id = $1`, id,
 	).Scan(&u.ID, &u.DisplayName, &u.Email, &u.AvatarURL, &u.Status, &u.MergedToUserID, &u.SystemAccount, &u.CreatedAt, &u.UpdatedAt)
@@ -29,7 +29,7 @@ func (r *UserAccountRepo) FindByID(ctx context.Context, id string) (*auth.UserAc
 }
 
 func (r *UserAccountRepo) FindByIDs(ctx context.Context, ids []string) ([]auth.UserAccount, error) {
-	rows, err := r.DB.Pool.Query(ctx,
+	rows, err := r.DB.query(ctx,
 		`SELECT id, display_name, email, avatar_url, status, merged_to_user_id, system_account, created_at, updated_at
 		 FROM user_account WHERE id = ANY($1)`, ids)
 	if err != nil {
@@ -50,7 +50,7 @@ func (r *UserAccountRepo) FindByIDs(ctx context.Context, ids []string) ([]auth.U
 
 func (r *UserAccountRepo) FindByEmail(ctx context.Context, email string) (*auth.UserAccount, error) {
 	var u auth.UserAccount
-	err := r.DB.Pool.QueryRow(ctx,
+	err := r.DB.queryRow(ctx,
 		`SELECT id, display_name, email, avatar_url, status, merged_to_user_id, system_account, created_at, updated_at
 		 FROM user_account WHERE LOWER(email) = LOWER($1)`, email,
 	).Scan(&u.ID, &u.DisplayName, &u.Email, &u.AvatarURL, &u.Status, &u.MergedToUserID, &u.SystemAccount, &u.CreatedAt, &u.UpdatedAt)
@@ -67,7 +67,7 @@ func (r *UserAccountRepo) Save(ctx context.Context, u auth.UserAccount) (auth.Us
 	}
 	u.UpdatedAt = now
 
-	_, err := r.DB.Pool.Exec(ctx,
+	_, err := r.DB.exec(ctx,
 		`INSERT INTO user_account (id, display_name, email, avatar_url, status, merged_to_user_id, system_account, created_at, updated_at)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		 ON CONFLICT (id) DO UPDATE SET

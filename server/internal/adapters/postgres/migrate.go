@@ -22,19 +22,40 @@ func init() {
 }
 
 // MigrateUp applies all SQL migration files in order from the filesystem.
+// It tracks applied migrations in a schema_migrations table so that each
+// migration is executed only once. Seed files that use DROP + INSERT should
+// use ON CONFLICT DO NOTHING so re-running is safe.
 func MigrateUp(ctx context.Context, pool *pgxpool.Pool) error {
+	// Ensure tracking table exists.
+	_, err := pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (
+		version VARCHAR(255) PRIMARY KEY,
+		applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+	)`)
+	if err != nil {
+		return fmt.Errorf("migrate: create tracking table: %w", err)
+	}
+
 	entries, err := os.ReadDir(MigrationsDir)
 	if err != nil {
 		return fmt.Errorf("migrate: read dir %s: %w", MigrationsDir, err)
 	}
 
-	// Sort by filename to ensure 001 < 002 < 003 < 004 < 005
 	sort.Slice(entries, func(i, j int) bool {
 		return entries[i].Name() < entries[j].Name()
 	})
 
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".sql") {
+			continue
+		}
+
+		// Check if already applied.
+		var applied bool
+		err := pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version = $1)`, entry.Name()).Scan(&applied)
+		if err != nil {
+			return fmt.Errorf("migrate: check %s: %w", entry.Name(), err)
+		}
+		if applied {
 			continue
 		}
 
@@ -47,6 +68,11 @@ func MigrateUp(ctx context.Context, pool *pgxpool.Pool) error {
 		if _, err := pool.Exec(ctx, string(data)); err != nil {
 			return fmt.Errorf("migrate: exec %s: %w", entry.Name(), err)
 		}
+
+		// Record migration.
+		if _, err := pool.Exec(ctx, `INSERT INTO schema_migrations (version) VALUES ($1)`, entry.Name()); err != nil {
+			return fmt.Errorf("migrate: record %s: %w", entry.Name(), err)
+		}
 	}
 
 	return nil
@@ -56,16 +82,20 @@ func MigrateUp(ctx context.Context, pool *pgxpool.Pool) error {
 // WARNING: Destroys all data. For development/test use only.
 func Reset(ctx context.Context, pool *pgxpool.Pool) error {
 	dropAll := `
-DO $$ DECLARE
-    r RECORD;
-BEGIN
-    FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = 'public') LOOP
-        EXECUTE 'DROP TABLE IF EXISTS ' || quote_ident(r.tablename) || ' CASCADE';
-    END LOOP;
-END $$;
-`
+	DO $$ DECLARE
+	    r RECORD;
+	BEGIN
+	    FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = 'public') LOOP
+	        EXECUTE 'DROP TABLE IF EXISTS ' || quote_ident(r.tablename) || ' CASCADE';
+	    END LOOP;
+	END $$;
+	`
 	if _, err := pool.Exec(ctx, dropAll); err != nil {
 		return fmt.Errorf("reset: drop tables: %w", err)
+	}
+
+	if _, err := pool.Exec(ctx, `DROP TABLE IF EXISTS schema_migrations CASCADE`); err != nil {
+		return fmt.Errorf("reset: drop schema_migrations: %w", err)
 	}
 
 	return MigrateUp(ctx, pool)
