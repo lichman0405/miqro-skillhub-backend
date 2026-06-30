@@ -88,7 +88,7 @@ func (m *mockNotificationRepo) DeleteByIDAndRecipientIDAndStatus(_ context.Conte
 }
 
 type mockNotificationPrefRepo struct {
-	prefs map[int64]notification.NotificationPreference
+	prefs  map[int64]notification.NotificationPreference
 	nextID int64
 }
 
@@ -135,7 +135,7 @@ func TestNotification_CreateAndList(t *testing.T) {
 		t.Fatalf("Create failed: %v", err)
 	}
 
-	list, err := svc.List(context.Background(), "user-1", nil)
+	list, err := svc.List(context.Background(), "user-1", "user-1", nil)
 	if err != nil {
 		t.Fatalf("List failed: %v", err)
 	}
@@ -152,12 +152,24 @@ func TestNotification_ListByCategory(t *testing.T) {
 	svc.Create(context.Background(), "user-1", notification.CategoryPromotion, "e2", "t2", "{}", "PROMO", 2)
 
 	cat := notification.CategoryReview
-	list, err := svc.List(context.Background(), "user-1", &cat)
+	list, err := svc.List(context.Background(), "user-1", "user-1", &cat)
 	if err != nil {
 		t.Fatalf("List failed: %v", err)
 	}
 	if len(list) != 1 {
 		t.Fatalf("expected 1 REVIEW notification, got %d", len(list))
+	}
+}
+
+func TestNotification_List_WrongCaller(t *testing.T) {
+	repo := newMockNotificationRepo()
+	svc := notification.NewNotificationService(repo)
+
+	svc.Create(context.Background(), "user-1", notification.CategoryReview, "e1", "t1", "{}", "TASK", 1)
+
+	_, err := svc.List(context.Background(), "attacker", "user-1", nil)
+	if err == nil {
+		t.Fatal("expected noPermission for mismatched caller in List")
 	}
 }
 
@@ -168,12 +180,24 @@ func TestNotification_UnreadCount(t *testing.T) {
 	svc.Create(context.Background(), "user-1", notification.CategoryReview, "e1", "t1", "{}", "TASK", 1)
 	svc.Create(context.Background(), "user-1", notification.CategorySystem, "e2", "t2", "{}", "SYS", 2)
 
-	count, err := svc.GetUnreadCount(context.Background(), "user-1")
+	count, err := svc.GetUnreadCount(context.Background(), "user-1", "user-1")
 	if err != nil {
 		t.Fatalf("GetUnreadCount failed: %v", err)
 	}
 	if count != 2 {
 		t.Errorf("expected 2 unread, got %d", count)
+	}
+}
+
+func TestNotification_GetUnreadCount_WrongCaller(t *testing.T) {
+	repo := newMockNotificationRepo()
+	svc := notification.NewNotificationService(repo)
+
+	svc.Create(context.Background(), "user-1", notification.CategoryReview, "e1", "t1", "{}", "TASK", 1)
+
+	_, err := svc.GetUnreadCount(context.Background(), "attacker", "user-1")
+	if err == nil {
+		t.Fatal("expected noPermission for mismatched caller in GetUnreadCount")
 	}
 }
 
@@ -188,7 +212,7 @@ func TestNotification_MarkRead(t *testing.T) {
 		t.Fatalf("MarkRead failed: %v", err)
 	}
 
-	count, _ := svc.GetUnreadCount(context.Background(), "user-1")
+	count, _ := svc.GetUnreadCount(context.Background(), "user-1", "user-1")
 	if count != 0 {
 		t.Errorf("expected 0 unread after mark read, got %d", count)
 	}
@@ -214,7 +238,7 @@ func TestNotification_MarkAllRead(t *testing.T) {
 	svc.Create(context.Background(), "user-1", notification.CategorySystem, "e2", "t2", "{}", "SYS", 2)
 	svc.Create(context.Background(), "user-2", notification.CategorySystem, "e3", "t3", "{}", "SYS", 3)
 
-	marked, err := svc.MarkAllRead(context.Background(), "user-1")
+	marked, err := svc.MarkAllRead(context.Background(), "user-1", "user-1")
 	if err != nil {
 		t.Fatalf("MarkAllRead failed: %v", err)
 	}
@@ -222,15 +246,27 @@ func TestNotification_MarkAllRead(t *testing.T) {
 		t.Errorf("expected 2 notifications marked read, got %d", marked)
 	}
 
-	count, _ := svc.GetUnreadCount(context.Background(), "user-1")
+	count, _ := svc.GetUnreadCount(context.Background(), "user-1", "user-1")
 	if count != 0 {
 		t.Errorf("expected 0 unread, got %d", count)
 	}
 
 	// user-2 should still have unread.
-	count2, _ := svc.GetUnreadCount(context.Background(), "user-2")
+	count2, _ := svc.GetUnreadCount(context.Background(), "user-2", "user-2")
 	if count2 != 1 {
 		t.Errorf("expected user-2 to still have 1 unread, got %d", count2)
+	}
+}
+
+func TestNotification_MarkAllRead_WrongCaller(t *testing.T) {
+	repo := newMockNotificationRepo()
+	svc := notification.NewNotificationService(repo)
+
+	svc.Create(context.Background(), "user-1", notification.CategoryReview, "e1", "t1", "{}", "TASK", 1)
+
+	_, err := svc.MarkAllRead(context.Background(), "attacker", "user-1")
+	if err == nil {
+		t.Fatal("expected noPermission for mismatched caller in MarkAllRead")
 	}
 }
 
@@ -261,12 +297,22 @@ func TestPref_DefaultEnabled(t *testing.T) {
 	repo := newMockNotificationPrefRepo()
 	svc := notification.NewNotificationPreferenceService(repo)
 
-	enabled, err := svc.IsEnabled(context.Background(), "user-1", notification.CategoryReview, notification.ChannelInApp)
+	enabled, err := svc.IsEnabled(context.Background(), "user-1", "user-1", notification.CategoryReview, notification.ChannelInApp)
 	if err != nil {
 		t.Fatalf("IsEnabled failed: %v", err)
 	}
 	if !enabled {
 		t.Error("default should be enabled")
+	}
+}
+
+func TestPref_IsEnabled_WrongCaller(t *testing.T) {
+	repo := newMockNotificationPrefRepo()
+	svc := notification.NewNotificationPreferenceService(repo)
+
+	_, err := svc.IsEnabled(context.Background(), "attacker", "user-1", notification.CategoryReview, notification.ChannelInApp)
+	if err == nil {
+		t.Fatal("expected noPermission for mismatched caller in IsEnabled")
 	}
 }
 
@@ -279,7 +325,7 @@ func TestPref_UpdateAndGetPreferences(t *testing.T) {
 		t.Fatalf("UpdatePreference failed: %v", err)
 	}
 
-	prefs, err := svc.GetPreferences(context.Background(), "user-1")
+	prefs, err := svc.GetPreferences(context.Background(), "user-1", "user-1")
 	if err != nil {
 		t.Fatalf("GetPreferences failed: %v", err)
 	}
@@ -294,6 +340,16 @@ func TestPref_UpdateAndGetPreferences(t *testing.T) {
 				t.Error("review should be disabled")
 			}
 		}
+	}
+}
+
+func TestPref_GetPreferences_WrongCaller(t *testing.T) {
+	repo := newMockNotificationPrefRepo()
+	svc := notification.NewNotificationPreferenceService(repo)
+
+	_, err := svc.GetPreferences(context.Background(), "attacker", "user-1")
+	if err == nil {
+		t.Fatal("expected noPermission for mismatched caller in GetPreferences")
 	}
 }
 

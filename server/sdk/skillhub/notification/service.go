@@ -17,7 +17,10 @@ func NewNotificationService(repo NotificationRepository) *NotificationService {
 	return &NotificationService{repo: repo}
 }
 
-// Create creates a new notification.
+// Create creates a new notification.  This is an internal service method called
+// by domain services (ReviewService, PromotionService, etc.) and does not
+// require caller identity verification — the caller is a trusted system
+// component.
 func (svc *NotificationService) Create(
 	ctx context.Context,
 	recipientID string,
@@ -48,11 +51,17 @@ func (svc *NotificationService) Create(
 }
 
 // List returns notifications for a recipient, optionally filtered by category.
+// The callerID must match recipientID — callers may only list their own
+// notifications.
 func (svc *NotificationService) List(
 	ctx context.Context,
+	callerID string,
 	recipientID string,
 	category *NotificationCategory,
 ) ([]Notification, error) {
+	if callerID != recipientID {
+		return nil, fmt.Errorf("error.notification.noPermission")
+	}
 	if category != nil {
 		return svc.repo.FindByRecipientIDAndCategory(ctx, recipientID, string(*category))
 	}
@@ -60,7 +69,12 @@ func (svc *NotificationService) List(
 }
 
 // GetUnreadCount returns the number of unread notifications for a recipient.
-func (svc *NotificationService) GetUnreadCount(ctx context.Context, recipientID string) (int64, error) {
+// The callerID must match recipientID — callers may only count their own
+// notifications.
+func (svc *NotificationService) GetUnreadCount(ctx context.Context, callerID string, recipientID string) (int64, error) {
+	if callerID != recipientID {
+		return 0, fmt.Errorf("error.notification.noPermission")
+	}
 	return svc.repo.CountByRecipientIDAndStatus(ctx, recipientID, string(NotificationStatusUnread))
 }
 
@@ -85,8 +99,13 @@ func (svc *NotificationService) MarkRead(ctx context.Context, notificationID int
 	return nil
 }
 
-// MarkAllRead marks all notifications as read for a recipient.
-func (svc *NotificationService) MarkAllRead(ctx context.Context, userID string) (int, error) {
+// MarkAllRead marks all notifications as read for a user.
+// The callerID must match userID — callers may only mark their own
+// notifications.
+func (svc *NotificationService) MarkAllRead(ctx context.Context, callerID string, userID string) (int, error) {
+	if callerID != userID {
+		return 0, fmt.Errorf("error.notification.noPermission")
+	}
 	return svc.repo.MarkAllReadByRecipientID(ctx, userID)
 }
 
@@ -120,12 +139,17 @@ func NewNotificationPreferenceService(repo NotificationPreferenceRepository) *No
 
 // IsEnabled returns whether a user has enabled notifications for a category+channel.
 // Defaults to true when no explicit preference exists.
+// The callerID must match userID — callers may only check their own preferences.
 func (svc *NotificationPreferenceService) IsEnabled(
 	ctx context.Context,
+	callerID string,
 	userID string,
 	category NotificationCategory,
 	channel NotificationChannel,
 ) (bool, error) {
+	if callerID != userID {
+		return false, fmt.Errorf("error.notification.preference.noPermission")
+	}
 	pref, err := svc.repo.FindByUserCategoryChannel(ctx, userID, string(category), string(channel))
 	if err != nil {
 		return true, err
@@ -137,7 +161,11 @@ func (svc *NotificationPreferenceService) IsEnabled(
 }
 
 // GetPreferences returns all IN_APP preferences for a user.
-func (svc *NotificationPreferenceService) GetPreferences(ctx context.Context, userID string) ([]PreferenceView, error) {
+// The callerID must match userID — callers may only read their own preferences.
+func (svc *NotificationPreferenceService) GetPreferences(ctx context.Context, callerID string, userID string) ([]PreferenceView, error) {
+	if callerID != userID {
+		return nil, fmt.Errorf("error.notification.preference.noPermission")
+	}
 	saved, err := svc.repo.FindByUserID(ctx, userID)
 	if err != nil {
 		return nil, fmt.Errorf("notification: get preferences: %w", err)
