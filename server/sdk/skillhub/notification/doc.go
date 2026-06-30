@@ -10,9 +10,6 @@
 //	  Cleanup jobs
 //	  SSE manager (optional)
 //
-// Implementation starts in Phase 06.
+// Implemented in Phase 06.
 package notification
-
-// Service is a placeholder that will hold notification logic starting in Phase 06.
-type Service struct{}
 

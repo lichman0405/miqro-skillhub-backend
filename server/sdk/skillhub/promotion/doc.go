@@ -12,9 +12,6 @@
 //	  Emits PromotionApprovedEvent, PublicationEvent
 //	  Rejects duplicate pending or already-approved promotion
 //
-// Implementation starts in Phase 06.
+// Implemented in Phase 06.
 package promotion
-
-// Service is a placeholder that will hold promotion workflow logic starting in Phase 06.
-type Service struct{}
 

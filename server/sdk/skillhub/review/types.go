@@ -40,3 +40,6 @@ type PromotionRequest struct {
 	SubmittedAt       time.Time
 	ReviewedAt        *time.Time
 }
+
+// IsPending returns true when the task/request has not been acted on.
+func IsPending(status string) bool { return status == string(ReviewStatusPending) }

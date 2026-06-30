@@ -35,14 +35,14 @@ type Service struct {
 	Auth          *auth.Service
 	Namespaces    *namespace.Service
 	Skills        *skill.Service
-	Reviews       *review.Service
-	Promotions    *promotion.Service
+	Reviews       *review.ReviewService
+	Promotions    *promotion.PromotionService
 	Labels        *label.Service
 	Search        *search.Service
 	Social        *social.Service
 	Reports       *report.Service
-	Governance    *governance.Service
-	Notifications *notification.Service
+	Governance    *governance.GovernanceNotificationService
+	Notifications *notification.NotificationService
 	Security      *security.Service
-	Audit         *audit.Service
+	Audit         *audit.AuditLogService
 }

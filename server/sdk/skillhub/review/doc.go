@@ -13,9 +13,6 @@
 //	  Rejection returns version to non-published state, captures reviewer metadata
 //	  Auto-withdraw of existing pending review versions before new submit
 //
-// Implementation starts in Phase 06.
+// Implemented in Phase 06.
 package review
-
-// Service is a placeholder that will hold review workflow logic starting in Phase 06.
-type Service struct{}
 

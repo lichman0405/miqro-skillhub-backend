@@ -13,9 +13,6 @@
 //	  GovernanceWorkbenchAppService
 //	  GovernanceWorkflowAppService
 //
-// Implementation starts in Phase 06.
+// Implemented in Phase 06.
 package governance
-
-// Service is a placeholder that will hold governance logic starting in Phase 06.
-type Service struct{}
 
