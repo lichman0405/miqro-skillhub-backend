@@ -10,6 +10,9 @@ import (
 // SkillStarRepo implements social.SkillStarRepository.
 type SkillStarRepo struct{ *DB }
 
+// Compile-time assertion.
+var _ social.SkillStarRepository = (*SkillStarRepo)(nil)
+
 func NewSkillStarRepo(db *DB) *SkillStarRepo { return &SkillStarRepo{DB: db} }
 
 func (r *SkillStarRepo) Save(ctx context.Context, s social.SkillStar) (social.SkillStar, error) {
@@ -60,6 +63,9 @@ func (r *SkillStarRepo) CountBySkillID(ctx context.Context, skillID int64) (int6
 
 // SkillRatingRepo implements social.SkillRatingRepository.
 type SkillRatingRepo struct{ *DB }
+
+// Compile-time assertion.
+var _ social.SkillRatingRepository = (*SkillRatingRepo)(nil)
 
 func NewSkillRatingRepo(db *DB) *SkillRatingRepo { return &SkillRatingRepo{DB: db} }
 
@@ -120,6 +126,9 @@ func (r *SkillRatingRepo) DeleteBySkillID(ctx context.Context, skillID int64) er
 
 // SkillSubscriptionRepo implements social.SkillSubscriptionRepository.
 type SkillSubscriptionRepo struct{ *DB }
+
+// Compile-time assertion.
+var _ social.SkillSubscriptionRepository = (*SkillSubscriptionRepo)(nil)
 
 func NewSkillSubscriptionRepo(db *DB) *SkillSubscriptionRepo { return &SkillSubscriptionRepo{DB: db} }
 

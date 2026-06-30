@@ -12,7 +12,3 @@
 //
 // Implementation starts in Phase 07.
 package report
-
-// Service is a placeholder that will hold report logic starting in Phase 07.
-type Service struct{}
-

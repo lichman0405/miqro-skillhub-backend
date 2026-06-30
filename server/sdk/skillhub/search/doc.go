@@ -16,7 +16,3 @@
 //
 // Implementation starts in Phase 07.
 package search
-
-// Service is a placeholder that will hold search logic starting in Phase 07.
-type Service struct{}
-

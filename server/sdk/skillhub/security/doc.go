@@ -18,7 +18,3 @@
 //
 // Implementation starts in Phase 07.
 package security
-
-// Service is a placeholder that will hold security scanning logic starting in Phase 07.
-type Service struct{}
-

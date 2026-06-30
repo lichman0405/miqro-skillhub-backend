@@ -11,7 +11,3 @@
 //
 // Implementation starts in Phase 07.
 package label
-
-// Service is a placeholder that will hold label logic starting in Phase 07.
-type Service struct{}
-

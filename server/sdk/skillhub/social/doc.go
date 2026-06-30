@@ -12,7 +12,3 @@
 //
 // Implementation starts in Phase 07.
 package social
-
-// Service is a placeholder that will hold social interaction logic starting in Phase 07.
-type Service struct{}
-

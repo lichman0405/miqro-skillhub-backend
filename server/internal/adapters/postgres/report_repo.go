@@ -10,6 +10,9 @@ import (
 // SkillReportRepo implements report.SkillReportRepository.
 type SkillReportRepo struct{ *DB }
 
+// Compile-time assertion.
+var _ report.SkillReportRepository = (*SkillReportRepo)(nil)
+
 func NewSkillReportRepo(db *DB) *SkillReportRepo { return &SkillReportRepo{DB: db} }
 
 func (r *SkillReportRepo) Save(ctx context.Context, rp report.SkillReport) (report.SkillReport, error) {
@@ -17,11 +20,28 @@ func (r *SkillReportRepo) Save(ctx context.Context, rp report.SkillReport) (repo
 		rp.CreatedAt = time.Now()
 	}
 
+	if rp.ID == 0 {
+		err := r.queryRow(ctx,
+			`INSERT INTO skill_report (skill_id, namespace_id, reporter_id, reason, details, status, handled_by, handle_comment, created_at, handled_at)
+			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+			 RETURNING id, skill_id, namespace_id, reporter_id, reason, details, status, handled_by, handle_comment, created_at, handled_at`,
+			rp.SkillID, rp.NamespaceID, rp.ReporterID, rp.Reason, rp.Details, rp.Status,
+			rp.HandledBy, rp.HandleComment, rp.CreatedAt, rp.HandledAt,
+		).Scan(&rp.ID, &rp.SkillID, &rp.NamespaceID, &rp.ReporterID, &rp.Reason, &rp.Details,
+			&rp.Status, &rp.HandledBy, &rp.HandleComment, &rp.CreatedAt, &rp.HandledAt)
+		if err != nil {
+			return report.SkillReport{}, err
+		}
+		return rp, nil
+	}
+
+	// ID != 0: UPDATE existing row instead of inserting a duplicate.
 	err := r.queryRow(ctx,
-		`INSERT INTO skill_report (skill_id, namespace_id, reporter_id, reason, details, status, handled_by, handle_comment, created_at, handled_at)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+		`UPDATE skill_report SET skill_id = $2, namespace_id = $3, reporter_id = $4, reason = $5,
+		   details = $6, status = $7, handled_by = $8, handle_comment = $9, created_at = $10, handled_at = $11
+		 WHERE id = $1
 		 RETURNING id, skill_id, namespace_id, reporter_id, reason, details, status, handled_by, handle_comment, created_at, handled_at`,
-		rp.SkillID, rp.NamespaceID, rp.ReporterID, rp.Reason, rp.Details, rp.Status,
+		rp.ID, rp.SkillID, rp.NamespaceID, rp.ReporterID, rp.Reason, rp.Details, rp.Status,
 		rp.HandledBy, rp.HandleComment, rp.CreatedAt, rp.HandledAt,
 	).Scan(&rp.ID, &rp.SkillID, &rp.NamespaceID, &rp.ReporterID, &rp.Reason, &rp.Details,
 		&rp.Status, &rp.HandledBy, &rp.HandleComment, &rp.CreatedAt, &rp.HandledAt)

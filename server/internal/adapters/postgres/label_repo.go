@@ -10,6 +10,9 @@ import (
 // LabelDefinitionRepo implements label.LabelDefinitionRepository.
 type LabelDefinitionRepo struct{ *DB }
 
+// Compile-time assertion.
+var _ label.LabelDefinitionRepository = (*LabelDefinitionRepo)(nil)
+
 func NewLabelDefinitionRepo(db *DB) *LabelDefinitionRepo { return &LabelDefinitionRepo{DB: db} }
 
 func (r *LabelDefinitionRepo) FindByID(ctx context.Context, id int64) (*label.LabelDefinition, error) {
@@ -123,6 +126,9 @@ func scanLabelDefinitions(rows interface {
 // LabelTranslationRepo implements label.LabelTranslationRepository.
 type LabelTranslationRepo struct{ *DB }
 
+// Compile-time assertion.
+var _ label.LabelTranslationRepository = (*LabelTranslationRepo)(nil)
+
 func NewLabelTranslationRepo(db *DB) *LabelTranslationRepo { return &LabelTranslationRepo{DB: db} }
 
 func (r *LabelTranslationRepo) FindByLabelID(ctx context.Context, labelID int64) ([]label.LabelTranslation, error) {
@@ -207,6 +213,9 @@ func scanLabelTranslations(rows interface {
 
 // SkillLabelRepo implements label.SkillLabelRepository.
 type SkillLabelRepo struct{ *DB }
+
+// Compile-time assertion.
+var _ label.SkillLabelRepository = (*SkillLabelRepo)(nil)
 
 func NewSkillLabelRepo(db *DB) *SkillLabelRepo { return &SkillLabelRepo{DB: db} }
 

@@ -18,3 +18,17 @@ type SecurityAudit struct {
 	CreatedAt           time.Time
 	DeletedAt           *time.Time // soft delete
 }
+
+// Scanner type constants.
+const (
+	ScannerTypeSkillScanner = "skill-scanner"
+	ScannerTypeCustom       = "custom"
+)
+
+// Verdict constants.
+const (
+	VerdictSafe      = "SAFE"
+	VerdictSuspicious = "SUSPICIOUS"
+	VerdictDangerous = "DANGEROUS"
+	VerdictBlocked   = "BLOCKED"
+)

@@ -10,6 +10,9 @@ import (
 // SecurityAuditRepo implements security.SecurityAuditRepository.
 type SecurityAuditRepo struct{ *DB }
 
+// Compile-time assertion.
+var _ security.SecurityAuditRepository = (*SecurityAuditRepo)(nil)
+
 func NewSecurityAuditRepo(db *DB) *SecurityAuditRepo { return &SecurityAuditRepo{DB: db} }
 
 func (r *SecurityAuditRepo) Save(ctx context.Context, a security.SecurityAudit) (security.SecurityAudit, error) {
