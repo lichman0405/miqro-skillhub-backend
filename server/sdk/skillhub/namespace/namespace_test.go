@@ -212,14 +212,20 @@ func (m *mockNamespaceRepo) Delete(_ context.Context, id int64) error {
 // ============================================================================
 
 type mockUserSearch struct {
-	users []namespace.UserCandidate
+	users     []namespace.UserCandidate
+	called    int
+	lastQuery string
+	lastLimit int
 }
 
 func newMockUserSearch(users ...namespace.UserCandidate) *mockUserSearch {
 	return &mockUserSearch{users: users}
 }
 
-func (m *mockUserSearch) SearchUsers(_ context.Context, _ string, _ int) ([]namespace.UserCandidate, error) {
+func (m *mockUserSearch) SearchUsers(_ context.Context, query string, limit int) ([]namespace.UserCandidate, error) {
+	m.called++
+	m.lastQuery = query
+	m.lastLimit = limit
 	return m.users, nil
 }
 
@@ -286,13 +292,17 @@ func TestSearchCandidates_NonOwnerCallerForbidden(t *testing.T) {
 	)
 	svc := namespace.NewNamespaceMemberCandidateService(memberRepo, nsRepo, userSearch)
 
-	_, err := svc.SearchCandidates(context.Background(), ns.ID, "caller", "q", 10)
+	_, err := svc.SearchCandidates(context.Background(), ns.ID, "caller", "ab", 10)
 	if err == nil {
 		t.Fatal("expected error for non-OWNER/ADMIN caller")
 	}
 	// err should wrap ErrCodeNamespaceForbidden.
 	if err.Error() == "" || !contains(err.Error(), "forbidden") {
 		t.Errorf("expected forbidden error, got: %v", err)
+	}
+	// UserSearch must not be called.
+	if userSearch.called > 0 {
+		t.Error("UserSearch should not be called for forbidden caller")
 	}
 }
 
@@ -306,7 +316,7 @@ func TestSearchCandidates_OwnerCanSearch(t *testing.T) {
 	)
 	svc := namespace.NewNamespaceMemberCandidateService(memberRepo, nsRepo, userSearch)
 
-	candidates, err := svc.SearchCandidates(context.Background(), ns.ID, "owner", "q", 10)
+	candidates, err := svc.SearchCandidates(context.Background(), ns.ID, "owner", "ab", 10)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -324,7 +334,7 @@ func TestSearchCandidates_AdminCanSearch(t *testing.T) {
 	)
 	svc := namespace.NewNamespaceMemberCandidateService(memberRepo, nsRepo, userSearch)
 
-	candidates, err := svc.SearchCandidates(context.Background(), ns.ID, "admin", "q", 10)
+	candidates, err := svc.SearchCandidates(context.Background(), ns.ID, "admin", "ab", 10)
 	if err != nil {
 		t.Fatalf("unexpected error for ADMIN: %v", err)
 	}
@@ -348,7 +358,7 @@ func TestSearchCandidates_ExcludesExistingMembers(t *testing.T) {
 	)
 	svc := namespace.NewNamespaceMemberCandidateService(memberRepo, nsRepo, userSearch)
 
-	candidates, err := svc.SearchCandidates(context.Background(), ns.ID, "owner", "q", 10)
+	candidates, err := svc.SearchCandidates(context.Background(), ns.ID, "owner", "ab", 10)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -382,12 +392,191 @@ func TestSearchCandidates_NoUserSearchReturnsEmpty(t *testing.T) {
 	// userSearch is nil.
 	svc := namespace.NewNamespaceMemberCandidateService(memberRepo, nsRepo, nil)
 
-	candidates, err := svc.SearchCandidates(context.Background(), ns.ID, "owner", "q", 10)
+	candidates, err := svc.SearchCandidates(context.Background(), ns.ID, "owner", "ab", 10)
 	if err != nil {
 		t.Fatalf("expected nil error when UserSearch is nil, got: %v", err)
 	}
 	if len(candidates) != 0 {
 		t.Fatalf("expected empty result, got %d", len(candidates))
+	}
+}
+
+func TestSearchCandidates_FrozenTeamRejected(t *testing.T) {
+	frozen := namespace.Namespace{ID: 1, Slug: "frozen-team", Type: "TEAM", Status: "FROZEN"}
+	nsRepo := newMockNamespaceRepo(frozen)
+	memberRepo := makeMember(frozen.ID, "owner", "OWNER")
+	userSearch := newMockUserSearch()
+	svc := namespace.NewNamespaceMemberCandidateService(memberRepo, nsRepo, userSearch)
+
+	_, err := svc.SearchCandidates(context.Background(), frozen.ID, "owner", "ab", 10)
+	if err == nil {
+		t.Fatal("expected error for FROZEN TEAM")
+	}
+	if !contains(err.Error(), "not_active") {
+		t.Errorf("expected not_active error, got: %v", err)
+	}
+	// UserSearch must not be called.
+	if userSearch.called > 0 {
+		t.Error("UserSearch should not be called for FROZEN namespace")
+	}
+}
+
+func TestSearchCandidates_ArchivedTeamRejected(t *testing.T) {
+	archived := namespace.Namespace{ID: 1, Slug: "old-team", Type: "TEAM", Status: "ARCHIVED"}
+	nsRepo := newMockNamespaceRepo(archived)
+	memberRepo := makeMember(archived.ID, "owner", "OWNER")
+	userSearch := newMockUserSearch()
+	svc := namespace.NewNamespaceMemberCandidateService(memberRepo, nsRepo, userSearch)
+
+	_, err := svc.SearchCandidates(context.Background(), archived.ID, "owner", "ab", 10)
+	if err == nil {
+		t.Fatal("expected error for ARCHIVED TEAM")
+	}
+	if !contains(err.Error(), "not_active") {
+		t.Errorf("expected not_active error, got: %v", err)
+	}
+	if userSearch.called > 0 {
+		t.Error("UserSearch should not be called for ARCHIVED namespace")
+	}
+}
+
+func TestSearchCandidates_BlankQueryReturnsEmptyWithoutCall(t *testing.T) {
+	ns := activeTeam(1)
+	nsRepo := newMockNamespaceRepo(ns)
+	memberRepo := makeMember(ns.ID, "owner", "OWNER")
+	userSearch := newMockUserSearch(
+		namespace.UserCandidate{UserID: "u1", DisplayName: "User 1"},
+	)
+	svc := namespace.NewNamespaceMemberCandidateService(memberRepo, nsRepo, userSearch)
+
+	// Blank query (only whitespace).
+	candidates, err := svc.SearchCandidates(context.Background(), ns.ID, "owner", "   ", 10)
+	if err != nil {
+		t.Fatalf("expected no error for blank query, got: %v", err)
+	}
+	if len(candidates) != 0 {
+		t.Fatalf("expected empty list for blank query, got %d", len(candidates))
+	}
+	if userSearch.called > 0 {
+		t.Error("UserSearch should NOT be called for blank query")
+	}
+
+	// Empty string query.
+	candidates, err = svc.SearchCandidates(context.Background(), ns.ID, "owner", "", 10)
+	if err != nil {
+		t.Fatalf("expected no error for empty query, got: %v", err)
+	}
+	if len(candidates) != 0 {
+		t.Fatalf("expected empty list for empty query, got %d", len(candidates))
+	}
+}
+
+func TestSearchCandidates_QueryTooShortError(t *testing.T) {
+	ns := activeTeam(1)
+	nsRepo := newMockNamespaceRepo(ns)
+	memberRepo := makeMember(ns.ID, "owner", "OWNER")
+	userSearch := newMockUserSearch()
+	svc := namespace.NewNamespaceMemberCandidateService(memberRepo, nsRepo, userSearch)
+
+	_, err := svc.SearchCandidates(context.Background(), ns.ID, "owner", "a", 10)
+	if err == nil {
+		t.Fatal("expected error for single-char query")
+	}
+	if !contains(err.Error(), "too_short") {
+		t.Errorf("expected too_short error, got: %v", err)
+	}
+	if userSearch.called > 0 {
+		t.Error("UserSearch should NOT be called for too-short query")
+	}
+}
+
+func TestSearchCandidates_LimitZeroUsesDefault(t *testing.T) {
+	ns := activeTeam(1)
+	nsRepo := newMockNamespaceRepo(ns)
+	memberRepo := makeMember(ns.ID, "owner", "OWNER")
+	userSearch := newMockUserSearch(
+		namespace.UserCandidate{UserID: "u1", DisplayName: "U1"},
+	)
+	svc := namespace.NewNamespaceMemberCandidateService(memberRepo, nsRepo, userSearch)
+
+	_, err := svc.SearchCandidates(context.Background(), ns.ID, "owner", "ab", 0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if userSearch.lastLimit != 10 {
+		t.Errorf("expected default limit 10 for limit=0, got %d", userSearch.lastLimit)
+	}
+}
+
+func TestSearchCandidates_LimitNegativeUsesDefault(t *testing.T) {
+	ns := activeTeam(1)
+	nsRepo := newMockNamespaceRepo(ns)
+	memberRepo := makeMember(ns.ID, "owner", "OWNER")
+	userSearch := newMockUserSearch(
+		namespace.UserCandidate{UserID: "u1", DisplayName: "U1"},
+	)
+	svc := namespace.NewNamespaceMemberCandidateService(memberRepo, nsRepo, userSearch)
+
+	_, err := svc.SearchCandidates(context.Background(), ns.ID, "owner", "ab", -5)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if userSearch.lastLimit != 10 {
+		t.Errorf("expected default limit 10 for negative limit, got %d", userSearch.lastLimit)
+	}
+}
+
+func TestSearchCandidates_LimitExceedsMaxClamped(t *testing.T) {
+	ns := activeTeam(1)
+	nsRepo := newMockNamespaceRepo(ns)
+	memberRepo := makeMember(ns.ID, "owner", "OWNER")
+	userSearch := newMockUserSearch(
+		namespace.UserCandidate{UserID: "u1", DisplayName: "U1"},
+	)
+	svc := namespace.NewNamespaceMemberCandidateService(memberRepo, nsRepo, userSearch)
+
+	_, err := svc.SearchCandidates(context.Background(), ns.ID, "owner", "ab", 100)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if userSearch.lastLimit != 20 {
+		t.Errorf("expected clamped limit 20 for limit=100, got %d", userSearch.lastLimit)
+	}
+}
+
+func TestSearchCandidates_LimitWithinRangePassesThrough(t *testing.T) {
+	ns := activeTeam(1)
+	nsRepo := newMockNamespaceRepo(ns)
+	memberRepo := makeMember(ns.ID, "owner", "OWNER")
+	userSearch := newMockUserSearch(
+		namespace.UserCandidate{UserID: "u1", DisplayName: "U1"},
+	)
+	svc := namespace.NewNamespaceMemberCandidateService(memberRepo, nsRepo, userSearch)
+
+	_, err := svc.SearchCandidates(context.Background(), ns.ID, "owner", "ab", 15)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if userSearch.lastLimit != 15 {
+		t.Errorf("expected limit 15 pass through, got %d", userSearch.lastLimit)
+	}
+}
+
+func TestSearchCandidates_QueryIsTrimmed(t *testing.T) {
+	ns := activeTeam(1)
+	nsRepo := newMockNamespaceRepo(ns)
+	memberRepo := makeMember(ns.ID, "owner", "OWNER")
+	userSearch := newMockUserSearch(
+		namespace.UserCandidate{UserID: "u1", DisplayName: "U1"},
+	)
+	svc := namespace.NewNamespaceMemberCandidateService(memberRepo, nsRepo, userSearch)
+
+	_, err := svc.SearchCandidates(context.Background(), ns.ID, "owner", "  hello  ", 10)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if userSearch.lastQuery != "hello" {
+		t.Errorf("expected trimmed query 'hello', got '%s'", userSearch.lastQuery)
 	}
 }
 

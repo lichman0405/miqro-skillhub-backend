@@ -3,6 +3,7 @@ package namespace
 import (
 	"context"
 	"fmt"
+	"strings"
 )
 
 // ---------------------------------------------------------------------------
@@ -25,9 +26,23 @@ type UserCandidate struct {
 // to query users — it only consumes this interface.
 type UserSearch interface {
 	// SearchUsers returns users matching the query string, up to limit.
-	// An empty query returns recent / suggested users.
 	SearchUsers(ctx context.Context, query string, limit int) ([]UserCandidate, error)
 }
+
+// Candidate search constants matching the Java source behavior.
+const (
+	// CandidateDefaultLimit is the page size when the caller does not specify one.
+	CandidateDefaultLimit = 10
+	// CandidateMaxLimit caps the page size to prevent excessive queries.
+	CandidateMaxLimit = 20
+	// CandidateMinQueryLen is the minimum keyword length after trimming.
+	CandidateMinQueryLen = 2
+)
+
+// Error codes for candidate search.
+const (
+	ErrCodeMemberSearchTooShort = "namespace.member.search.too_short"
+)
 
 // ---------------------------------------------------------------------------
 // NamespaceMemberCandidateService — search for candidate members
@@ -47,7 +62,7 @@ type NamespaceMemberCandidateService struct {
 
 // NewNamespaceMemberCandidateService creates a NamespaceMemberCandidateService
 // wired with its dependencies.  userSearch may be nil, in which case
-// SearchCandidates returns ErrNotAuthorized — callers must provide a real
+// SearchCandidates returns an empty result — callers must provide a real
 // implementation for the feature to work.
 func NewNamespaceMemberCandidateService(
 	repo NamespaceMemberRepository,
@@ -63,11 +78,21 @@ func NewNamespaceMemberCandidateService(
 
 // SearchCandidates returns users matching query, excluding those who are
 // already namespace members.  The caller must be OWNER or ADMIN of the
-// namespace (which must be a TEAM in ACTIVE status).
+// namespace, which must be a TEAM in ACTIVE status.
 //
-//   - Non-OWNER/ADMIN callers receive ErrCodeNamespaceForbidden.
-//   - GLOBAL namespaces are rejected because they cannot accept new members
-//     via invitation.
+// Query behavior (reproduces source normalizeSearch):
+//   - Blank query (whitespace-only) → returns empty list, UserSearch is NOT called.
+//   - Trimmed query shorter than 2 characters → ErrCodeMemberSearchTooShort.
+//   - Trimmed query is passed to UserSearch.
+//
+// Limit behavior (reproduces source normalizeSize):
+//   - limit <= 0 → CandidateDefaultLimit (10).
+//   - limit > CandidateMaxLimit (20) → clamped to 20.
+//
+// Access checks (reproduces source order):
+//   - GLOBAL → ErrCodeNamespaceImmutable.
+//   - Caller must be OWNER or ADMIN → ErrCodeNamespaceForbidden.
+//   - Namespace must be an ACTIVE TEAM (FROZEN/ARCHIVED rejected) → ErrCodeNamespaceNotActive.
 //   - Users already in the namespace are filtered out.
 func (s *NamespaceMemberCandidateService) SearchCandidates(
 	ctx context.Context,
@@ -98,17 +123,30 @@ func (s *NamespaceMemberCandidateService) SearchCandidates(
 		return nil, fmt.Errorf("namespace: %s", ErrCodeNamespaceForbidden)
 	}
 
+	// Namespace must be an ACTIVE TEAM — FROZEN / ARCHIVED cannot search candidates.
+	if !CanManageMembers(*ns) {
+		return nil, fmt.Errorf("namespace: %s", ErrCodeNamespaceNotActive)
+	}
+
+	// Normalise the search keyword (reproduces source normalizeSearch).
+	keyword := strings.TrimSpace(query)
+	if keyword == "" {
+		// Blank query → empty result without calling UserSearch.
+		return nil, nil
+	}
+	if len(keyword) < CandidateMinQueryLen {
+		return nil, fmt.Errorf("namespace: %s", ErrCodeMemberSearchTooShort)
+	}
+
 	// If no UserSearch is wired, return an empty result (feature is disabled).
 	if s.userSearch == nil {
 		return nil, nil
 	}
 
-	// Default limit.
-	if limit <= 0 {
-		limit = 20
-	}
+	// Normalise the page size (reproduces source normalizeSize).
+	size := normalizeCandidateLimit(limit)
 
-	candidates, err := s.userSearch.SearchUsers(ctx, query, limit)
+	candidates, err := s.userSearch.SearchUsers(ctx, keyword, size)
 	if err != nil {
 		return nil, fmt.Errorf("namespace: search users: %w", err)
 	}
@@ -133,4 +171,16 @@ func (s *NamespaceMemberCandidateService) SearchCandidates(
 	}
 
 	return result, nil
+}
+
+// normalizeCandidateLimit clamps the limit to the [1, CandidateMaxLimit] range,
+// defaulting to CandidateDefaultLimit when <= 0 (reproduces source normalizeSize).
+func normalizeCandidateLimit(limit int) int {
+	if limit <= 0 {
+		return CandidateDefaultLimit
+	}
+	if limit > CandidateMaxLimit {
+		return CandidateMaxLimit
+	}
+	return limit
 }
