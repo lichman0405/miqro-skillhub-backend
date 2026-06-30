@@ -2,6 +2,7 @@ package security
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 )
@@ -39,16 +40,16 @@ type ScanResponse struct {
 
 // Finding represents a single security finding.
 type Finding struct {
-	RuleID      string
-	Severity    string
-	Category    string
-	Title       string
-	Message     string
-	FilePath    string
-	LineNumber  *int
-	CodeSnippet string
-	Remediation string
-	Analyzer    string
+	RuleID      string `json:"ruleId"`
+	Severity    string `json:"severity"`
+	Category    string `json:"category"`
+	Title       string `json:"title"`
+	Message     string `json:"message"`
+	FilePath    string `json:"filePath"`
+	LineNumber  *int   `json:"lineNumber,omitempty"`
+	CodeSnippet string `json:"codeSnippet,omitempty"`
+	Remediation string `json:"remediation,omitempty"`
+	Analyzer    string `json:"analyzer,omitempty"`
 }
 
 // ScanTaskProducer publishes scan tasks to a worker queue.
@@ -176,6 +177,9 @@ func findingsToJSON(findings []Finding) string {
 	if len(findings) == 0 {
 		return "[]"
 	}
-	// Use simple JSON construction to avoid importing encoding/json here.
-	return "[]"
+	b, err := json.Marshal(findings)
+	if err != nil {
+		return "[]"
+	}
+	return string(b)
 }

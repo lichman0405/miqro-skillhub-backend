@@ -29,11 +29,17 @@ type SkillStatusChecker interface {
 	IsActiveAndNotHidden(ctx context.Context, skillID int64) (bool, int64, error) // returns (ok, namespaceID, error)
 }
 
+// SkillHider hides/unhides skills (used by RESOLVE_AND_HIDE disposition).
+type SkillHider interface {
+	HideSkill(ctx context.Context, skillID int64, reason string) error
+}
+
 // SkillReportService manages skill abuse reports.
 // Mirrors source com.iflytek.skillhub.domain.report.SkillReportService.
 type SkillReportService struct {
 	reportRepo    SkillReportRepository
 	skillChecker  SkillStatusChecker
+	skillHider    SkillHider
 	auditRecorder AuditRecorder
 	govNotifier   GovernanceNotifier
 	eventBus      eventbus.Bus
@@ -43,6 +49,7 @@ type SkillReportService struct {
 func NewSkillReportService(
 	reportRepo SkillReportRepository,
 	skillChecker SkillStatusChecker,
+	skillHider SkillHider,
 	auditRecorder AuditRecorder,
 	govNotifier GovernanceNotifier,
 	eventBus eventbus.Bus,
@@ -50,6 +57,7 @@ func NewSkillReportService(
 	return &SkillReportService{
 		reportRepo:    reportRepo,
 		skillChecker:  skillChecker,
+		skillHider:    skillHider,
 		auditRecorder: auditRecorder,
 		govNotifier:   govNotifier,
 		eventBus:      eventBus,
@@ -113,7 +121,16 @@ func (svc *SkillReportService) SubmitReport(
 	return &saved, nil
 }
 
+// Disposition constants.
+const (
+	DispositionResolveOnly   = "RESOLVE_ONLY"
+	DispositionResolveAndHide = "RESOLVE_AND_HIDE"
+	DispositionResolveAndArchive = "RESOLVE_AND_ARCHIVE"
+)
+
 // ResolveReport resolves a pending report. Requires SKILL_ADMIN or SUPER_ADMIN.
+// RESOLVE_AND_HIDE additionally requires SUPER_ADMIN and hides the skill.
+// RESOLVE_AND_ARCHIVE is not yet supported and returns an error.
 func (svc *SkillReportService) ResolveReport(
 	ctx context.Context,
 	reportID int64,
@@ -125,13 +142,30 @@ func (svc *SkillReportService) ResolveReport(
 	if !platformRoles["SKILL_ADMIN"] && !platformRoles["SUPER_ADMIN"] {
 		return nil, fmt.Errorf("error.report.noPermission")
 	}
-	if disposition == "RESOLVE_AND_HIDE" && !platformRoles["SUPER_ADMIN"] {
-		return nil, fmt.Errorf("error.report.noPermission")
-	}
 
 	r, err := svc.requirePendingReport(ctx, reportID)
 	if err != nil {
 		return nil, err
+	}
+
+	// Execute disposition-specific actions.
+	switch disposition {
+	case DispositionResolveOnly:
+		// No additional action.
+	case DispositionResolveAndHide:
+		if !platformRoles["SUPER_ADMIN"] {
+			return nil, fmt.Errorf("error.report.noPermission")
+		}
+		if svc.skillHider == nil {
+			return nil, fmt.Errorf("error.report.hide.not_available")
+		}
+		if err := svc.skillHider.HideSkill(ctx, r.SkillID, comment); err != nil {
+			return nil, fmt.Errorf("report: hide skill: %w", err)
+		}
+	case DispositionResolveAndArchive:
+		return nil, fmt.Errorf("error.report.archive.unsupported")
+	default:
+		return nil, fmt.Errorf("error.report.disposition.invalid %s", disposition)
 	}
 
 	r.Status = "RESOLVED"

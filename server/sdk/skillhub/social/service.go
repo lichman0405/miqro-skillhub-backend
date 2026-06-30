@@ -132,28 +132,37 @@ func (svc *SkillStarService) publishEvent(ctx context.Context, event eventbus.Ev
 // SkillRatingService
 // ---------------------------------------------------------------------------
 
+// RatingCounterUpdater recalculates and updates skill rating counters after a rating change.
+type RatingCounterUpdater interface {
+	UpdateRatingStats(ctx context.Context, skillID int64) error
+}
+
 // SkillRatingService manages user ratings (1-5) on skills.
 // Mirrors source com.iflytek.skillhub.domain.social.SkillRatingService.
 type SkillRatingService struct {
-	ratingRepo    SkillRatingRepository
-	skillChecker   SkillExistenceChecker
-	eventBus       eventbus.Bus
+	ratingRepo      SkillRatingRepository
+	skillChecker    SkillExistenceChecker
+	counterUpdater  RatingCounterUpdater
+	eventBus        eventbus.Bus
 }
 
 // NewSkillRatingService creates a SkillRatingService.
 func NewSkillRatingService(
 	ratingRepo SkillRatingRepository,
 	skillChecker SkillExistenceChecker,
+	counterUpdater RatingCounterUpdater,
 	eventBus eventbus.Bus,
 ) *SkillRatingService {
 	return &SkillRatingService{
-		ratingRepo:  ratingRepo,
-		skillChecker: skillChecker,
-		eventBus:     eventBus,
+		ratingRepo:     ratingRepo,
+		skillChecker:   skillChecker,
+		counterUpdater: counterUpdater,
+		eventBus:       eventBus,
 	}
 }
 
 // Rate sets or updates a user's rating for a skill. Score must be 1-5.
+// Recalculates rating_avg and rating_count on the skill after save.
 func (svc *SkillRatingService) Rate(ctx context.Context, skillID int64, userID string, score int16) error {
 	if score < 1 || score > 5 {
 		return fmt.Errorf("error.rating.score.invalid")
@@ -178,6 +187,11 @@ func (svc *SkillRatingService) Rate(ctx context.Context, skillID int64, userID s
 		if err != nil {
 			return fmt.Errorf("social: create rating: %w", err)
 		}
+	}
+
+	// Recalculate skill-level rating stats (avg + count).
+	if svc.counterUpdater != nil {
+		_ = svc.counterUpdater.UpdateRatingStats(ctx, skillID)
 	}
 
 	svc.publishEvent(ctx, SkillRatedEvent{SkillID: skillID, UserID: userID, Score: score})
