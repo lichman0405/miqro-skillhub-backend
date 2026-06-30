@@ -267,8 +267,28 @@ func (s *NamespaceMemberService) TransferOwnership(ctx context.Context, input Tr
 	return nil
 }
 
-// ListMembers returns all members of a namespace.
-func (s *NamespaceMemberService) ListMembers(ctx context.Context, namespaceID int64) ([]NamespaceMember, error) {
+// ListMembers returns all members of a namespace. The caller must be a
+// member of the namespace (or the namespace must be a public GLOBAL).
+func (s *NamespaceMemberService) ListMembers(ctx context.Context, namespaceID int64, callerUserID string) ([]NamespaceMember, error) {
+	ns, err := s.nsRepo.FindByID(ctx, namespaceID)
+	if err != nil {
+		return nil, fmt.Errorf("namespace: find namespace: %w", err)
+	}
+	if ns == nil {
+		return nil, fmt.Errorf("namespace: %s", ErrCodeNamespaceNotFound)
+	}
+
+	// GLOBAL namespace is public — allow listing without membership check.
+	if ns.Type != "GLOBAL" {
+		caller, err := s.repo.FindByNamespaceAndUser(ctx, namespaceID, callerUserID)
+		if err != nil {
+			return nil, fmt.Errorf("namespace: find caller: %w", err)
+		}
+		if caller == nil {
+			return nil, fmt.Errorf("namespace: %s", ErrCodeNamespaceForbidden)
+		}
+	}
+
 	members, err := s.repo.FindByNamespaceID(ctx, namespaceID)
 	if err != nil {
 		return nil, fmt.Errorf("namespace: list members: %w", err)
@@ -276,9 +296,20 @@ func (s *NamespaceMemberService) ListMembers(ctx context.Context, namespaceID in
 	return members, nil
 }
 
-// GetMemberRole returns the role of a user in a namespace. Returns an error
-// if the user is not a member.
-func (s *NamespaceMemberService) GetMemberRole(ctx context.Context, namespaceID int64, userID string) (string, error) {
+// GetMemberRole returns the role of a user in a namespace. The caller must
+// be a member of the namespace or querying their own role.
+func (s *NamespaceMemberService) GetMemberRole(ctx context.Context, namespaceID int64, userID string, callerUserID string) (string, error) {
+	// The caller can query their own role without additional checks.
+	if callerUserID != userID {
+		caller, err := s.repo.FindByNamespaceAndUser(ctx, namespaceID, callerUserID)
+		if err != nil {
+			return "", fmt.Errorf("namespace: find caller: %w", err)
+		}
+		if caller == nil {
+			return "", fmt.Errorf("namespace: %s", ErrCodeNamespaceForbidden)
+		}
+	}
+
 	member, err := s.repo.FindByNamespaceAndUser(ctx, namespaceID, userID)
 	if err != nil {
 		return "", fmt.Errorf("namespace: find member: %w", err)
