@@ -604,7 +604,8 @@ func setupTagService() (*mockSkillRepo, *mockVersionRepo, *mockTagRepo, *skill.S
 		Status:      "ACTIVE",
 	})
 
-	svc := skill.NewSkillTagService(tagRepo, versionRepo, skillRepo)
+	vc := skill.NewVisibilityChecker()
+	svc := skill.NewSkillTagService(tagRepo, versionRepo, skillRepo, vc)
 	return skillRepo, versionRepo, tagRepo, svc
 }
 
@@ -631,7 +632,7 @@ func TestTagService_CreateAndList_Success_Owner(t *testing.T) {
 		t.Errorf("expected tag 'stable', got '%s'", tag.TagName)
 	}
 
-	tags, err := svc.ListTags(context.Background(), 1)
+	tags, err := svc.ListTags(context.Background(), 1, "owner-1", ownerRoles(), nil)
 	if err != nil {
 		t.Fatalf("ListTags failed: %v", err)
 	}
@@ -695,7 +696,7 @@ func TestTagService_CreateTag_SkillNotFound(t *testing.T) {
 	skillRepo := newMockSkillRepo()
 	versionRepo := newMockVersionRepo()
 	tagRepo := newMockTagRepo()
-	svc := skill.NewSkillTagService(tagRepo, versionRepo, skillRepo)
+	svc := skill.NewSkillTagService(tagRepo, versionRepo, skillRepo, skill.NewVisibilityChecker())
 
 	_, err := svc.CreateTag(context.Background(), 999, "tag", "1.0.0", "owner-1", ownerRoles())
 	if err == nil {
@@ -732,7 +733,7 @@ func TestTagService_DeleteTag_Success_Owner(t *testing.T) {
 		t.Fatalf("DeleteTag (owner) failed: %v", err)
 	}
 
-	tags, _ := svc.ListTags(context.Background(), 1)
+	tags, _ := svc.ListTags(context.Background(), 1, "owner-1", ownerRoles(), nil)
 	if len(tags) != 0 {
 		t.Fatal("expected 0 tags after delete")
 	}
@@ -802,7 +803,7 @@ func TestTagService_DeleteTag_SkillNotFound(t *testing.T) {
 	skillRepo := newMockSkillRepo()
 	versionRepo := newMockVersionRepo()
 	tagRepo := newMockTagRepo()
-	svc := skill.NewSkillTagService(tagRepo, versionRepo, skillRepo)
+	svc := skill.NewSkillTagService(tagRepo, versionRepo, skillRepo, skill.NewVisibilityChecker())
 
 	err := svc.DeleteTag(context.Background(), 999, "tag", "owner-1", ownerRoles())
 	if err == nil {
@@ -832,6 +833,224 @@ func TestTagService_UpsertExistingTag(t *testing.T) {
 	}
 	if tag2.VersionID != v2.ID {
 		t.Errorf("expected v2 after move, got %d", tag2.VersionID)
+	}
+}
+
+func TestTagService_CreateTag_LatestReserved(t *testing.T) {
+	_, versionRepo, _, svc := setupTagService()
+	versionRepo.Save(context.Background(), skill.SkillVersion{
+		SkillID: 1, Version: "1.0.0", Status: "PUBLISHED",
+	})
+
+	// "latest" is reserved and rejected before any repo lookup.
+	_, err := svc.CreateTag(context.Background(), 1, "latest", "1.0.0", "owner-1", ownerRoles())
+	if err == nil {
+		t.Fatal("expected error for reserved 'latest' tag")
+	}
+	if !stringsContain(err.Error(), "error.skill.tag.latest.reserved") {
+		t.Errorf("expected 'error.skill.tag.latest.reserved', got: %v", err)
+	}
+}
+
+func TestTagService_CreateTag_LatestReserved_CaseInsensitive(t *testing.T) {
+	_, versionRepo, _, svc := setupTagService()
+	versionRepo.Save(context.Background(), skill.SkillVersion{
+		SkillID: 1, Version: "1.0.0", Status: "PUBLISHED",
+	})
+
+	_, err := svc.CreateTag(context.Background(), 1, "LATEST", "1.0.0", "owner-1", ownerRoles())
+	if err == nil {
+		t.Fatal("expected error for reserved 'LATEST' tag (case-insensitive)")
+	}
+	if !stringsContain(err.Error(), "error.skill.tag.latest.reserved") {
+		t.Errorf("expected 'error.skill.tag.latest.reserved', got: %v", err)
+	}
+}
+
+func TestTagService_DeleteTag_LatestReserved(t *testing.T) {
+	_, _, _, svc := setupTagService()
+
+	// "latest" is reserved and rejected before any repo lookup.
+	err := svc.DeleteTag(context.Background(), 1, "latest", "owner-1", ownerRoles())
+	if err == nil {
+		t.Fatal("expected error for reserved 'latest' tag deletion")
+	}
+	if !stringsContain(err.Error(), "error.skill.tag.latest.delete") {
+		t.Errorf("expected 'error.skill.tag.latest.delete', got: %v", err)
+	}
+}
+
+func TestTagService_DeleteTag_LatestReserved_CaseInsensitive(t *testing.T) {
+	_, _, _, svc := setupTagService()
+
+	err := svc.DeleteTag(context.Background(), 1, "Latest", "owner-1", ownerRoles())
+	if err == nil {
+		t.Fatal("expected error for reserved 'Latest' tag deletion (case-insensitive)")
+	}
+	if !stringsContain(err.Error(), "error.skill.tag.latest.delete") {
+		t.Errorf("expected 'error.skill.tag.latest.delete', got: %v", err)
+	}
+}
+
+func TestTagService_ListTags_AddsVirtualLatestWhenLatestVersionExists(t *testing.T) {
+	skillRepo, versionRepo, _, svc := setupTagService()
+
+	// Give the skill a latest version.
+	v, _ := versionRepo.Save(context.Background(), skill.SkillVersion{
+		SkillID: 1, Version: "2.0.0", Status: "PUBLISHED",
+	})
+	s, _ := skillRepo.FindByID(context.Background(), 1)
+	s.LatestVersionID = ptrInt64(v.ID)
+	skillRepo.Save(context.Background(), *s)
+
+	tags, err := svc.ListTags(context.Background(), 1, "owner-1", ownerRoles(), nil)
+	if err != nil {
+		t.Fatalf("ListTags failed: %v", err)
+	}
+
+	// Should have exactly one tag: the virtual "latest".
+	if len(tags) != 1 {
+		t.Fatalf("expected 1 tag (virtual latest), got %d: %+v", len(tags), tags)
+	}
+	if tags[0].TagName != "latest" {
+		t.Errorf("expected tag name 'latest', got '%s'", tags[0].TagName)
+	}
+	if tags[0].VersionID != v.ID {
+		t.Errorf("expected VersionID %d, got %d", v.ID, tags[0].VersionID)
+	}
+	if tags[0].SkillID != 1 {
+		t.Errorf("expected SkillID 1, got %d", tags[0].SkillID)
+	}
+	if tags[0].CreatedBy == nil || *tags[0].CreatedBy != "owner-1" {
+		t.Errorf("expected CreatedBy 'owner-1', got %v", tags[0].CreatedBy)
+	}
+}
+
+func TestTagService_ListTags_NoVirtualLatestWhenLatestVersionNil(t *testing.T) {
+	_, _, _, svc := setupTagService()
+	// Skill has no LatestVersionID (default from setup).
+
+	tags, err := svc.ListTags(context.Background(), 1, "owner-1", ownerRoles(), nil)
+	if err != nil {
+		t.Fatalf("ListTags failed: %v", err)
+	}
+
+	// No tags persisted and no virtual latest.
+	if len(tags) != 0 {
+		t.Fatalf("expected 0 tags, got %d", len(tags))
+	}
+}
+
+func TestTagService_ListTags_UnauthorizedPrivateSkillDenied(t *testing.T) {
+	skillRepo := newMockSkillRepo()
+	versionRepo := newMockVersionRepo()
+	tagRepo := newMockTagRepo()
+	vc := skill.NewVisibilityChecker()
+
+	// Create a PRIVATE skill owned by "owner-1".
+	skillRepo.Save(context.Background(), skill.Skill{
+		ID:              2,
+		NamespaceID:     1,
+		OwnerID:         "owner-1",
+		Slug:            "private-skill",
+		Visibility:      "PRIVATE",
+		Status:          "ACTIVE",
+		LatestVersionID: ptrInt64(10),
+	})
+
+	svc := skill.NewSkillTagService(tagRepo, versionRepo, skillRepo, vc)
+
+	// A stranger cannot list tags of a PRIVATE skill.
+	_, err := svc.ListTags(context.Background(), 2, "stranger", nil, nil)
+	if err == nil {
+		t.Fatal("expected access.denied for stranger on PRIVATE skill")
+	}
+	if !stringsContain(err.Error(), "access.denied") {
+		t.Errorf("expected 'access.denied', got: %v", err)
+	}
+}
+
+func TestTagService_ListTags_AuthorizedOwnerOrAdminCanReadPrivateOrHiddenSkill(t *testing.T) {
+	// --- Private skill: owner can read tags ---
+	{
+		skillRepo := newMockSkillRepo()
+		versionRepo := newMockVersionRepo()
+		tagRepo := newMockTagRepo()
+		vc := skill.NewVisibilityChecker()
+
+		skillRepo.Save(context.Background(), skill.Skill{
+			ID:              3,
+			NamespaceID:     1,
+			OwnerID:         "owner-1",
+			Slug:            "private-skill",
+			Visibility:      "PRIVATE",
+			Status:          "ACTIVE",
+			LatestVersionID: ptrInt64(20),
+		})
+
+		svc := skill.NewSkillTagService(tagRepo, versionRepo, skillRepo, vc)
+		tags, err := svc.ListTags(context.Background(), 3, "owner-1", ownerRoles(), nil)
+		if err != nil {
+			t.Fatalf("owner should read PRIVATE skill tags: %v", err)
+		}
+		if len(tags) != 1 || tags[0].TagName != "latest" {
+			t.Errorf("expected 1 virtual 'latest' tag, got %d tags", len(tags))
+		}
+	}
+
+	// --- Private skill: namespace admin can read tags ---
+	{
+		skillRepo := newMockSkillRepo()
+		versionRepo := newMockVersionRepo()
+		tagRepo := newMockTagRepo()
+		vc := skill.NewVisibilityChecker()
+
+		skillRepo.Save(context.Background(), skill.Skill{
+			ID:              4,
+			NamespaceID:     1,
+			OwnerID:         "owner-1",
+			Slug:            "private-skill-2",
+			Visibility:      "PRIVATE",
+			Status:          "ACTIVE",
+			LatestVersionID: ptrInt64(30),
+		})
+
+		svc := skill.NewSkillTagService(tagRepo, versionRepo, skillRepo, vc)
+		tags, err := svc.ListTags(context.Background(), 4, "admin-user", adminRoles(), nil)
+		if err != nil {
+			t.Fatalf("admin should read PRIVATE skill tags: %v", err)
+		}
+		if len(tags) != 1 || tags[0].TagName != "latest" {
+			t.Errorf("expected 1 virtual 'latest' tag, got %d tags", len(tags))
+		}
+	}
+
+	// --- Hidden skill: owner can read tags ---
+	{
+		skillRepo := newMockSkillRepo()
+		versionRepo := newMockVersionRepo()
+		tagRepo := newMockTagRepo()
+		vc := skill.NewVisibilityChecker()
+
+		skillRepo.Save(context.Background(), skill.Skill{
+			ID:              5,
+			NamespaceID:     1,
+			OwnerID:         "owner-1",
+			Slug:            "hidden-skill",
+			Visibility:      "PUBLIC",
+			Status:          "ACTIVE",
+			Hidden:          true,
+			LatestVersionID: ptrInt64(40),
+		})
+
+		svc := skill.NewSkillTagService(tagRepo, versionRepo, skillRepo, vc)
+		tags, err := svc.ListTags(context.Background(), 5, "owner-1", ownerRoles(), nil)
+		if err != nil {
+			t.Fatalf("owner should read hidden skill tags: %v", err)
+		}
+		if len(tags) != 1 || tags[0].TagName != "latest" {
+			t.Errorf("expected 1 virtual 'latest' tag, got %d tags", len(tags))
+		}
 	}
 }
 

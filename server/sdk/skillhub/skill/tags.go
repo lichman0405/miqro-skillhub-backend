@@ -11,31 +11,39 @@ import (
 // SkillTagService — tag management
 // ---------------------------------------------------------------------------
 
+const reservedTagLatest = "latest"
+
 // SkillTagService manages mutable tags that point to skill versions.
 // Mirrors source com.iflytek.skillhub.domain.skill.service.SkillTagService.
 type SkillTagService struct {
-	tagRepo     SkillTagRepository
-	versionRepo SkillVersionRepository
-	skillRepo   SkillRepository
+	tagRepo          SkillTagRepository
+	versionRepo      SkillVersionRepository
+	skillRepo        SkillRepository
+	visibilityChecker *VisibilityChecker
 }
 
-// NewSkillTagService creates a SkillTagService.  All three repositories
-// are required — callers must not pass nil.
+// NewSkillTagService creates a SkillTagService.  All repositories and the
+// visibility checker are required — callers must not pass nil.
 func NewSkillTagService(
 	tagRepo SkillTagRepository,
 	versionRepo SkillVersionRepository,
 	skillRepo SkillRepository,
+	visibilityChecker *VisibilityChecker,
 ) *SkillTagService {
 	return &SkillTagService{
-		tagRepo:     tagRepo,
-		versionRepo: versionRepo,
-		skillRepo:   skillRepo,
+		tagRepo:          tagRepo,
+		versionRepo:      versionRepo,
+		skillRepo:        skillRepo,
+		visibilityChecker: visibilityChecker,
 	}
 }
 
 // CreateTag creates a tag pointing to a published version.
 // The caller (actorID) must be the skill owner or hold ADMIN/OWNER role
 // in the skill's namespace.
+//
+// "latest" is a reserved tag name and is rejected before any repository
+// lookups (case-insensitive).
 func (svc *SkillTagService) CreateTag(
 	ctx context.Context,
 	skillID int64,
@@ -47,6 +55,11 @@ func (svc *SkillTagService) CreateTag(
 	tagName = strings.TrimSpace(tagName)
 	if tagName == "" {
 		return nil, fmt.Errorf("skill: tag name required")
+	}
+
+	// Reject reserved "latest" tag — case-insensitive, before any repo call.
+	if strings.EqualFold(tagName, reservedTagLatest) {
+		return nil, fmt.Errorf("error.skill.tag.latest.reserved")
 	}
 
 	// Authorize: lookup skill and verify caller has lifecycle management rights.
@@ -94,6 +107,9 @@ func (svc *SkillTagService) CreateTag(
 
 // DeleteTag removes a tag by name.  The caller (actorID) must be the
 // skill owner or hold ADMIN/OWNER role in the skill's namespace.
+//
+// "latest" is a reserved tag name and is rejected before any repository
+// lookups (case-insensitive).
 func (svc *SkillTagService) DeleteTag(
 	ctx context.Context,
 	skillID int64,
@@ -101,6 +117,11 @@ func (svc *SkillTagService) DeleteTag(
 	actorID string,
 	userNsRoles map[int64]string,
 ) error {
+	// Reject reserved "latest" tag — case-insensitive, before any repo call.
+	if strings.EqualFold(tagName, reservedTagLatest) {
+		return fmt.Errorf("error.skill.tag.latest.delete")
+	}
+
 	// Authorize: lookup skill and verify caller has lifecycle management rights.
 	skill, err := svc.authorizeSkillLifecycle(ctx, skillID, actorID, userNsRoles)
 	if err != nil {
@@ -117,9 +138,53 @@ func (svc *SkillTagService) DeleteTag(
 	return svc.tagRepo.Delete(ctx, tag.ID)
 }
 
-// ListTags returns all tags for a skill.
-func (svc *SkillTagService) ListTags(ctx context.Context, skillID int64) ([]SkillTag, error) {
-	return svc.tagRepo.FindBySkillID(ctx, skillID)
+// ListTags returns all tags for a skill, including a virtual "latest" tag
+// when the skill has a published latest version.
+//
+// The caller must pass visibility credentials; access is denied for skills
+// the caller is not authorized to see.  platformRoles may be nil.
+func (svc *SkillTagService) ListTags(
+	ctx context.Context,
+	skillID int64,
+	actorID string,
+	userNsRoles map[int64]string,
+	platformRoles map[string]bool,
+) ([]SkillTag, error) {
+	// Look up the skill.
+	skill, err := svc.skillRepo.FindByID(ctx, skillID)
+	if err != nil {
+		return nil, fmt.Errorf("skill: find: %w", err)
+	}
+	if skill == nil {
+		return nil, fmt.Errorf("error.skill.notFound")
+	}
+
+	// Enforce visibility — mirrors source VisibilityChecker.canAccess.
+	if !svc.visibilityChecker.CanAccess(*skill, actorID, userNsRoles, platformRoles) {
+		return nil, fmt.Errorf("error.skill.access.denied")
+	}
+
+	// Collect persisted tags.
+	tags, err := svc.tagRepo.FindBySkillID(ctx, skill.ID)
+	if err != nil {
+		return nil, err
+	}
+	if tags == nil {
+		tags = make([]SkillTag, 0)
+	}
+
+	// Append virtual "latest" tag when there is a published latest version.
+	if skill.LatestVersionID != nil {
+		virtualLatest := SkillTag{
+			SkillID:   skill.ID,
+			TagName:   reservedTagLatest,
+			VersionID: *skill.LatestVersionID,
+			CreatedBy: &skill.OwnerID,
+		}
+		tags = append(tags, virtualLatest)
+	}
+
+	return tags, nil
 }
 
 // ---------------------------------------------------------------------------
