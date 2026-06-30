@@ -15,6 +15,3 @@
 // Implementation starts in Phase 04.
 package namespace
 
-// Service is a placeholder that will hold namespace domain logic starting in Phase 04.
-type Service struct{}
-
