@@ -2,6 +2,7 @@ package report
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -31,11 +32,11 @@ type SkillStatusChecker interface {
 // SkillReportService manages skill abuse reports.
 // Mirrors source com.iflytek.skillhub.domain.report.SkillReportService.
 type SkillReportService struct {
-	reportRepo      SkillReportRepository
-	skillChecker    SkillStatusChecker
-	auditRecorder   AuditRecorder
-	govNotifier     GovernanceNotifier
-	eventBus        eventbus.Bus
+	reportRepo    SkillReportRepository
+	skillChecker  SkillStatusChecker
+	auditRecorder AuditRecorder
+	govNotifier   GovernanceNotifier
+	eventBus      eventbus.Bus
 }
 
 // NewSkillReportService creates a SkillReportService.
@@ -55,7 +56,7 @@ func NewSkillReportService(
 	}
 }
 
-// SubmitReport submits a report against a skill.
+// SubmitReport submits a report against a skill. Any authenticated user can submit.
 func (svc *SkillReportService) SubmitReport(
 	ctx context.Context,
 	skillID int64,
@@ -99,8 +100,8 @@ func (svc *SkillReportService) SubmitReport(
 	}
 
 	if svc.auditRecorder != nil {
-		_ = svc.auditRecorder.Record(ctx, reporterID, "REPORT_SKILL", "SKILL", skillID,
-			fmt.Sprintf(`{"reportId":%d}`, saved.ID))
+		detail, _ := json.Marshal(map[string]interface{}{"reportId": saved.ID})
+		_ = svc.auditRecorder.Record(ctx, reporterID, "REPORT_SKILL", "SKILL", skillID, string(detail))
 	}
 
 	svc.publishEvent(ctx, ReportSubmittedEvent{
@@ -119,7 +120,15 @@ func (svc *SkillReportService) ResolveReport(
 	actorID string,
 	disposition string, // RESOLVE_ONLY, RESOLVE_AND_HIDE, RESOLVE_AND_ARCHIVE
 	comment string,
+	platformRoles map[string]bool,
 ) (*SkillReport, error) {
+	if !platformRoles["SKILL_ADMIN"] && !platformRoles["SUPER_ADMIN"] {
+		return nil, fmt.Errorf("error.report.noPermission")
+	}
+	if disposition == "RESOLVE_AND_HIDE" && !platformRoles["SUPER_ADMIN"] {
+		return nil, fmt.Errorf("error.report.noPermission")
+	}
+
 	r, err := svc.requirePendingReport(ctx, reportID)
 	if err != nil {
 		return nil, err
@@ -162,7 +171,12 @@ func (svc *SkillReportService) DismissReport(
 	reportID int64,
 	actorID string,
 	comment string,
+	platformRoles map[string]bool,
 ) (*SkillReport, error) {
+	if !platformRoles["SKILL_ADMIN"] && !platformRoles["SUPER_ADMIN"] {
+		return nil, fmt.Errorf("error.report.noPermission")
+	}
+
 	r, err := svc.requirePendingReport(ctx, reportID)
 	if err != nil {
 		return nil, err

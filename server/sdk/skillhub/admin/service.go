@@ -21,6 +21,7 @@ package admin
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"miqro-skillhub/server/sdk/skillhub/audit"
@@ -49,21 +50,28 @@ func NewAdminSkillService(skillRepo SkillGovernanceRepo, auditSvc *audit.AuditLo
 }
 
 // HideSkill hides a skill from public view. Requires SUPER_ADMIN.
-func (svc *AdminSkillService) HideSkill(ctx context.Context, skillID int64, actorID string, reason string) error {
+func (svc *AdminSkillService) HideSkill(ctx context.Context, skillID int64, actorID string, reason string, platformRoles map[string]bool) error {
+	if !platformRoles["SUPER_ADMIN"] {
+		return fmt.Errorf("error.admin.noPermission")
+	}
 	if err := svc.skillRepo.SetHidden(ctx, skillID, true); err != nil {
 		return fmt.Errorf("admin: hide skill: %w", err)
 	}
-	svc.auditRecord(ctx, actorID, "HIDE_SKILL", "SKILL", skillID,
-		fmt.Sprintf(`{"reason":"%s"}`, reason))
+	detail, _ := json.Marshal(map[string]string{"reason": reason})
+	svc.auditRecord(ctx, actorID, "HIDE_SKILL", "SKILL", skillID, string(detail))
 	return nil
 }
 
 // UnhideSkill makes a hidden skill visible again. Requires SUPER_ADMIN.
-func (svc *AdminSkillService) UnhideSkill(ctx context.Context, skillID int64, actorID string) error {
+func (svc *AdminSkillService) UnhideSkill(ctx context.Context, skillID int64, actorID string, platformRoles map[string]bool) error {
+	if !platformRoles["SUPER_ADMIN"] {
+		return fmt.Errorf("error.admin.noPermission")
+	}
 	if err := svc.skillRepo.SetHidden(ctx, skillID, false); err != nil {
 		return fmt.Errorf("admin: unhide skill: %w", err)
 	}
-	svc.auditRecord(ctx, actorID, "UNHIDE_SKILL", "SKILL", skillID, "")
+	detail, _ := json.Marshal(map[string]string{})
+	svc.auditRecord(ctx, actorID, "UNHIDE_SKILL", "SKILL", skillID, string(detail))
 	return nil
 }
 
@@ -87,14 +95,14 @@ func NewAdminReportService(reportSvc *report.SkillReportService) *AdminReportSer
 	return &AdminReportService{reportSvc: reportSvc}
 }
 
-// ResolveReport resolves a report. Delegates to SkillReportService.
-func (svc *AdminReportService) ResolveReport(ctx context.Context, reportID int64, actorID string, comment string) (*report.SkillReport, error) {
-	return svc.reportSvc.ResolveReport(ctx, reportID, actorID, "RESOLVE_ONLY", comment)
+// ResolveReport resolves a report. Requires SKILL_ADMIN or SUPER_ADMIN.
+func (svc *AdminReportService) ResolveReport(ctx context.Context, reportID int64, actorID string, comment string, platformRoles map[string]bool) (*report.SkillReport, error) {
+	return svc.reportSvc.ResolveReport(ctx, reportID, actorID, "RESOLVE_ONLY", comment, platformRoles)
 }
 
-// DismissReport dismisses a report. Delegates to SkillReportService.
-func (svc *AdminReportService) DismissReport(ctx context.Context, reportID int64, actorID string, comment string) (*report.SkillReport, error) {
-	return svc.reportSvc.DismissReport(ctx, reportID, actorID, comment)
+// DismissReport dismisses a report. Requires SKILL_ADMIN or SUPER_ADMIN.
+func (svc *AdminReportService) DismissReport(ctx context.Context, reportID int64, actorID string, comment string, platformRoles map[string]bool) (*report.SkillReport, error) {
+	return svc.reportSvc.DismissReport(ctx, reportID, actorID, comment, platformRoles)
 }
 
 // ---------------------------------------------------------------------------
@@ -113,7 +121,10 @@ func NewAdminSearchService(rebuildSvc search.SearchRebuildService, auditSvc *aud
 }
 
 // RebuildAll triggers a full search index rebuild. Requires SUPER_ADMIN.
-func (svc *AdminSearchService) RebuildAll(ctx context.Context, actorID string) error {
+func (svc *AdminSearchService) RebuildAll(ctx context.Context, actorID string, platformRoles map[string]bool) error {
+	if !platformRoles["SUPER_ADMIN"] {
+		return fmt.Errorf("error.admin.noPermission")
+	}
 	if err := svc.rebuildSvc.RebuildAll(ctx); err != nil {
 		return fmt.Errorf("admin: rebuild search: %w", err)
 	}
@@ -124,8 +135,11 @@ func (svc *AdminSearchService) RebuildAll(ctx context.Context, actorID string) e
 	return nil
 }
 
-// RebuildByNamespace rebuilds search index for a namespace.
-func (svc *AdminSearchService) RebuildByNamespace(ctx context.Context, namespaceID int64, actorID string) error {
+// RebuildByNamespace rebuilds search index for a namespace. Requires SUPER_ADMIN.
+func (svc *AdminSearchService) RebuildByNamespace(ctx context.Context, namespaceID int64, actorID string, platformRoles map[string]bool) error {
+	if !platformRoles["SUPER_ADMIN"] {
+		return fmt.Errorf("error.admin.noPermission")
+	}
 	if err := svc.rebuildSvc.RebuildByNamespace(ctx, namespaceID); err != nil {
 		return fmt.Errorf("admin: rebuild search ns: %w", err)
 	}
@@ -150,13 +164,17 @@ func NewAdminAuditLogQueryService(auditRepo audit.AuditLogRepository) *AdminAudi
 	return &AdminAuditLogQueryService{auditRepo: auditRepo}
 }
 
-// SearchAuditLogs searches audit logs with filters.
+// SearchAuditLogs searches audit logs with filters. Requires AUDITOR or SUPER_ADMIN.
 func (svc *AdminAuditLogQueryService) SearchAuditLogs(
 	ctx context.Context,
 	actorUserID string,
 	action string,
 	page int,
 	size int,
+	platformRoles map[string]bool,
 ) ([]audit.AuditLog, int64, error) {
+	if !platformRoles["AUDITOR"] && !platformRoles["SUPER_ADMIN"] {
+		return nil, 0, fmt.Errorf("error.admin.noPermission")
+	}
 	return svc.auditRepo.Search(ctx, actorUserID, action, page, size)
 }
