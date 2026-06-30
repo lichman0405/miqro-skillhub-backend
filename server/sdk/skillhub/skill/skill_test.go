@@ -593,9 +593,9 @@ func TestTagService_CreateAndList(t *testing.T) {
 		SkillID: 1, Version: "1.0.0", Status: "PUBLISHED",
 	})
 	tagRepo := newMockTagRepo()
-	svc := skill.NewSkillTagService(tagRepo, versionRepo)
+	svc := skill.NewSkillTagService(tagRepo, versionRepo, nil)
 
-	tag, err := svc.CreateTag(context.Background(), 1, "latest", version.Version, "user-1")
+	tag, err := svc.CreateTag(context.Background(), 1, "latest", version.Version, "user-1", nil)
 	if err != nil {
 		t.Fatalf("CreateTag failed: %v", err)
 	}
@@ -621,9 +621,9 @@ func TestTagService_DeleteTag(t *testing.T) {
 		SkillID: 1, Version: "1.0.0", Status: "PUBLISHED",
 	})
 	tagRepo := newMockTagRepo()
-	svc := skill.NewSkillTagService(tagRepo, versionRepo)
+	svc := skill.NewSkillTagService(tagRepo, versionRepo, nil)
 
-	svc.CreateTag(context.Background(), 1, "v1", version.Version, "user-1")
+	svc.CreateTag(context.Background(), 1, "v1", version.Version, "user-1", nil)
 	if err := svc.DeleteTag(context.Background(), 1, "v1"); err != nil {
 		t.Fatalf("DeleteTag failed: %v", err)
 	}
@@ -639,9 +639,9 @@ func TestTagService_OnlyPublishedVersions(t *testing.T) {
 		SkillID: 1, Version: "1.0.0", Status: "UPLOADED",
 	})
 	tagRepo := newMockTagRepo()
-	svc := skill.NewSkillTagService(tagRepo, versionRepo)
+	svc := skill.NewSkillTagService(tagRepo, versionRepo, nil)
 
-	_, err := svc.CreateTag(context.Background(), 1, "latest", "1.0.0", "user-1")
+	_, err := svc.CreateTag(context.Background(), 1, "latest", "1.0.0", "user-1", nil)
 	if err == nil {
 		t.Fatal("expected error tagging non-published version")
 	}

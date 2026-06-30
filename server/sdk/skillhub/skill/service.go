@@ -92,7 +92,7 @@ func NewService(cfg ServiceConfig) *Service {
 		visibility,
 	)
 
-	tags := NewSkillTagService(cfg.TagRepo, cfg.VersionRepo)
+	tags := NewSkillTagService(cfg.TagRepo, cfg.VersionRepo, cfg.SkillRepo)
 
 	deleteSvc := NewSkillHardDeleteService(
 		cfg.SkillRepo,

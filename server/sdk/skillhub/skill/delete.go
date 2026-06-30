@@ -48,14 +48,22 @@ func NewSkillHardDeleteService(
 }
 
 // HardDelete permanently removes a skill and all associated data.
+// The caller must be the skill owner or hold ADMIN/OWNER role in the skill's
+// namespace.  userNsRoles maps namespaceID → role string.
+//
 // Storage objects are deleted after the DB commit with compensation on failure.
-func (svc *SkillHardDeleteService) HardDelete(ctx context.Context, skillID int64, namespaceSlug, actorID string) error {
+func (svc *SkillHardDeleteService) HardDelete(ctx context.Context, skillID int64, namespaceSlug, actorID string, userNsRoles map[int64]string) error {
 	skill, err := svc.skillRepo.FindByID(ctx, skillID)
 	if err != nil {
 		return fmt.Errorf("skill: find: %w", err)
 	}
 	if skill == nil {
 		return fmt.Errorf("error.skill.notFound")
+	}
+
+	// Authorization: only the skill owner or a namespace ADMIN/OWNER may hard-delete.
+	if !canManageSkillLifecycle(*skill, actorID, userNsRoles) {
+		return fmt.Errorf("error.skill.access.denied")
 	}
 
 	// Collect all storage keys from all versions.

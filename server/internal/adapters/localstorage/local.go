@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"miqro-skillhub/server/sdk/skillhub/storage"
@@ -31,12 +32,22 @@ func New(root string) (*Store, error) {
 // Root returns the filesystem root path.
 func (s *Store) Root() string { return s.root }
 
-func (s *Store) resolveKey(key string) string {
-	return filepath.Join(s.root, filepath.FromSlash(key))
+// resolveKey resolves a storage key to a filesystem path and enforces
+// that the resolved path stays within the store root (path traversal protection).
+func (s *Store) resolveKey(key string) (string, error) {
+	cleanRoot := filepath.Clean(s.root)
+	fullPath := filepath.Clean(filepath.Join(cleanRoot, filepath.FromSlash(key)))
+	if !strings.HasPrefix(fullPath, cleanRoot+string(filepath.Separator)) && fullPath != cleanRoot {
+		return "", fmt.Errorf("localstorage: path traversal detected: %s", key)
+	}
+	return fullPath, nil
 }
 
 func (s *Store) PutObject(_ context.Context, key string, data io.Reader, _ int64, _ string) error {
-	fullPath := s.resolveKey(key)
+	fullPath, err := s.resolveKey(key)
+	if err != nil {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
 		return fmt.Errorf("localstorage: mkdir: %w", err)
 	}
@@ -52,7 +63,10 @@ func (s *Store) PutObject(_ context.Context, key string, data io.Reader, _ int64
 }
 
 func (s *Store) GetObject(_ context.Context, key string) (io.ReadCloser, error) {
-	fullPath := s.resolveKey(key)
+	fullPath, err := s.resolveKey(key)
+	if err != nil {
+		return nil, err
+	}
 	f, err := os.Open(fullPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -64,7 +78,10 @@ func (s *Store) GetObject(_ context.Context, key string) (io.ReadCloser, error) 
 }
 
 func (s *Store) DeleteObject(_ context.Context, key string) error {
-	fullPath := s.resolveKey(key)
+	fullPath, err := s.resolveKey(key)
+	if err != nil {
+		return err
+	}
 	if err := os.Remove(fullPath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("localstorage: delete: %w", err)
 	}
@@ -85,22 +102,28 @@ func (s *Store) DeleteObjects(_ context.Context, keys []string) error {
 }
 
 func (s *Store) Exists(_ context.Context, key string) (bool, error) {
-	fullPath := s.resolveKey(key)
-	_, err := os.Stat(fullPath)
-	if err == nil {
+	fullPath, err := s.resolveKey(key)
+	if err != nil {
+		return false, err
+	}
+	_, statErr := os.Stat(fullPath)
+	if statErr == nil {
 		return true, nil
 	}
-	if os.IsNotExist(err) {
+	if os.IsNotExist(statErr) {
 		return false, nil
 	}
-	return false, fmt.Errorf("localstorage: stat: %w", err)
+	return false, fmt.Errorf("localstorage: stat: %w", statErr)
 }
 
 func (s *Store) Metadata(_ context.Context, key string) (storage.ObjectMetadata, error) {
-	fullPath := s.resolveKey(key)
-	fi, err := os.Stat(fullPath)
+	fullPath, err := s.resolveKey(key)
 	if err != nil {
-		return storage.ObjectMetadata{}, fmt.Errorf("localstorage: stat: %w", err)
+		return storage.ObjectMetadata{}, err
+	}
+	fi, statErr := os.Stat(fullPath)
+	if statErr != nil {
+		return storage.ObjectMetadata{}, fmt.Errorf("localstorage: stat: %w", statErr)
 	}
 	return storage.ObjectMetadata{
 		ContentType:   "application/octet-stream",

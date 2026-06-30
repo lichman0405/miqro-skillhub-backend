@@ -16,24 +16,43 @@ import (
 type SkillTagService struct {
 	tagRepo     SkillTagRepository
 	versionRepo SkillVersionRepository
+	skillRepo   SkillRepository
 }
 
 // NewSkillTagService creates a SkillTagService.
 func NewSkillTagService(
 	tagRepo SkillTagRepository,
 	versionRepo SkillVersionRepository,
+	skillRepo SkillRepository,
 ) *SkillTagService {
 	return &SkillTagService{
 		tagRepo:     tagRepo,
 		versionRepo: versionRepo,
+		skillRepo:   skillRepo,
 	}
 }
 
 // CreateTag creates a tag pointing to a published version.
-func (svc *SkillTagService) CreateTag(ctx context.Context, skillID int64, tagName string, versionStr string, createdBy string) (*SkillTag, error) {
+// The caller (actorID) must be the skill owner or hold ADMIN/OWNER role
+// in the skill's namespace.
+func (svc *SkillTagService) CreateTag(ctx context.Context, skillID int64, tagName string, versionStr string, actorID string, userNsRoles map[int64]string) (*SkillTag, error) {
 	tagName = strings.TrimSpace(tagName)
 	if tagName == "" {
 		return nil, fmt.Errorf("skill: tag name required")
+	}
+
+	// Authorization check.
+	if svc.skillRepo != nil {
+		skill, err := svc.skillRepo.FindByID(ctx, skillID)
+		if err != nil {
+			return nil, fmt.Errorf("skill: find: %w", err)
+		}
+		if skill == nil {
+			return nil, fmt.Errorf("error.skill.notFound")
+		}
+		if !canManageSkillLifecycle(*skill, actorID, userNsRoles) {
+			return nil, fmt.Errorf("error.skill.access.denied")
+		}
 	}
 
 	// Find the version.
@@ -63,7 +82,7 @@ func (svc *SkillTagService) CreateTag(ctx context.Context, skillID int64, tagNam
 		SkillID:   skillID,
 		TagName:   tagName,
 		VersionID: version.ID,
-		CreatedBy: &createdBy,
+		CreatedBy: &actorID,
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
