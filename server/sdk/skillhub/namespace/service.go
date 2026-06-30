@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"miqro-skillhub/server/sdk/skillhub/uow"
 )
 
 // ---------------------------------------------------------------------------
@@ -318,6 +320,7 @@ type Service struct {
 	Members    NamespaceMemberService
 	Governance NamespaceGovernanceService
 	Global     GlobalNamespaceMembershipService
+	Candidates NamespaceMemberCandidateService
 }
 
 // ServiceConfig holds the dependencies for creating a namespace Service.
@@ -328,6 +331,8 @@ type ServiceConfig struct {
 	ReviewChecker    ReviewDependencyChecker
 	PromotionChecker PromotionDependencyChecker
 	AuditRecorder    AuditLogRecorder
+	Transactor       uow.Transactor   // optional — enables transactional TransferOwnership
+	UserSearch       UserSearch       // optional — enables member candidate search
 }
 
 // NewService creates a fully wired namespace Service.
@@ -343,6 +348,7 @@ func NewService(cfg ServiceConfig) *Service {
 	memberSvc := NewNamespaceMemberService(
 		cfg.MemberRepo,
 		cfg.NamespaceRepo,
+		cfg.Transactor,
 	)
 
 	govSvc := NewNamespaceGovernanceService(
@@ -356,10 +362,17 @@ func NewService(cfg ServiceConfig) *Service {
 		cfg.MemberRepo,
 	)
 
+	candidateSvc := NewNamespaceMemberCandidateService(
+		cfg.MemberRepo,
+		cfg.NamespaceRepo,
+		cfg.UserSearch,
+	)
+
 	return &Service{
 		Namespaces: *nsSvc,
 		Members:    *memberSvc,
 		Governance: *govSvc,
 		Global:     *globalSvc,
+		Candidates: *candidateSvc,
 	}
 }

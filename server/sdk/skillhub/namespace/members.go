@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	"miqro-skillhub/server/sdk/skillhub/uow"
 )
 
 // ---------------------------------------------------------------------------
@@ -11,10 +13,11 @@ import (
 // ---------------------------------------------------------------------------
 
 const (
-	ErrCodeMemberNotFound        = "namespace.member.not_found"
-	ErrCodeMemberAlreadyExists   = "namespace.member.already_exists"
-	ErrCodeMemberCannotBeOwner   = "namespace.member.cannot_be_owner"
+	ErrCodeMemberNotFound          = "namespace.member.not_found"
+	ErrCodeMemberAlreadyExists     = "namespace.member.already_exists"
+	ErrCodeMemberCannotBeOwner     = "namespace.member.cannot_be_owner"
 	ErrCodeMemberCannotRemoveOwner = "namespace.member.cannot_remove_owner"
+	ErrCodeMemberForbidden         = "namespace.member.forbidden"
 )
 
 // ---------------------------------------------------------------------------
@@ -23,18 +26,22 @@ const (
 
 // NamespaceMemberService handles namespace membership operations.
 type NamespaceMemberService struct {
-	repo   NamespaceMemberRepository
-	nsRepo NamespaceRepository
+	repo       NamespaceMemberRepository
+	nsRepo     NamespaceRepository
+	transactor uow.Transactor
 }
 
 // NewNamespaceMemberService creates a NamespaceMemberService wired with its dependencies.
+// transactor may be nil — when nil, operations run directly (not in a transaction).
 func NewNamespaceMemberService(
 	repo NamespaceMemberRepository,
 	nsRepo NamespaceRepository,
+	transactor uow.Transactor,
 ) *NamespaceMemberService {
 	return &NamespaceMemberService{
-		repo:   repo,
-		nsRepo: nsRepo,
+		repo:       repo,
+		nsRepo:     nsRepo,
+		transactor: transactor,
 	}
 }
 
@@ -216,9 +223,12 @@ type TransferOwnershipInput struct {
 
 // TransferOwnership transfers namespace ownership from the current owner
 // to another member. The current owner is demoted to ADMIN and the target
-// member is promoted to OWNER. The namespace must be an ACTIVE TEAM.
+// member is promoted to OWNER. Both saves run inside a single transaction
+// when a transactor is configured, ensuring atomicity.
+//
+// The namespace must be an ACTIVE TEAM.
 func (s *NamespaceMemberService) TransferOwnership(ctx context.Context, input TransferOwnershipInput) error {
-	// Validate namespace is an ACTIVE TEAM.
+	// Validate namespace is an ACTIVE TEAM (outside tx — pure read).
 	ns, err := s.nsRepo.FindByID(ctx, input.NamespaceID)
 	if err != nil {
 		return fmt.Errorf("namespace: find namespace: %w", err)
@@ -230,7 +240,7 @@ func (s *NamespaceMemberService) TransferOwnership(ctx context.Context, input Tr
 		return fmt.Errorf("namespace: %s", ErrCodeNamespaceNotActive)
 	}
 
-	// Verify caller is the current owner.
+	// Verify caller is the current owner (outside tx — pure read).
 	currentOwner, err := s.repo.FindByNamespaceAndUser(ctx, input.NamespaceID, input.CurrentOwnerUserID)
 	if err != nil {
 		return fmt.Errorf("namespace: find current owner: %w", err)
@@ -239,7 +249,7 @@ func (s *NamespaceMemberService) TransferOwnership(ctx context.Context, input Tr
 		return fmt.Errorf("namespace: %s", ErrCodeNamespaceForbidden)
 	}
 
-	// Find the new owner (must already be a member).
+	// Find the new owner (must already be a member — outside tx, pure read).
 	newOwner, err := s.repo.FindByNamespaceAndUser(ctx, input.NamespaceID, input.NewOwnerUserID)
 	if err != nil {
 		return fmt.Errorf("namespace: find new owner: %w", err)
@@ -250,21 +260,158 @@ func (s *NamespaceMemberService) TransferOwnership(ctx context.Context, input Tr
 
 	now := time.Now()
 
-	// Demote current owner to ADMIN.
-	currentOwner.Role = "ADMIN"
-	currentOwner.UpdatedAt = now
-	if _, err := s.repo.Save(ctx, *currentOwner); err != nil {
-		return fmt.Errorf("namespace: demote owner: %w", err)
+	// Capture locals so the closure below works.
+	demoted := *currentOwner
+	demoted.Role = "ADMIN"
+	demoted.UpdatedAt = now
+
+	promoted := *newOwner
+	promoted.Role = "OWNER"
+	promoted.UpdatedAt = now
+
+	writeFn := func(ctx context.Context) error {
+		if _, err := s.repo.Save(ctx, demoted); err != nil {
+			return fmt.Errorf("namespace: demote owner: %w", err)
+		}
+		if _, err := s.repo.Save(ctx, promoted); err != nil {
+			return fmt.Errorf("namespace: promote owner: %w", err)
+		}
+		return nil
 	}
 
-	// Promote the new member to OWNER.
-	newOwner.Role = "OWNER"
-	newOwner.UpdatedAt = now
-	if _, err := s.repo.Save(ctx, *newOwner); err != nil {
-		return fmt.Errorf("namespace: promote owner: %w", err)
+	// Run the two writes atomically when a transactor is configured.
+	if s.transactor != nil {
+		return s.transactor.WithinTx(ctx, writeFn)
+	}
+	return writeFn(ctx)
+}
+
+// ---------------------------------------------------------------------------
+// Batch add members
+// ---------------------------------------------------------------------------
+
+// BatchMemberEntry represents one member to add in a batch operation.
+type BatchMemberEntry struct {
+	UserID string
+	Role   string
+}
+
+// BatchRejection describes why a single entry in a batch add was not processed.
+type BatchRejection struct {
+	UserID string
+	Reason string
+}
+
+// BatchAddMembersInput carries the data needed for a batch member add.
+type BatchAddMembersInput struct {
+	NamespaceID  int64
+	Entries      []BatchMemberEntry
+	CallerUserID string
+}
+
+// BatchAddMembersResult reports the outcome of a batch add operation.
+type BatchAddMembersResult struct {
+	// Added contains members that were successfully created.
+	Added []NamespaceMember
+
+	// Existing lists user IDs that were already namespace members.
+	Existing []string
+
+	// Rejected lists entries that failed validation (illegal role, etc.).
+	Rejected []BatchRejection
+}
+
+// Total returns the total number of entries processed (added + existing + rejected).
+func (r *BatchAddMembersResult) Total() int {
+	return len(r.Added) + len(r.Existing) + len(r.Rejected)
+}
+
+// AllSucceeded returns true when every entry was successfully added.
+func (r *BatchAddMembersResult) AllSucceeded() bool {
+	return len(r.Existing) == 0 && len(r.Rejected) == 0
+}
+
+// BatchAddMembers adds multiple members at once.  Each entry follows the same
+// rules as AddMember: OWNER role is rejected, the namespace must be a TEAM in
+// ACTIVE status, and the caller must be OWNER or ADMIN.
+//
+// The method returns a summary with separate buckets so callers can distinguish
+// successful additions, duplicate members, and rejected entries.
+//
+// The whole batch shares a single namespace + caller-authorization check
+// (performed once), then each entry is validated individually.
+func (s *NamespaceMemberService) BatchAddMembers(ctx context.Context, input BatchAddMembersInput) (*BatchAddMembersResult, error) {
+	result := &BatchAddMembersResult{}
+
+	// Validate namespace is an ACTIVE TEAM.
+	ns, err := s.nsRepo.FindByID(ctx, input.NamespaceID)
+	if err != nil {
+		return nil, fmt.Errorf("namespace: find namespace: %w", err)
+	}
+	if ns == nil {
+		return nil, fmt.Errorf("namespace: %s", ErrCodeNamespaceNotFound)
+	}
+	if !CanManageMembers(*ns) {
+		return nil, fmt.Errorf("namespace: %s", ErrCodeNamespaceNotActive)
 	}
 
-	return nil
+	// Verify caller is OWNER or ADMIN.
+	caller, err := s.repo.FindByNamespaceAndUser(ctx, input.NamespaceID, input.CallerUserID)
+	if err != nil {
+		return nil, fmt.Errorf("namespace: find caller: %w", err)
+	}
+	if caller == nil || (caller.Role != "OWNER" && caller.Role != "ADMIN") {
+		return nil, fmt.Errorf("namespace: %s", ErrCodeNamespaceForbidden)
+	}
+
+	now := time.Now()
+
+	for _, entry := range input.Entries {
+		// Reject OWNER role assignments.
+		if entry.Role == "OWNER" {
+			result.Rejected = append(result.Rejected, BatchRejection{
+				UserID: entry.UserID,
+				Reason: ErrCodeMemberCannotBeOwner,
+			})
+			continue
+		}
+
+		// Check for duplicate membership.
+		existing, err := s.repo.FindByNamespaceAndUser(ctx, input.NamespaceID, entry.UserID)
+		if err != nil {
+			// Treat lookup error as rejection for this specific entry.
+			result.Rejected = append(result.Rejected, BatchRejection{
+				UserID: entry.UserID,
+				Reason: fmt.Sprintf("lookup error: %v", err),
+			})
+			continue
+		}
+		if existing != nil {
+			result.Existing = append(result.Existing, entry.UserID)
+			continue
+		}
+
+		member := NamespaceMember{
+			NamespaceID: input.NamespaceID,
+			UserID:      entry.UserID,
+			Role:        entry.Role,
+			CreatedAt:   now,
+			UpdatedAt:   now,
+		}
+
+		saved, err := s.repo.Save(ctx, member)
+		if err != nil {
+			result.Rejected = append(result.Rejected, BatchRejection{
+				UserID: entry.UserID,
+				Reason: fmt.Sprintf("save error: %v", err),
+			})
+			continue
+		}
+
+		result.Added = append(result.Added, saved)
+	}
+
+	return result, nil
 }
 
 // ListMembers returns all members of a namespace. The caller must be a
