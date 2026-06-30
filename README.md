@@ -25,7 +25,19 @@ miqro-skillhub/
 │   ├── internal/
 │   │   ├── config/         # Environment configuration
 │   │   ├── http/           # HTTP routes (health only in Phase 01)
-│   │   └── adapters/       # Concretes: postgres, redis, s3, localstorage, etc.
+│   │   ├── adapters/
+│   │   │   └── postgres/   # PostgreSQL repository implementations
+│   │   └── testutil/
+│   │       └── postgres/   # Integration test helpers
+│   ├── migrations/         # PostgreSQL migration SQL files
+│   │   ├── 001_users_auth.sql
+│   │   ├── 002_namespaces.sql
+│   │   ├── 003_skills.sql
+│   │   ├── 004_review_governance.sql
+│   │   └── 005_labels_social_search.sql
+│   ├── tests/
+│   │   └── integration/
+│   │       └── repository/ # Repository integration tests
 │   ├── cmd/
 │   │   ├── skillhub-server/  # HTTP server entry point
 │   │   ├── skillhub-migrate/ # Database migrations (placeholder)
@@ -55,6 +67,19 @@ Status: ✅ Complete
 - `cmd/skillhub-worker`: placeholder (workers start in later phases)
 - Docker Compose: PostgreSQL 16, Redis 7, MinIO, server (profile: full)
 
+## Phase 02 — Schema and Repositories
+
+Status: ✅ Complete
+
+- 35 PostgreSQL tables across 5 migration groups matching source Flyway schema
+- Migration groups: 001 (users/auth/RBAC), 002 (namespaces), 003 (skills), 004 (review/governance), 005 (labels/social/search/security)
+- All timestamps use TIMESTAMPTZ; seed data for roles, permissions, and global namespace
+- SDK repository interfaces in auth, namespace, skill, review, label, social, report, governance, security, audit packages
+- PostgreSQL adapter implementations under `internal/adapters/postgres` using pgx v5
+- Transactor implementation for PostgreSQL transaction boundaries
+- Integration test utilities and repository integration tests
+- Migration runner with reset support
+
 ## Commands
 
 ```bash
@@ -69,6 +94,9 @@ make run-server
 
 # Validate docker-compose.yml
 make compose-config
+
+# Reset and re-apply database migrations
+make db-reset
 
 # Start infrastructure services
 docker compose up -d postgres redis minio

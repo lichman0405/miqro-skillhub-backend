@@ -2,12 +2,13 @@
 #
 # Targets:
 #   test            Run all Go tests
-#   test-server     Vet and build the server binary
+#   test-server     Vet and build all server binaries
 #   run-server      Build and run the server locally
 #   compose-config  Validate docker-compose.yml
+#   db-reset        Reset and re-apply database migrations (requires PostgreSQL)
 #   help            Show this help
 
-.PHONY: test test-server run-server compose-config help
+.PHONY: test test-server run-server compose-config db-reset help
 
 # Run all Go tests across the server module.
 test:
@@ -25,6 +26,10 @@ run-server:
 # Validate docker-compose.yml syntax.
 compose-config:
 	docker compose config
+
+# Reset and re-apply database migrations (requires running PostgreSQL).
+db-reset:
+	cd server && go run ./cmd/skillhub-migrate reset
 
 # Show help text.
 help:
