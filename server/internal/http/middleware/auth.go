@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"miqro-skillhub/server/sdk/skillhub/auth"
+	"miqro-skillhub/server/sdk/skillhub/namespace"
 )
 
 // SessionStore abstracts session validation.
@@ -21,10 +22,11 @@ type SessionStore interface {
 // Principal; handlers that require authentication should check
 // principal.IsAuthenticated or use RequireAuth.
 type AuthMiddleware struct {
-	Sessions   SessionStore
-	TokenSvc   *auth.ApiTokenService
-	RBAC       *auth.RbacService
-	UserRepo   UserAccountLookup
+	Sessions           SessionStore
+	TokenSvc           *auth.ApiTokenService
+	RBAC               *auth.RbacService
+	UserRepo           UserAccountLookup
+	NamespaceMemberRepo NamespaceMembershipLookup
 }
 
 // UserAccountLookup provides minimal user lookup for auth middleware.
@@ -32,13 +34,26 @@ type UserAccountLookup interface {
 	FindByID(ctx context.Context, userID string) (*auth.UserAccount, error)
 }
 
+// NamespaceMembershipLookup provides namespace membership lookup for
+// building the full authorization context.
+type NamespaceMembershipLookup interface {
+	FindByUserID(ctx context.Context, userID string) ([]namespace.NamespaceMember, error)
+}
+
 // NewAuthMiddleware creates an AuthMiddleware with the given services.
-func NewAuthMiddleware(sessions SessionStore, tokenSvc *auth.ApiTokenService, rbac *auth.RbacService, userRepo UserAccountLookup) *AuthMiddleware {
+func NewAuthMiddleware(
+	sessions SessionStore,
+	tokenSvc *auth.ApiTokenService,
+	rbac *auth.RbacService,
+	userRepo UserAccountLookup,
+	nsMemberRepo NamespaceMembershipLookup,
+) *AuthMiddleware {
 	return &AuthMiddleware{
-		Sessions: sessions,
-		TokenSvc: tokenSvc,
-		RBAC:     rbac,
-		UserRepo: userRepo,
+		Sessions:            sessions,
+		TokenSvc:            tokenSvc,
+		RBAC:                rbac,
+		UserRepo:            userRepo,
+		NamespaceMemberRepo: nsMemberRepo,
 	}
 }
 
@@ -118,6 +133,7 @@ func (m *AuthMiddleware) buildPrincipal(ctx context.Context, userID string) Prin
 		NamespaceRoles:  map[int64]string{},
 	}
 
+	// Platform roles from RBAC.
 	if m.RBAC != nil {
 		roles, err := m.RBAC.GetUserRoleCodes(ctx, userID)
 		if err == nil {
@@ -127,11 +143,30 @@ func (m *AuthMiddleware) buildPrincipal(ctx context.Context, userID string) Prin
 		}
 	}
 
+	// User profile.
 	if m.UserRepo != nil {
 		user, err := m.UserRepo.FindByID(ctx, userID)
 		if err == nil && user != nil {
 			p.UserDisplayName = user.DisplayName
 			p.Email = user.Email
+		}
+	}
+
+	// Namespace memberships — fill NamespaceRoles, MemberNamespaceIDs, AdminNamespaceIDs.
+	if m.NamespaceMemberRepo != nil {
+		members, err := m.NamespaceMemberRepo.FindByUserID(ctx, userID)
+		if err == nil {
+			var memberIDs []int64
+			var adminIDs []int64
+			for _, m := range members {
+				p.NamespaceRoles[m.NamespaceID] = m.Role
+				memberIDs = append(memberIDs, m.NamespaceID)
+				if m.Role == "OWNER" || m.Role == "ADMIN" {
+					adminIDs = append(adminIDs, m.NamespaceID)
+				}
+			}
+			p.MemberNamespaceIDs = memberIDs
+			p.AdminNamespaceIDs = adminIDs
 		}
 	}
 

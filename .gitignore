@@ -5,3 +5,10 @@
 # Go/Windows build artifacts
 *.exe
 *.test
+
+# TypeScript build artifacts
+clients/typescript/skillhub/dist/
+clients/typescript/skillhub/node_modules/
+
+# Package lock files (use npm install to regenerate)
+clients/typescript/skillhub/package-lock.json

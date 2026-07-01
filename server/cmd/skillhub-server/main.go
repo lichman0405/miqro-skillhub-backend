@@ -15,8 +15,18 @@ import (
 	"syscall"
 	"time"
 
+	"miqro-skillhub/server/internal/adapters/postgres"
 	"miqro-skillhub/server/internal/config"
 	httpx "miqro-skillhub/server/internal/http"
+	"miqro-skillhub/server/internal/http/cliapi"
+	"miqro-skillhub/server/internal/http/middleware"
+	"miqro-skillhub/server/internal/http/observability"
+	"miqro-skillhub/server/internal/http/portal"
+	"miqro-skillhub/server/sdk/skillhub/auth"
+	"miqro-skillhub/server/sdk/skillhub/namespace"
+	"miqro-skillhub/server/sdk/skillhub/packagekit"
+	"miqro-skillhub/server/sdk/skillhub/search"
+	"miqro-skillhub/server/sdk/skillhub/skill"
 )
 
 func main() {
@@ -25,14 +35,137 @@ func main() {
 		log.Fatalf("config: %v", err)
 	}
 
-	health := &httpx.HealthHandler{}
+	// ── Database ──────────────────────────────────────────────────────────
+	ctx := context.Background()
+	var db *postgres.DB
+	db, err = postgres.NewDB(ctx, cfg.DatabaseURL)
+	if err != nil {
+		log.Printf("WARNING: cannot connect to database: %v — routes will return 503", err)
+	}
+
+	// ── SDK services ──────────────────────────────────────────────────────
+	var (
+		authSvc        *auth.Service
+		nsSvc          *namespace.Service
+		skillSvc       *skill.Service
+		srcSvc         *search.Service
+		limiter        *middleware.RateLimiter
+		authMW         *middleware.AuthMiddleware
+		validator      *packagekit.SkillPackageValidator
+		metadataParser *packagekit.SkillMetadataParser
+	)
+
+	if db != nil {
+		// Repositories.
+		userRepo := postgres.NewUserAccountRepo(db)
+		localCredRepo := postgres.NewLocalCredentialRepo(db)
+		tokenRepo := postgres.NewApiTokenRepo(db)
+		roleRepo := postgres.NewRoleRepo(db)
+		permRepo := postgres.NewPermissionRepo(db)
+		roleBindingRepo := postgres.NewUserRoleBindingRepo(db)
+		identityBindingRepo := postgres.NewIdentityBindingRepo(db)
+		pwdResetRepo := postgres.NewPasswordResetRequestRepo(db)
+		mergeRepo := postgres.NewAccountMergeRequestRepo(db)
+		nsRepo := postgres.NewNamespaceRepo(db)
+		nsMemberRepo := postgres.NewNamespaceMemberRepo(db)
+		skillRepo := postgres.NewSkillRepo(db)
+		versionRepo := postgres.NewSkillVersionRepo(db)
+		fileRepo := postgres.NewSkillFileRepo(db)
+		tagRepo := postgres.NewSkillTagRepo(db)
+		searchQueryRepo := postgres.NewSearchQueryRepo(db)
+
+		// Auth service.
+		authSvc = auth.NewService(auth.ServiceConfig{
+			UserAccountRepo:     userRepo,
+			LocalCredentialRepo: localCredRepo,
+			ApiTokenRepo:        tokenRepo,
+			RoleRepo:            roleRepo,
+			PermissionRepo:      permRepo,
+			UserRoleBindingRepo: roleBindingRepo,
+			IdentityBindingRepo: identityBindingRepo,
+			PasswordResetRepo:   pwdResetRepo,
+			AccountMergeRepo:    mergeRepo,
+		})
+
+		// Namespace service.
+		nsSvc = namespace.NewService(namespace.ServiceConfig{
+			NamespaceRepo: nsRepo,
+			MemberRepo:    nsMemberRepo,
+		})
+
+		// Skill service.
+		metadataParser = packagekit.NewSkillMetadataParser()
+		validator = packagekit.NewSkillPackageValidator(metadataParser)
+		skillSvc = skill.NewService(skill.ServiceConfig{
+			NamespaceRepo:       nsRepo,
+			NamespaceMemberRepo: nsMemberRepo,
+			SkillRepo:           skillRepo,
+			VersionRepo:         versionRepo,
+			FileRepo:            fileRepo,
+			TagRepo:             tagRepo,
+			MetadataParser:      metadataParser,
+			PackageValidator:    validator,
+		})
+
+		// Search service.
+		srcSvc = &search.Service{
+			Query: searchQueryRepo,
+		}
+
+		// Auth middleware with full namespace projection.
+		authMW = middleware.NewAuthMiddleware(
+			nil,            // session store (not wired yet)
+			authSvc.Token,  // bearer token validation
+			authSvc.RBAC,   // platform role lookup
+			userRepo,       // user profile lookup
+			nsMemberRepo,   // namespace membership projection
+		)
+	}
+
+	// Rate limiter — always available.
+	limiter = middleware.NewRateLimiter(100, 10.0)
+
+	// ── HTTP route groups ─────────────────────────────────────────────────
+	var (
+		handlerAuth      *portal.AuthHandler
+		handlerNamespace *portal.NamespaceHandler
+		handlerSkill     *portal.SkillHandler
+		handlerSearch    *portal.SearchHandler
+		handlerCLI       *cliapi.Handler
+	)
+
+	if authSvc != nil && skillSvc != nil && nsSvc != nil && srcSvc != nil {
+		handlerAuth = &portal.AuthHandler{AuthSvc: authSvc}
+		handlerNamespace = &portal.NamespaceHandler{NsSvc: nsSvc}
+		handlerSkill = &portal.SkillHandler{
+			SkillSvc:         skillSvc,
+			PackageValidator: validator,
+			MetadataParser:   metadataParser,
+		}
+		handlerSearch = &portal.SearchHandler{SearchSvc: srcSvc}
+		handlerCLI = &cliapi.Handler{SkillSvc: skillSvc, SearchSvc: srcSvc}
+	}
+
+	// ── Router ────────────────────────────────────────────────────────────
+	metricsReg := observability.NewMetricsRegistry()
 	router := httpx.NewRouter(httpx.RouterConfig{
-		Health: health,
+		Health:          &httpx.HealthHandler{},
+		AuthMW:          authMW,
+		RateLimiter:     limiter,
+		PortalAuth:      handlerAuth,
+		PortalNamespace: handlerNamespace,
+		PortalSkill:     handlerSkill,
+		PortalSearch:    handlerSearch,
+		CLI:             handlerCLI,
+		MetricsRegistry: metricsReg,
 	})
+
+	// Wrap with structured request logging + metrics instrumentation.
+	rl := observability.NewRequestLogger(router, log.Default(), metricsReg)
 
 	srv := &http.Server{
 		Addr:         cfg.APIAddr,
-		Handler:      router,
+		Handler:      rl,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,
@@ -52,11 +185,14 @@ func main() {
 	<-quit
 	log.Println("shutting down...")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	if err := srv.Shutdown(ctx); err != nil {
+	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Fatalf("shutdown: %v", err)
+	}
+	if db != nil {
+		db.Close()
 	}
 	log.Println("skillhub-server stopped")
 }

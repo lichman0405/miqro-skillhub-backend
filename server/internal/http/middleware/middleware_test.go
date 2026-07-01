@@ -1,12 +1,15 @@
 package middleware
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"miqro-skillhub/server/sdk/skillhub/auth"
+	"miqro-skillhub/server/sdk/skillhub/namespace"
 	sdkerror "miqro-skillhub/server/sdk/skillhub/errors"
 )
 
@@ -197,5 +200,142 @@ func TestRateLimiter_DifferentKeys(t *testing.T) {
 	}
 	if !rl.allow("test:B") {
 		t.Error("B should be allowed (different key)")
+	}
+}
+
+// ── Auth context projection tests ────────────────────────────────────────
+
+// stubNamespaceMemberRepo implements NamespaceMembershipLookup for tests.
+type stubNamespaceMemberRepo struct {
+	members []namespace.NamespaceMember
+}
+
+func (s *stubNamespaceMemberRepo) FindByUserID(ctx context.Context, userID string) ([]namespace.NamespaceMember, error) {
+	return s.members, nil
+}
+
+// stubUserRepo implements UserAccountLookup for tests.
+type stubUserRepo struct{}
+
+func (s *stubUserRepo) FindByID(ctx context.Context, userID string) (*auth.UserAccount, error) {
+	return &auth.UserAccount{
+		ID:          userID,
+		DisplayName: "Test User",
+		Email:       "test@example.com",
+	}, nil
+}
+
+func TestAuthMiddleware_BuildPrincipal_NamespaceRoles(t *testing.T) {
+	nsMemberRepo := &stubNamespaceMemberRepo{
+		members: []namespace.NamespaceMember{
+			{NamespaceID: 1, UserID: "user-1", Role: "OWNER"},
+			{NamespaceID: 2, UserID: "user-1", Role: "ADMIN"},
+			{NamespaceID: 3, UserID: "user-1", Role: "MEMBER"},
+		},
+	}
+
+	am := NewAuthMiddleware(nil, nil, nil, &stubUserRepo{}, nsMemberRepo)
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("Cookie", "skillhub_session=nonexistent")
+	// No valid session → anonymous, but the buildPrincipal is tested directly below.
+
+	// Test buildPrincipal directly.
+	p := am.buildPrincipal(context.Background(), "user-1")
+
+	// Verify NamespaceRoles are filled.
+	if len(p.NamespaceRoles) != 3 {
+		t.Fatalf("expected 3 namespace roles, got %d", len(p.NamespaceRoles))
+	}
+	if p.NamespaceRole(1) != "OWNER" {
+		t.Errorf("expected OWNER in namespace 1, got %s", p.NamespaceRole(1))
+	}
+	if p.NamespaceRole(2) != "ADMIN" {
+		t.Errorf("expected ADMIN in namespace 2, got %s", p.NamespaceRole(2))
+	}
+	if p.NamespaceRole(3) != "MEMBER" {
+		t.Errorf("expected MEMBER in namespace 3, got %s", p.NamespaceRole(3))
+	}
+
+	// Verify MemberNamespaceIDs are filled.
+	if len(p.MemberNamespaceIDs) != 3 {
+		t.Fatalf("expected 3 member namespace IDs, got %d", len(p.MemberNamespaceIDs))
+	}
+	found := map[int64]bool{}
+	for _, id := range p.MemberNamespaceIDs {
+		found[id] = true
+	}
+	for _, want := range []int64{1, 2, 3} {
+		if !found[want] {
+			t.Errorf("expected namespace %d in MemberNamespaceIDs", want)
+		}
+	}
+
+	// Verify AdminNamespaceIDs are filled (OWNER and ADMIN only).
+	if len(p.AdminNamespaceIDs) != 2 {
+		t.Fatalf("expected 2 admin namespace IDs (OWNER+ADMIN), got %d", len(p.AdminNamespaceIDs))
+	}
+	adminFound := map[int64]bool{}
+	for _, id := range p.AdminNamespaceIDs {
+		adminFound[id] = true
+	}
+	if !adminFound[1] {
+		t.Error("expected namespace 1 (OWNER) in AdminNamespaceIDs")
+	}
+	if !adminFound[2] {
+		t.Error("expected namespace 2 (ADMIN) in AdminNamespaceIDs")
+	}
+	if adminFound[3] {
+		t.Error("namespace 3 (MEMBER) should NOT be in AdminNamespaceIDs")
+	}
+}
+
+func TestAuthMiddleware_BuildPrincipal_NoNamespaceMembership(t *testing.T) {
+	nsMemberRepo := &stubNamespaceMemberRepo{
+		members: []namespace.NamespaceMember{},
+	}
+
+	am := NewAuthMiddleware(nil, nil, nil, &stubUserRepo{}, nsMemberRepo)
+	p := am.buildPrincipal(context.Background(), "user-1")
+
+	if len(p.NamespaceRoles) != 0 {
+		t.Errorf("expected 0 namespace roles, got %d", len(p.NamespaceRoles))
+	}
+	if len(p.MemberNamespaceIDs) != 0 {
+		t.Errorf("expected 0 member namespace IDs, got %d", len(p.MemberNamespaceIDs))
+	}
+	if len(p.AdminNamespaceIDs) != 0 {
+		t.Errorf("expected 0 admin namespace IDs, got %d", len(p.AdminNamespaceIDs))
+	}
+}
+
+func TestAuthMiddleware_BuildPrincipal_PlatformRoles(t *testing.T) {
+	am := NewAuthMiddleware(nil, nil, nil, &stubUserRepo{}, &stubNamespaceMemberRepo{
+		members: []namespace.NamespaceMember{
+			{NamespaceID: 5, UserID: "user-1", Role: "OWNER"},
+		},
+	})
+
+	p := am.buildPrincipal(context.Background(), "user-1")
+
+	if !p.IsAuthenticated {
+		t.Error("expected authenticated principal")
+	}
+	if p.UserID != "user-1" {
+		t.Errorf("expected user-1, got %s", p.UserID)
+	}
+	if p.UserDisplayName != "Test User" {
+		t.Errorf("expected 'Test User', got %s", p.UserDisplayName)
+	}
+	if p.Email != "test@example.com" {
+		t.Errorf("expected 'test@example.com', got %s", p.Email)
+	}
+	// PlatformRoles should be initialized (non-nil map) even without RBAC.
+	if p.PlatformRoles == nil {
+		t.Error("PlatformRoles should be initialized (non-nil map)")
+	}
+	// Namespace membership should be filled.
+	if p.NamespaceRole(5) != "OWNER" {
+		t.Error("expected OWNER in namespace 5")
 	}
 }

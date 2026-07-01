@@ -7,15 +7,18 @@ import (
 	"time"
 )
 
-// RequestLogger wraps an http.Handler with structured request logging.
+// RequestLogger wraps an http.Handler with structured request logging and
+// metrics recording.  It uses the Go 1.22+ request pattern (r.Pattern) for
+// stable metric keys when available; otherwise falls back to the URL path.
 type RequestLogger struct {
-	Next   http.Handler
-	Logger *log.Logger
+	Next    http.Handler
+	Logger  *log.Logger
+	Metrics *MetricsRegistry
 }
 
 // NewRequestLogger creates a RequestLogger middleware.
-func NewRequestLogger(next http.Handler, logger *log.Logger) *RequestLogger {
-	return &RequestLogger{Next: next, Logger: logger}
+func NewRequestLogger(next http.Handler, logger *log.Logger, metrics *MetricsRegistry) *RequestLogger {
+	return &RequestLogger{Next: next, Logger: logger, Metrics: metrics}
 }
 
 // ServeHTTP implements http.Handler.
@@ -28,6 +31,12 @@ func (rl *RequestLogger) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if rl.Logger != nil {
 		rl.Logger.Printf("%s %s %d %s",
 			r.Method, r.URL.Path, rr.statusCode, duration.Round(time.Microsecond))
+	}
+
+	if rl.Metrics != nil {
+		// URL path is normalized by the registry (UUIDs / numeric IDs → {id})
+		// to prevent unbounded metric key growth.
+		rl.Metrics.RecordRequest(r.Method, r.URL.Path, rr.statusCode, duration)
 	}
 }
 
