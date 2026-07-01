@@ -4,8 +4,10 @@ import (
 	"archive/zip"
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
+	"path/filepath"
 
 	"miqro-skillhub/server/internal/http/middleware"
 	"miqro-skillhub/server/sdk/skillhub/packagekit"
@@ -277,6 +279,11 @@ func extractZip(src []byte) ([]packagekit.PackageEntry, error) {
 	for _, f := range zr.File {
 		if f.FileInfo().IsDir() {
 			continue
+		}
+		// Reject zip-slip paths: no absolute paths, no ".." segments,
+		// no paths that escape the intended root.
+		if !filepath.IsLocal(f.Name) {
+			return nil, fmt.Errorf("toolapi: insecure zip entry path %q", f.Name)
 		}
 		rc, err := f.Open()
 		if err != nil {

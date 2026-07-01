@@ -3,7 +3,9 @@ package cliapi
 import (
 	"archive/zip"
 	"bytes"
+	"fmt"
 	"io"
+	"path/filepath"
 
 	"miqro-skillhub/server/sdk/skillhub/packagekit"
 )
@@ -24,6 +26,10 @@ func extractZipArchive(src []byte) ([]packagekit.PackageEntry, error) {
 	for _, f := range zr.File {
 		if f.FileInfo().IsDir() {
 			continue
+		}
+		// Reject zip-slip paths.
+		if !filepath.IsLocal(f.Name) {
+			return nil, fmt.Errorf("cliapi: insecure zip entry path %q", f.Name)
 		}
 		rc, err := f.Open()
 		if err != nil {
