@@ -15,103 +15,71 @@ var _ search.SearchQueryService = (*SearchQueryRepo)(nil)
 
 func NewSearchQueryRepo(db *DB) *SearchQueryRepo { return &SearchQueryRepo{DB: db} }
 
-func (r *SearchQueryRepo) Search(ctx context.Context, q search.SearchQuery) (*search.SearchResult, error) {
+// searchSQL holds the generated search SQL and arguments.
+type searchSQL struct {
+	countSQL string
+	dataSQL  string
+	args     []interface{} // args for count query (no LIMIT/OFFSET)
+	dataArgs []interface{} // args for data query (includes LIMIT/OFFSET)
+}
+
+// buildSearchSQL constructs the count and data SQL for a search query.
+// Exported (via test helper) so that adapter-level tests can verify the
+// generated SQL includes the latest JOIN and installability WHERE clauses.
+func buildSearchSQL(q search.SearchQuery) searchSQL {
+	// Default size — mirrored here so the caller gets the right page math
+	// even though BuildConditions also defaults internally.
 	if q.Size <= 0 {
 		q.Size = 20
 	}
 
-	// Build visibility filter.
-	memberIDs := q.VisibilityScope.MemberNamespaceIDs
-	if len(memberIDs) == 0 {
-		memberIDs = []int64{-1}
+	bc := search.BuildConditions(q)
+
+	// Build FROM / JOIN clause.  Always join skill and namespace.
+	// When installable-only is requested we also join skill_version latest
+	// on s.latest_version_id so that the installability conditions emitted
+	// by BuildConditions (latest.status, latest.download_ready, latest.yanked_at)
+	// resolve against the correct row.
+	fromJoin := `FROM skill_search_document d
+	 JOIN skill s ON s.id = d.skill_id
+	 JOIN namespace n ON n.id = d.namespace_id`
+	if q.RequireInstallableLatest {
+		fromJoin += `
+	 JOIN skill_version latest ON latest.id = s.latest_version_id`
 	}
 
-	var conditions []string
-	var args []interface{}
-	argIdx := 1
+	whereClause := strings.Join(bc.Conditions, " AND ")
 
-	// Visibility: PUBLIC always, NAMESPACE_ONLY for members.
-	conditions = append(conditions, fmt.Sprintf("(d.visibility = 'PUBLIC' OR (d.visibility = 'NAMESPACE_ONLY' AND d.namespace_id = ANY($%d)))", argIdx))
-	args = append(args, memberIDs)
-	argIdx++
+	countSQL := fmt.Sprintf("SELECT COUNT(*) %s WHERE %s", fromJoin, whereClause)
 
-	// Status: only ACTIVE skills, not hidden, not archived namespace.
-	conditions = append(conditions, "d.status = 'ACTIVE'")
-	conditions = append(conditions, "s.status = 'ACTIVE'")
-	conditions = append(conditions, "s.hidden = FALSE")
-	conditions = append(conditions, "n.status <> 'ARCHIVED'")
+	offset := q.Page * q.Size
+	dataSQL := fmt.Sprintf(
+		"SELECT d.skill_id %s WHERE %s %s LIMIT $%d OFFSET $%d",
+		fromJoin, whereClause, bc.OrderClause, len(bc.Args)+1, len(bc.Args)+2)
 
-	// Namespace filter.
-	if q.NamespaceID != nil {
-		conditions = append(conditions, fmt.Sprintf("d.namespace_id = $%d", argIdx))
-		args = append(args, *q.NamespaceID)
-		argIdx++
+	// Data args = condition args + (size, offset).
+	dataArgs := make([]interface{}, len(bc.Args)+2)
+	copy(dataArgs, bc.Args)
+	dataArgs[len(bc.Args)] = q.Size
+	dataArgs[len(bc.Args)+1] = offset
+
+	return searchSQL{
+		countSQL: countSQL,
+		dataSQL:  dataSQL,
+		args:     bc.Args,
+		dataArgs: dataArgs,
 	}
+}
 
-	// Label filter.
-	if len(q.LabelSlugs) > 0 {
-		conditions = append(conditions, fmt.Sprintf(`d.skill_id IN (
-			SELECT sl.skill_id FROM skill_label sl
-			JOIN label_definition ld ON ld.id = sl.label_id
-			WHERE LOWER(ld.slug) = ANY($%d))`, argIdx))
-		args = append(args, q.LabelSlugs)
-		argIdx++
-	}
+func (r *SearchQueryRepo) Search(ctx context.Context, q search.SearchQuery) (*search.SearchResult, error) {
+	sql := buildSearchSQL(q)
 
-	// Keyword filter: full-text + LIKE fallback.
-	keywordParam := argIdx
-	if q.Keyword != "" {
-		keyword := strings.ToLower(strings.TrimSpace(q.Keyword))
-		likePattern := "%" + keyword + "%"
-		tsQuery := buildTsQuery(keyword)
-
-		conditions = append(conditions, fmt.Sprintf("(d.search_vector @@ to_tsquery('simple', $%d) OR LOWER(coalesce(s.display_name, d.title)) LIKE $%d)", argIdx, argIdx+1))
-		args = append(args, tsQuery, likePattern)
-		argIdx += 2
-		_ = keywordParam
-	}
-
-	whereClause := strings.Join(conditions, " AND ")
-
-	// Sort.
-	var orderClause string
-	switch q.SortBy {
-	case "downloads":
-		orderClause = "ORDER BY s.download_count DESC, d.skill_id DESC"
-	case "rating":
-		orderClause = "ORDER BY s.rating_avg DESC, d.skill_id DESC"
-	case "newest":
-		orderClause = "ORDER BY s.updated_at DESC, d.skill_id DESC"
-	default: // relevance
-		if q.Keyword != "" {
-			orderClause = fmt.Sprintf("ORDER BY ts_rank_cd(d.search_vector, to_tsquery('simple', $%d)) DESC, d.skill_id DESC", keywordParam)
-		} else {
-			orderClause = "ORDER BY s.updated_at DESC, d.skill_id DESC"
-		}
-	}
-
-	// Count query.
-	countSQL := fmt.Sprintf(
-		`SELECT COUNT(*) FROM skill_search_document d
-		 JOIN skill s ON s.id = d.skill_id
-		 JOIN namespace n ON n.id = d.namespace_id
-		 WHERE %s`, whereClause)
 	var total int64
-	if err := r.queryRow(ctx, countSQL, args...).Scan(&total); err != nil {
+	if err := r.queryRow(ctx, sql.countSQL, sql.args...).Scan(&total); err != nil {
 		return nil, fmt.Errorf("search: count: %w", err)
 	}
 
-	// Data query.
-	offset := q.Page * q.Size
-	dataSQL := fmt.Sprintf(
-		`SELECT d.skill_id FROM skill_search_document d
-		 JOIN skill s ON s.id = d.skill_id
-		 JOIN namespace n ON n.id = d.namespace_id
-		 WHERE %s %s LIMIT $%d OFFSET $%d`,
-		whereClause, orderClause, argIdx, argIdx+1)
-	args = append(args, q.Size, offset)
-
-	rows, err := r.query(ctx, dataSQL, args...)
+	rows, err := r.query(ctx, sql.dataSQL, sql.dataArgs...)
 	if err != nil {
 		return nil, fmt.Errorf("search: query: %w", err)
 	}
@@ -129,57 +97,15 @@ func (r *SearchQueryRepo) Search(ctx context.Context, q search.SearchQuery) (*se
 		return nil, err
 	}
 
+	if q.Size <= 0 {
+		q.Size = 20
+	}
 	return &search.SearchResult{
 		SkillIDs: skillIDs,
 		Total:    total,
 		Page:     q.Page,
 		Size:     q.Size,
 	}, nil
-}
-
-// buildTsQuery converts a search keyword into a tsquery string safe for use with to_tsquery('simple', ...).
-func buildTsQuery(keyword string) string {
-	keyword = strings.TrimSpace(keyword)
-	if keyword == "" {
-		return ""
-	}
-	// Split into words, filter non-alpha, append :* for prefix matching on ASCII words.
-	var terms []string
-	for _, word := range strings.Fields(keyword) {
-		word = strings.TrimSpace(word)
-		if word == "" {
-			continue
-		}
-		// If the word contains any letter or digit, include it.
-		hasAlpha := false
-		for _, r := range word {
-			if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
-				hasAlpha = true
-				break
-			}
-		}
-		if !hasAlpha {
-			continue
-		}
-		if isASCII(word) {
-			terms = append(terms, word+":*")
-		} else {
-			terms = append(terms, word)
-		}
-	}
-	if len(terms) == 0 {
-		return ""
-	}
-	return strings.Join(terms, " & ")
-}
-
-func isASCII(s string) bool {
-	for _, r := range s {
-		if r > 127 {
-			return false
-		}
-	}
-	return true
 }
 
 // SearchIndexRepo implements search.SearchIndexService.
