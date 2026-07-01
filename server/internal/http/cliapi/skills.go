@@ -46,7 +46,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux, authMW *middleware.AuthMidd
 	mux.HandleFunc("GET /api/cli/v1/skills/{namespace}/{slug}/resolve", optAuth(h.handleResolve))
 	mux.HandleFunc("GET /api/cli/v1/skills/{namespace}/{slug}/download", optAuth(withLimit("download", h.handleDownload)))
 	mux.HandleFunc("GET /api/cli/v1/skills/{namespace}/{slug}/versions/{version}/download", optAuth(withLimit("download", h.handleVersionDownload)))
-	mux.HandleFunc("POST /api/cli/v1/skills/{namespace}/publish/validate", authMW.Authenticate(middleware.RequireAuth(h.handleValidate)))
+	mux.HandleFunc("POST /api/cli/v1/skills/{namespace}/publish/validate", withLimit("publish",
+		authMW.Authenticate(middleware.RequireAuth(h.handleValidate))))
 	mux.HandleFunc("POST /api/cli/v1/skills/{namespace}/publish", withLimit("publish",
 		authMW.Authenticate(middleware.RequireAuth(h.handlePublish))))
 	mux.HandleFunc("DELETE /api/cli/v1/skills/{namespace}/{slug}", authMW.Authenticate(middleware.RequireAuth(h.handleDelete)))

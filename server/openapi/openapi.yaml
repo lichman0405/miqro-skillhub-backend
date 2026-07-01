@@ -4,7 +4,8 @@ info:
   description: |
     SkillHub backend HTTP API.  Covers native portal routes (/api/v1/),
     web aliases (/api/web/), CLI routes (/api/cli/v1/), ClawHub
-    compatibility, and well-known discovery endpoints.
+    compatibility, well-known discovery endpoints, and frontend
+    page-oriented read models (/api/v1/frontend/*).
   version: "1.0.0"
 
 servers:
@@ -178,6 +179,183 @@ paths:
         "200":
           description: ClawHub compatibility metadata
 
+  # ── Frontend page read-models ───────────────────────────────────────
+
+  /api/v1/frontend/search:
+    get:
+      summary: Skill registry search/home read model
+      description: Returns viewer-scoped availableActions computed from auth principal.
+      responses:
+        "200":
+          description: Registry search page data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegistrySearchReadModel"
+
+  /api/v1/frontend/skills/{namespace}/{slug}:
+    get:
+      summary: Skill detail page read model
+      parameters:
+        - name: namespace
+          in: path
+          required: true
+          schema: { type: string }
+        - name: slug
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Skill detail with viewer-scoped availableActions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SkillDetailReadModel"
+
+  /api/v1/frontend/skills/{namespace}/{slug}/versions/{version}:
+    get:
+      summary: Version detail/compare read model
+      parameters:
+        - name: namespace
+          in: path
+          required: true
+          schema: { type: string }
+        - name: slug
+          in: path
+          required: true
+          schema: { type: string }
+        - name: version
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Version detail with viewer-scoped availableActions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VersionDetailReadModel"
+
+  /api/v1/frontend/skills/{namespace}/publish/validate:
+    get:
+      summary: Publish validate page read model
+      parameters:
+        - name: namespace
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Publish validation with viewer-scoped availableActions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublishValidateReadModel"
+
+  /api/v1/frontend/namespaces:
+    get:
+      summary: Namespace listing read model
+      responses:
+        "200":
+          description: Namespace list with viewer-scoped availableActions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NamespaceListReadModel"
+
+  /api/v1/frontend/namespaces/{slug}:
+    get:
+      summary: Namespace detail page read model
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Namespace detail with viewer-scoped availableActions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NamespaceDetailReadModel"
+
+  /api/v1/frontend/reviews:
+    get:
+      summary: Review queue page read model
+      responses:
+        "200":
+          description: Review queue with viewer-scoped availableActions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewQueueReadModel"
+
+  /api/v1/frontend/reviews/{id}:
+    get:
+      summary: Review detail page read model
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        "200":
+          description: Review detail with viewer-scoped availableActions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewDetailReadModel"
+
+  /api/v1/frontend/promotions:
+    get:
+      summary: Promotion queue page read model
+      responses:
+        "200":
+          description: Promotion queue with viewer-scoped availableActions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PromotionQueueReadModel"
+
+  /api/v1/frontend/promotions/{id}:
+    get:
+      summary: Promotion detail page read model
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        "200":
+          description: Promotion detail with viewer-scoped availableActions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PromotionDetailReadModel"
+
+  /api/v1/frontend/governance:
+    get:
+      summary: Governance workbench read model
+      responses:
+        "200":
+          description: Governance dashboard with viewer-scoped availableActions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GovernanceWorkbenchReadModel"
+
+  /api/v1/frontend/admin:
+    get:
+      summary: Admin page read model
+      responses:
+        "200":
+          description: Admin dashboard with viewer-scoped availableActions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminPageReadModel"
+
 components:
   securitySchemes:
     bearerAuth:
@@ -188,3 +366,389 @@ components:
       type: apiKey
       in: cookie
       name: skillhub_session
+
+  schemas:
+    # ── Frontend read models ─────────────────────────────────────────
+
+    RegistrySearchReadModel:
+      type: object
+      properties:
+        success: { type: boolean }
+        data:
+          type: object
+          properties:
+            searchResult:
+              $ref: "#/components/schemas/SearchResult"
+            featuredLabels:
+              type: array
+              items: { type: string }
+            availableActions:
+              $ref: "#/components/schemas/RegistrySearchActions"
+
+    RegistrySearchActions:
+      type: object
+      properties:
+        canCreateSkill: { type: boolean }
+        canCreateNamespace: { type: boolean }
+        canAccessAdmin: { type: boolean }
+
+    SkillDetailReadModel:
+      type: object
+      properties:
+        success: { type: boolean }
+        data:
+          type: object
+          properties:
+            skill:
+              $ref: "#/components/schemas/SkillDetail"
+            versions:
+              type: array
+              items:
+                $ref: "#/components/schemas/VersionDetail"
+            files:
+              type: array
+              items:
+                $ref: "#/components/schemas/SkillFile"
+            availableActions:
+              $ref: "#/components/schemas/SkillDetailActions"
+
+    SkillDetailActions:
+      type: object
+      properties:
+        canEdit: { type: boolean }
+        canPublish: { type: boolean }
+        canDelete: { type: boolean }
+        canSubmitForReview: { type: boolean }
+        canRequestPromotion: { type: boolean }
+        canStar: { type: boolean }
+        canReport: { type: boolean }
+        canManage: { type: boolean }
+
+    VersionDetailReadModel:
+      type: object
+      properties:
+        success: { type: boolean }
+        data:
+          type: object
+          properties:
+            version:
+              $ref: "#/components/schemas/VersionDetail"
+            availableActions:
+              $ref: "#/components/schemas/VersionActions"
+
+    VersionActions:
+      type: object
+      properties:
+        canCompare: { type: boolean }
+        canDownload: { type: boolean }
+        canSubmitForReview: { type: boolean }
+        canRequestPromotion: { type: boolean }
+        canYank: { type: boolean }
+        canReview: { type: boolean }
+
+    PublishValidateReadModel:
+      type: object
+      properties:
+        success: { type: boolean }
+        data:
+          type: object
+          properties:
+            valid: { type: boolean }
+            warnings:
+              type: array
+              items: { type: string }
+            errors:
+              type: array
+              items: { type: string }
+            metadata: { type: object }
+            availableActions:
+              $ref: "#/components/schemas/PublishValidateActions"
+
+    PublishValidateActions:
+      type: object
+      properties:
+        canPublish: { type: boolean }
+        canOverrideWarnings: { type: boolean }
+
+    NamespaceListReadModel:
+      type: object
+      properties:
+        success: { type: boolean }
+        data:
+          type: object
+          properties:
+            namespaces:
+              type: array
+              items:
+                $ref: "#/components/schemas/Namespace"
+            availableActions:
+              $ref: "#/components/schemas/NamespaceListActions"
+
+    NamespaceListActions:
+      type: object
+      properties:
+        canCreateNamespace: { type: boolean }
+
+    NamespaceDetailReadModel:
+      type: object
+      properties:
+        success: { type: boolean }
+        data:
+          type: object
+          properties:
+            namespace:
+              $ref: "#/components/schemas/Namespace"
+            members:
+              type: array
+              items:
+                $ref: "#/components/schemas/NamespaceMember"
+            availableActions:
+              $ref: "#/components/schemas/NamespaceDetailActions"
+
+    NamespaceDetailActions:
+      type: object
+      properties:
+        canEdit: { type: boolean }
+        canDelete: { type: boolean }
+        canManageMembers: { type: boolean }
+        canTransferOwner: { type: boolean }
+        canLeave: { type: boolean }
+        canJoin: { type: boolean }
+
+    ReviewQueueReadModel:
+      type: object
+      properties:
+        success: { type: boolean }
+        data:
+          type: object
+          properties:
+            tasks:
+              type: array
+              items:
+                $ref: "#/components/schemas/ReviewTaskView"
+            pendingCount: { type: integer, format: int64 }
+            availableActions:
+              $ref: "#/components/schemas/ReviewQueueActions"
+
+    ReviewTaskView:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        skillVersionId: { type: integer, format: int64 }
+        namespaceId: { type: integer, format: int64 }
+        submittedBy: { type: string }
+        status: { type: string }
+        submittedAt: { type: string }
+
+    ReviewQueueActions:
+      type: object
+      properties:
+        canReview: { type: boolean }
+        canSubmit: { type: boolean }
+        canWithdraw: { type: boolean }
+
+    ReviewDetailReadModel:
+      type: object
+      properties:
+        success: { type: boolean }
+        data:
+          type: object
+          properties:
+            task:
+              $ref: "#/components/schemas/ReviewTaskView"
+            skillName: { type: string }
+            version: { type: string }
+            availableActions:
+              $ref: "#/components/schemas/ReviewDetailActions"
+
+    ReviewDetailActions:
+      type: object
+      properties:
+        canApprove: { type: boolean }
+        canReject: { type: boolean }
+        canWithdraw: { type: boolean }
+
+    PromotionQueueReadModel:
+      type: object
+      properties:
+        success: { type: boolean }
+        data:
+          type: object
+          properties:
+            requests:
+              type: array
+              items:
+                $ref: "#/components/schemas/PromotionRequestView"
+            pendingCount: { type: integer, format: int64 }
+            availableActions:
+              $ref: "#/components/schemas/PromotionQueueActions"
+
+    PromotionRequestView:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        sourceSkillId: { type: integer, format: int64 }
+        sourceVersionId: { type: integer, format: int64 }
+        targetNamespaceId: { type: integer, format: int64 }
+        submittedBy: { type: string }
+        status: { type: string }
+        submittedAt: { type: string }
+
+    PromotionQueueActions:
+      type: object
+      properties:
+        canReview: { type: boolean }
+        canSubmit: { type: boolean }
+        canWithdraw: { type: boolean }
+
+    PromotionDetailReadModel:
+      type: object
+      properties:
+        success: { type: boolean }
+        data:
+          type: object
+          properties:
+            request:
+              $ref: "#/components/schemas/PromotionRequestView"
+            sourceSkillName: { type: string }
+            availableActions:
+              $ref: "#/components/schemas/PromotionDetailActions"
+
+    PromotionDetailActions:
+      type: object
+      properties:
+        canApprove: { type: boolean }
+        canReject: { type: boolean }
+        canWithdraw: { type: boolean }
+
+    GovernanceWorkbenchReadModel:
+      type: object
+      properties:
+        success: { type: boolean }
+        data:
+          type: object
+          properties:
+            summary:
+              $ref: "#/components/schemas/GovernanceSummaryView"
+            recentActivity:
+              type: array
+              items:
+                $ref: "#/components/schemas/GovernanceActivityView"
+            availableActions:
+              $ref: "#/components/schemas/GovernanceWorkbenchActions"
+
+    GovernanceSummaryView:
+      type: object
+      properties:
+        total: { type: integer, format: int64 }
+        unread: { type: integer, format: int64 }
+        byCategory:
+          type: object
+          additionalProperties: { type: integer, format: int64 }
+        pendingReviews: { type: integer, format: int64 }
+        pendingPromotions: { type: integer, format: int64 }
+
+    GovernanceActivityView:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        category: { type: string }
+        title: { type: string }
+        createdAt: { type: string }
+        isRead: { type: boolean }
+
+    GovernanceWorkbenchActions:
+      type: object
+      properties:
+        canReview: { type: boolean }
+        canAccessAdmin: { type: boolean }
+        canViewAuditLog: { type: boolean }
+
+    AdminPageReadModel:
+      type: object
+      properties:
+        success: { type: boolean }
+        data:
+          type: object
+          properties:
+            stats:
+              $ref: "#/components/schemas/AdminStatsView"
+            availableActions:
+              $ref: "#/components/schemas/AdminPageActions"
+
+    AdminStatsView:
+      type: object
+      properties:
+        totalSkills: { type: integer, format: int64 }
+        totalNamespaces: { type: integer, format: int64 }
+        totalUsers: { type: integer, format: int64 }
+        pendingReviews: { type: integer, format: int64 }
+        pendingPromotions: { type: integer, format: int64 }
+        openReports: { type: integer, format: int64 }
+
+    AdminPageActions:
+      type: object
+      properties:
+        canManageSkills: { type: boolean }
+        canManageUsers: { type: boolean }
+        canManageLabels: { type: boolean }
+        canResolveReports: { type: boolean }
+        canRebuildSearch: { type: boolean }
+        canViewAuditLog: { type: boolean }
+        canManageNamespaces: { type: boolean }
+
+    # ── Shared types ──────────────────────────────────────────────────
+
+    SearchResult:
+      type: object
+      properties:
+        skillIds:
+          type: array
+          items: { type: integer, format: int64 }
+        total: { type: integer }
+        page: { type: integer }
+        size: { type: integer }
+
+    SkillDetail:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        slug: { type: string }
+        displayName: { type: string }
+        ownerId: { type: string }
+        summary: { type: string }
+        visibility: { type: string }
+        status: { type: string }
+        downloadCount: { type: integer }
+        starCount: { type: integer }
+        ratingAvg: { type: number }
+        canManage: { type: boolean }
+
+    VersionDetail:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        version: { type: string }
+        status: { type: string }
+
+    SkillFile:
+      type: object
+      properties:
+        path: { type: string }
+        size: { type: integer, format: int64 }
+
+    Namespace:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        slug: { type: string }
+        displayName: { type: string }
+        type: { type: string }
+        description: { type: string }
+
+    NamespaceMember:
+      type: object
+      properties:
+        namespaceId: { type: integer, format: int64 }
+        userId: { type: string }
+        role: { type: string }

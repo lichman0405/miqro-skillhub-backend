@@ -94,6 +94,7 @@ func TestNewRouter_Phase08CoreRoutes(t *testing.T) {
 		// CLI.
 		{"GET", "/api/cli/v1/auth/whoami", "cli whoami"},
 		{"GET", "/api/cli/v1/skills/search", "cli search"},
+		{"POST", "/api/cli/v1/skills/ns1/publish/validate", "cli publish validate"},
 
 		// Frontend.
 		{"GET", "/api/v1/frontend/search", "frontend registry search"},
@@ -217,6 +218,70 @@ func TestNewRouter_RateLimiterDifferentCategories(t *testing.T) {
 	router.ServeHTTP(wSearch, reqSearch)
 	if wSearch.Code == http.StatusTooManyRequests {
 		t.Error("search should not be rate-limited by auth category bucket")
+	}
+}
+
+// TestNewRouter_CLIPublishValidateRateLimited verifies that the CLI
+// validate route shares the "publish" rate-limit bucket with portal publish.
+func TestNewRouter_CLIPublishValidateRateLimited(t *testing.T) {
+	limiter := middleware.NewRateLimiter(1, 0.0)
+
+	stubQuery := &skill.SkillQueryService{}
+	skillH := &portal.SkillHandler{
+		SkillSvc: &skill.Service{
+			Query:    stubQuery,
+			Download: &skill.SkillDownloadService{},
+			Publish:  &skill.SkillPublishService{},
+			Delete:   &skill.SkillHardDeleteService{},
+		},
+	}
+	cliH := &cliapi.Handler{
+		SkillSvc:  skillH.SkillSvc,
+		SearchSvc: &search.Service{Query: &stubSearchQuery{}},
+	}
+	authMW := middleware.NewAuthMiddleware(nil, nil, nil, nil, nil)
+	nsH := &portal.NamespaceHandler{NsSvc: &namespace.Service{
+		Namespaces: namespace.NamespaceService{},
+		Members:    namespace.NamespaceMemberService{},
+		Global:     namespace.GlobalNamespaceMembershipService{},
+	}}
+
+	router := NewRouter(RouterConfig{
+		Health:          &HealthHandler{},
+		AuthMW:          authMW,
+		RateLimiter:     limiter,
+		PortalSkill:     skillH,
+		PortalNamespace: nsH,
+		CLI:             cliH,
+		MetricsRegistry: observability.NewMetricsRegistry(),
+	})
+
+	client := "192.0.2.20:12345"
+
+	// Exhaust "publish" bucket via portal publish.
+	reqPortal := httptest.NewRequest("POST", "/api/v1/skills/ns1/publish", nil)
+	reqPortal.RemoteAddr = client
+	reqPortal = middleware.SetPrincipal(reqPortal, middleware.Principal{
+		UserID:          "user-1",
+		IsAuthenticated: true,
+	})
+	wPortal := httptest.NewRecorder()
+	router.ServeHTTP(wPortal, reqPortal)
+	if wPortal.Code == http.StatusTooManyRequests {
+		t.Fatal("first publish request should pass rate limiter (may fail downstream)")
+	}
+
+	// Second request to CLI validate (same "publish" category) should be 429.
+	reqCLI := httptest.NewRequest("POST", "/api/cli/v1/skills/ns1/publish/validate", nil)
+	reqCLI.RemoteAddr = client
+	reqCLI = middleware.SetPrincipal(reqCLI, middleware.Principal{
+		UserID:          "user-1",
+		IsAuthenticated: true,
+	})
+	wCLI := httptest.NewRecorder()
+	router.ServeHTTP(wCLI, reqCLI)
+	if wCLI.Code != http.StatusTooManyRequests {
+		t.Errorf("CLI validate should be rate-limited (publish bucket exhausted), got %d", wCLI.Code)
 	}
 }
 
