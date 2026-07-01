@@ -226,6 +226,88 @@ func TestOpenAPISpec_ServerURL(t *testing.T) {
 	}
 }
 
+func TestOpenAPISpec_ToolRoutes(t *testing.T) {
+	doc := parseSpec(t)
+
+	paths, ok := doc["paths"].(map[string]any)
+	if !ok {
+		t.Fatal("paths must be an object")
+	}
+
+	toolRoutes := []struct {
+		path   string
+		method string
+	}{
+		{"/api/tool/v1/workspace/metadata", "get"},
+		{"/api/tool/v1/packages/hash", "post"},
+		{"/api/tool/v1/skills/{namespace}/{slug}/resolve", "get"},
+		{"/api/tool/v1/skills/{namespace}/{slug}/install", "get"},
+		{"/api/tool/v1/skills/{namespace}/{slug}/diff", "get"},
+		{"/api/tool/v1/skills/{namespace}/validate", "post"},
+		{"/api/tool/v1/skills/{namespace}/publish", "post"},
+		{"/api/tool/v1/evaluate/trigger", "post"},
+		{"/api/tool/v1/proposals/prepare", "post"},
+	}
+
+	for _, rt := range toolRoutes {
+		pathItem, ok := paths[rt.path].(map[string]any)
+		if !ok {
+			t.Errorf("missing tool route in OpenAPI paths: %q", rt.path)
+			continue
+		}
+		op, ok := pathItem[rt.method].(map[string]any)
+		if !ok {
+			t.Errorf("tool route %q missing %s operation", rt.path, rt.method)
+			continue
+		}
+		if summary, _ := op["summary"].(string); summary == "" {
+			t.Errorf("tool route %q %s missing summary", rt.path, rt.method)
+		}
+	}
+}
+
+func TestOpenAPISpec_ToolSchemas(t *testing.T) {
+	doc := parseSpec(t)
+
+	components, ok := doc["components"].(map[string]any)
+	if !ok {
+		t.Fatal("components must be an object")
+	}
+	schemas, ok := components["schemas"].(map[string]any)
+	if !ok {
+		t.Fatal("components.schemas must be an object")
+	}
+
+	toolSchemas := []string{
+		"WorkspaceMetadataResponse",
+		"PackageHashRequest",
+		"PackageHashResponse",
+		"PackageManifest",
+		"ManifestEntry",
+		"PackageEntry",
+		"ResolveResult",
+		"InstallTarget",
+		"AgentRuntime",
+		"VersionDiff",
+		"DiffSummary",
+		"DiffFile",
+		"DiffHunk",
+		"DiffLine",
+		"ToolValidateResponse",
+		"ToolPublishResponse",
+		"EvaluateRequest",
+		"EvaluateResponse",
+		"ProposalRequest",
+		"ProposalResponse",
+	}
+
+	for _, name := range toolSchemas {
+		if _, ok := schemas[name]; !ok {
+			t.Errorf("missing tool schema in OpenAPI components: %q", name)
+		}
+	}
+}
+
 func TestOpenAPISpec_SecuritySchemes(t *testing.T) {
 	doc := parseSpec(t)
 

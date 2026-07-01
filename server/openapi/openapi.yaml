@@ -3,9 +3,10 @@ info:
   title: SkillHub API
   description: |
     SkillHub backend HTTP API.  Covers native portal routes (/api/v1/),
-    web aliases (/api/web/), CLI routes (/api/cli/v1/), ClawHub
-    compatibility, well-known discovery endpoints, and frontend
-    page-oriented read models (/api/v1/frontend/*).
+    web aliases (/api/web/), CLI routes (/api/cli/v1/), tool-facing
+    routes for the miqro CLI (/api/tool/v1/), ClawHub compatibility,
+    well-known discovery endpoints, and frontend page-oriented read
+    models (/api/v1/frontend/*).
   version: "1.0.0"
 
 servers:
@@ -163,6 +164,215 @@ paths:
       responses:
         "200":
           description: SearchResult
+
+  # --- Tool API (miqro CLI protocol surface) ---
+
+  /api/tool/v1/workspace/metadata:
+    get:
+      summary: Returns the miqro init workspace contract
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Workspace metadata contract
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceMetadataResponse"
+
+  /api/tool/v1/packages/hash:
+    post:
+      summary: Compute deterministic package manifest hash from entries
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PackageHashRequest"
+      responses:
+        "200":
+          description: Package manifest with hash
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PackageHashResponse"
+
+  /api/tool/v1/skills/{namespace}/{slug}/resolve:
+    get:
+      summary: Resolve a skill version with tooling fingerprint and download URL
+      parameters:
+        - name: namespace
+          in: path
+          required: true
+          schema: { type: string }
+        - name: slug
+          in: path
+          required: true
+          schema: { type: string }
+        - name: version
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: Resolved version with fingerprint
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResolveResult"
+
+  /api/tool/v1/skills/{namespace}/{slug}/install:
+    get:
+      summary: Return install-target metadata for a skill version
+      parameters:
+        - name: namespace
+          in: path
+          required: true
+          schema: { type: string }
+        - name: slug
+          in: path
+          required: true
+          schema: { type: string }
+        - name: version
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: Install target metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstallTarget"
+
+  /api/tool/v1/skills/{namespace}/{slug}/diff:
+    get:
+      summary: Diff two versions of a skill package
+      parameters:
+        - name: namespace
+          in: path
+          required: true
+          schema: { type: string }
+        - name: slug
+          in: path
+          required: true
+          schema: { type: string }
+        - name: from
+          in: query
+          required: true
+          schema: { type: string }
+        - name: to
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Version diff with file-level changes
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VersionDiff"
+
+  /api/tool/v1/skills/{namespace}/validate:
+    post:
+      summary: Tool-facing dry-run validation of a skill package
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      parameters:
+        - name: namespace
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [package]
+              properties:
+                package:
+                  type: string
+                  format: binary
+                  description: ZIP archive of the skill package
+      responses:
+        "200":
+          description: Validation result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ToolValidateResponse"
+
+  /api/tool/v1/skills/{namespace}/publish:
+    post:
+      summary: Tool-facing skill package publish
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      parameters:
+        - name: namespace
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [package]
+              properties:
+                package:
+                  type: string
+                  format: binary
+                  description: ZIP archive of the skill package
+      responses:
+        "201":
+          description: Published skill version info
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ToolPublishResponse"
+
+  /api/tool/v1/evaluate/trigger:
+    post:
+      summary: Trigger skill evaluation (Phase 12 placeholder)
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EvaluateRequest"
+      responses:
+        "200":
+          description: Evaluation trigger result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EvaluateResponse"
+
+  /api/tool/v1/proposals/prepare:
+    post:
+      summary: Prepare a Skill Change Proposal (Phase 11 placeholder)
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProposalRequest"
+      responses:
+        "200":
+          description: Proposal preparation result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProposalResponse"
 
   # --- Well-known ---
   /.well-known/skillhub:
@@ -752,3 +962,215 @@ components:
         namespaceId: { type: integer, format: int64 }
         userId: { type: string }
         role: { type: string }
+
+    # ── Tool API schemas ────────────────────────────────────────────────
+
+    WorkspaceMetadataResponse:
+      type: object
+      properties:
+        workspace:
+          type: object
+          properties:
+            requiredFiles:
+              type: array
+              items: { type: string }
+            optionalFiles:
+              type: array
+              items: { type: string }
+            manifestFormat: { type: string }
+            schema:
+              type: object
+              properties:
+                fields:
+                  type: array
+                  items: { type: string }
+                required:
+                  type: array
+                  items: { type: string }
+
+    PackageHashRequest:
+      type: object
+      required: [entries]
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/PackageEntry"
+
+    PackageHashResponse:
+      type: object
+      properties:
+        manifest:
+          $ref: "#/components/schemas/PackageManifest"
+
+    PackageManifest:
+      type: object
+      properties:
+        hash: { type: string }
+        totalSize: { type: integer, format: int64 }
+        fileCount: { type: integer }
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/ManifestEntry"
+
+    ManifestEntry:
+      type: object
+      properties:
+        path: { type: string }
+        size: { type: integer, format: int64 }
+        contentType: { type: string }
+        sha256: { type: string }
+
+    PackageEntry:
+      type: object
+      properties:
+        path: { type: string }
+        content: { type: string }
+        size: { type: integer, format: int64 }
+        contentType: { type: string }
+
+    ResolveResult:
+      type: object
+      properties:
+        skillId: { type: integer, format: int64 }
+        namespace: { type: string }
+        slug: { type: string }
+        version: { type: string }
+        versionId: { type: integer, format: int64 }
+        fingerprint: { type: string }
+        downloadUrl: { type: string }
+
+    InstallTarget:
+      type: object
+      properties:
+        skillId: { type: integer, format: int64 }
+        skillSlug: { type: string }
+        namespace: { type: string }
+        version: { type: string }
+        fingerprint: { type: string }
+        downloadUrl: { type: string }
+        supportedAgents:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentRuntime"
+        installPath: { type: string }
+
+    AgentRuntime:
+      type: object
+      properties:
+        type: { type: string }
+        minVersion: { type: string }
+
+    VersionDiff:
+      type: object
+      properties:
+        fromVersion: { type: string }
+        toVersion: { type: string }
+        summary:
+          $ref: "#/components/schemas/DiffSummary"
+        files:
+          type: array
+          items:
+            $ref: "#/components/schemas/DiffFile"
+
+    DiffSummary:
+      type: object
+      properties:
+        totalFiles: { type: integer }
+        addedFiles: { type: integer }
+        modifiedFiles: { type: integer }
+        removedFiles: { type: integer }
+        addedLines: { type: integer }
+        removedLines: { type: integer }
+
+    DiffFile:
+      type: object
+      properties:
+        path: { type: string }
+        changeType:
+          type: string
+          enum: [ADDED, REMOVED, MODIFIED]
+        oldSize: { type: integer, format: int64 }
+        newSize: { type: integer, format: int64 }
+        binary: { type: boolean }
+        truncated: { type: boolean }
+        hunks:
+          type: array
+          items:
+            $ref: "#/components/schemas/DiffHunk"
+
+    DiffHunk:
+      type: object
+      properties:
+        oldStart: { type: integer }
+        oldLines: { type: integer }
+        newStart: { type: integer }
+        newLines: { type: integer }
+        lines:
+          type: array
+          items:
+            $ref: "#/components/schemas/DiffLine"
+
+    DiffLine:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [ADD, DELETE, CONTEXT]
+        content: { type: string }
+        oldLineNumber: { type: integer }
+        newLineNumber: { type: integer }
+
+    ToolValidateResponse:
+      type: object
+      properties:
+        valid: { type: boolean }
+        errors:
+          type: array
+          items: { type: string }
+        warnings:
+          type: array
+          items: { type: string }
+        resolvedSlug: { type: string }
+        resolvedVersion: { type: string }
+
+    ToolPublishResponse:
+      type: object
+      properties:
+        skillId: { type: integer, format: int64 }
+        slug: { type: string }
+        version:
+          $ref: "#/components/schemas/VersionDetail"
+
+    EvaluateRequest:
+      type: object
+      properties:
+        skillId: { type: integer, format: int64 }
+        versionId: { type: integer, format: int64 }
+        trigger: { type: string }
+
+    EvaluateResponse:
+      type: object
+      properties:
+        accepted: { type: boolean }
+        checkRunId: { type: string }
+        message: { type: string }
+
+    ProposalRequest:
+      type: object
+      properties:
+        skillId: { type: integer, format: int64 }
+        namespace: { type: string }
+        slug: { type: string }
+        title: { type: string }
+        description: { type: string }
+        diffSummary:
+          $ref: "#/components/schemas/VersionDiff"
+
+    ProposalResponse:
+      type: object
+      properties:
+        accepted: { type: boolean }
+        proposalId: { type: string }
+        message: { type: string }

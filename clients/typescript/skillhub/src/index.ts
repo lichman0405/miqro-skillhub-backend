@@ -316,6 +316,181 @@ export interface AdminPageReadModel {
   availableActions: AdminPageActions;
 }
 
+// ── Tool API types (miqro CLI protocol surface) ──────────────────────────
+
+/** Package entry for manifest/hash computation. */
+export interface PackageEntry {
+  path: string;
+  content: string;
+  size: number;
+  contentType: string;
+}
+
+/** A single entry in a deterministic package manifest. */
+export interface ManifestEntry {
+  path: string;
+  size: number;
+  contentType: string;
+  sha256: string;
+}
+
+/** Deterministic package manifest. */
+export interface PackageManifest {
+  entries: ManifestEntry[];
+  hash: string;
+  totalSize: number;
+  fileCount: number;
+}
+
+/** Request to compute deterministic package hash. */
+export interface PackageHashRequest {
+  entries: PackageEntry[];
+}
+
+/** Response from package hash computation. */
+export interface PackageHashResponse {
+  manifest: PackageManifest;
+}
+
+/** Workspace metadata response (miqro init contract). */
+export interface WorkspaceMetadataResponse {
+  workspace: {
+    requiredFiles: string[];
+    optionalFiles: string[];
+    manifestFormat: string;
+    schema: {
+      fields: string[];
+      required: string[];
+    };
+  };
+}
+
+/** Resolved version with tooling fingerprint. */
+export interface ResolveResult {
+  skillId: number;
+  namespace: string;
+  slug: string;
+  version: string;
+  versionId: number;
+  fingerprint: string;
+  downloadUrl: string;
+}
+
+/** Agent runtime descriptor. */
+export interface AgentRuntime {
+  type: string;
+  minVersion?: string;
+}
+
+/** Install target metadata. */
+export interface InstallTarget {
+  skillId: number;
+  skillSlug: string;
+  namespace: string;
+  version: string;
+  fingerprint: string;
+  downloadUrl: string;
+  supportedAgents?: AgentRuntime[];
+  installPath?: string;
+}
+
+/** Diff summary counts. */
+export interface DiffSummary {
+  totalFiles: number;
+  addedFiles: number;
+  modifiedFiles: number;
+  removedFiles: number;
+  addedLines: number;
+  removedLines: number;
+}
+
+/** A single line in a diff hunk. */
+export interface DiffLine {
+  type: "ADD" | "DELETE" | "CONTEXT";
+  content: string;
+  oldLineNumber?: number;
+  newLineNumber?: number;
+}
+
+/** A contiguous change block. */
+export interface DiffHunk {
+  oldStart: number;
+  oldLines: number;
+  newStart: number;
+  newLines: number;
+  lines: DiffLine[];
+}
+
+/** A single file in a version diff. */
+export interface DiffFile {
+  path: string;
+  changeType: "ADDED" | "REMOVED" | "MODIFIED";
+  oldSize?: number;
+  newSize?: number;
+  binary: boolean;
+  truncated: boolean;
+  hunks?: DiffHunk[];
+}
+
+/** Full version diff. */
+export interface VersionDiff {
+  fromVersion: string;
+  toVersion: string;
+  summary: DiffSummary;
+  files: DiffFile[];
+}
+
+/** Tool-facing validation result. */
+export interface ToolValidateResponse {
+  valid: boolean;
+  errors?: string[];
+  warnings?: string[];
+  resolvedSlug?: string;
+  resolvedVersion?: string;
+}
+
+/** Tool-facing publish response. */
+export interface ToolPublishResponse {
+  skillId: number;
+  slug: string;
+  version: {
+    id: number;
+    version: string;
+    status: string;
+  };
+}
+
+/** Evaluate trigger request (placeholder). */
+export interface EvaluateRequest {
+  skillId: number;
+  versionId: number;
+  trigger: string;
+}
+
+/** Evaluate trigger response (placeholder). */
+export interface EvaluateResponse {
+  accepted: boolean;
+  checkRunId?: string;
+  message?: string;
+}
+
+/** Proposal preparation request (placeholder). */
+export interface ProposalRequest {
+  skillId: number;
+  namespace: string;
+  slug: string;
+  title: string;
+  description: string;
+  diffSummary?: VersionDiff;
+}
+
+/** Proposal preparation response (placeholder). */
+export interface ProposalResponse {
+  accepted: boolean;
+  proposalId?: string;
+  message?: string;
+}
+
 // ── Client ─────────────────────────────────────────────────────────────
 
 /** SkillHub API client — thin HTTP wrapper over the backend. */
@@ -444,6 +619,108 @@ export class SkillHubClient {
   /** Get admin page read model. */
   async frontendAdmin(): Promise<Envelope<AdminPageReadModel>> {
     return this.fetch("/api/v1/frontend/admin");
+  }
+
+  // ── Tool API methods (miqro CLI protocol surface) ──────────────────────
+
+  /** Get workspace metadata contract (miqro init). */
+  async toolWorkspaceMetadata(): Promise<Envelope<WorkspaceMetadataResponse>> {
+    return this.fetch("/api/tool/v1/workspace/metadata");
+  }
+
+  /** Compute deterministic package hash (miqro pack). */
+  async toolPackageHash(
+    entries: PackageEntry[]
+  ): Promise<Envelope<PackageHashResponse>> {
+    return this.fetch("/api/tool/v1/packages/hash", {
+      method: "POST",
+      body: JSON.stringify({ entries }),
+    });
+  }
+
+  /** Resolve a skill version with fingerprint (miqro resolve). */
+  async toolResolve(
+    namespace: string,
+    slug: string,
+    version?: string
+  ): Promise<Envelope<ResolveResult>> {
+    const params = version ? `?version=${encodeURIComponent(version)}` : "";
+    return this.fetch(
+      `/api/tool/v1/skills/${namespace}/${slug}/resolve${params}`
+    );
+  }
+
+  /** Get install target metadata (miqro install). */
+  async toolInstall(
+    namespace: string,
+    slug: string,
+    version?: string
+  ): Promise<Envelope<InstallTarget>> {
+    const params = version ? `?version=${encodeURIComponent(version)}` : "";
+    return this.fetch(
+      `/api/tool/v1/skills/${namespace}/${slug}/install${params}`
+    );
+  }
+
+  /** Diff two skill versions (miqro diff). */
+  async toolDiff(
+    namespace: string,
+    slug: string,
+    fromVersion: string,
+    toVersion: string
+  ): Promise<Envelope<VersionDiff>> {
+    const params = `?from=${encodeURIComponent(fromVersion)}&to=${encodeURIComponent(toVersion)}`;
+    return this.fetch(
+      `/api/tool/v1/skills/${namespace}/${slug}/diff${params}`
+    );
+  }
+
+  /** Validate a skill package (miqro validate). Accepts a zip File/Blob. */
+  async toolValidate(
+    namespace: string,
+    zipFile: Blob
+  ): Promise<Envelope<ToolValidateResponse>> {
+    const formData = new FormData();
+    formData.append("package", zipFile);
+    return this.fetch(`/api/tool/v1/skills/${namespace}/validate`, {
+      method: "POST",
+      body: formData,
+      headers: {}, // let browser set multipart Content-Type
+    });
+  }
+
+  /** Publish a skill package (miqro publish). Accepts a zip File/Blob. */
+  async toolPublish(
+    namespace: string,
+    zipFile: Blob
+  ): Promise<Envelope<ToolPublishResponse>> {
+    const formData = new FormData();
+    formData.append("package", zipFile);
+    return this.fetch(`/api/tool/v1/skills/${namespace}/publish`, {
+      method: "POST",
+      body: formData,
+      headers: {}, // let browser set multipart Content-Type
+    });
+  }
+
+  /** Trigger skill evaluation (miqro evaluate — Phase 12 placeholder). */
+  async toolEvaluate(
+    req: EvaluateRequest
+  ): Promise<Envelope<EvaluateResponse>> {
+    return this.fetch("/api/tool/v1/evaluate/trigger", {
+      method: "POST",
+      body: JSON.stringify(req),
+    });
+  }
+
+  /** Prepare a skill change proposal (miqro propose — Phase 11 placeholder). */
+  async toolPropose(
+    req: ProposalRequest
+  ): Promise<Envelope<ProposalResponse>> {
+    return this.fetch("/api/tool/v1/proposals/prepare", {
+      method: "POST",
+      body: JSON.stringify(req),
+    });
   }
 }
 

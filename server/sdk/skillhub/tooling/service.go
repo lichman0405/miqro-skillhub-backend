@@ -10,6 +10,10 @@ import (
 	"miqro-skillhub/server/sdk/skillhub/skill"
 )
 
+// errNoSkillService is returned when a tooling operation requires the skill
+// service but it was not configured.
+var errNoSkillService = fmt.Errorf("tooling: skill service is not configured")
+
 // Service is the tooling SDK facade.  It wraps the existing skill services
 // and adds tooling-specific protocol operations that a future miqro CLI
 // can call without depending on frontend page endpoints.
@@ -93,7 +97,33 @@ func (svc *Service) Validate(
 	visibility string,
 	platformRoles map[string]bool,
 ) (*skill.DryRunResult, error) {
+	if svc.skillSvc == nil {
+		return nil, errNoSkillService
+	}
 	return svc.skillSvc.Publish.ValidateOnly(ctx, namespaceSlug, entries, publisherID, visibility, platformRoles)
+}
+
+// ---------------------------------------------------------------------------
+// Publish (wraps existing publish flow)
+// ---------------------------------------------------------------------------
+
+// Publish performs a tool-facing package publish using the existing publish
+// service.  It is the same flow as the CLI publish route but surfaced under
+// the /api/tool/v1/ protocol surface so the miqro CLI can call it without
+// depending on legacy CLI routes.
+func (svc *Service) Publish(
+	ctx context.Context,
+	namespaceSlug string,
+	entries []packagekit.PackageEntry,
+	publisherID string,
+	visibility string,
+	platformRoles map[string]bool,
+	force bool,
+) (*skill.PublishResult, error) {
+	if svc.skillSvc == nil {
+		return nil, errNoSkillService
+	}
+	return svc.skillSvc.Publish.Publish(ctx, namespaceSlug, entries, publisherID, visibility, platformRoles, force)
 }
 
 // ---------------------------------------------------------------------------
@@ -106,6 +136,9 @@ func (svc *Service) Resolve(
 	namespaceSlug, skillSlug, versionStr, currentUserID string,
 	userNsRoles map[int64]string,
 ) (*ResolveResult, error) {
+	if svc.skillSvc == nil {
+		return nil, errNoSkillService
+	}
 	ver, err := svc.skillSvc.Query.ResolveVersion(ctx, namespaceSlug, skillSlug, versionStr, "", currentUserID, userNsRoles)
 	if err != nil {
 		return nil, err
@@ -174,6 +207,9 @@ func (svc *Service) Diff(
 	namespaceSlug, skillSlug, fromVersion, toVersion, currentUserID string,
 	userNsRoles map[int64]string,
 ) (*VersionDiff, error) {
+	if svc.skillSvc == nil {
+		return nil, errNoSkillService
+	}
 	fromFiles, err := svc.skillSvc.Query.ListFiles(ctx, namespaceSlug, skillSlug, fromVersion, currentUserID, userNsRoles)
 	if err != nil {
 		return nil, fmt.Errorf("tooling: list from files: %w", err)

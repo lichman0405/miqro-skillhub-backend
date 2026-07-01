@@ -1,10 +1,14 @@
 package toolapi
 
 import (
+	"archive/zip"
+	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 
 	"miqro-skillhub/server/internal/http/middleware"
+	"miqro-skillhub/server/sdk/skillhub/packagekit"
 	"miqro-skillhub/server/sdk/skillhub/tooling"
 )
 
@@ -24,6 +28,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux, authMW *middleware.AuthMidd
 		return next
 	}
 
+	// ── Read routes (optional auth) ─────────────────────────────────────
+
 	// Workspace metadata — GET returns the workspace contract.
 	mux.HandleFunc("GET /api/tool/v1/workspace/metadata", optAuth(h.handleWorkspaceMetadata))
 
@@ -38,6 +44,16 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux, authMW *middleware.AuthMidd
 
 	// Diff — GET compares two versions.
 	mux.HandleFunc("GET /api/tool/v1/skills/{namespace}/{slug}/diff", optAuth(h.handleDiff))
+
+	// ── Write routes (require auth) ─────────────────────────────────────
+
+	// Validate — POST tool-facing dry-run validation of a skill package.
+	mux.HandleFunc("POST /api/tool/v1/skills/{namespace}/validate", withLimit("publish",
+		authMW.Authenticate(middleware.RequireAuth(h.handleValidate))))
+
+	// Publish — POST tool-facing skill package publish.
+	mux.HandleFunc("POST /api/tool/v1/skills/{namespace}/publish", withLimit("publish",
+		authMW.Authenticate(middleware.RequireAuth(h.handlePublish))))
 
 	// Evaluate — POST trigger placeholder.
 	mux.HandleFunc("POST /api/tool/v1/evaluate/trigger", withLimit("publish",
@@ -182,7 +198,106 @@ func (h *Handler) handlePropose(w http.ResponseWriter, r *http.Request) {
 	middleware.WriteJSON(w, http.StatusOK, resp)
 }
 
-// helpers
+func (h *Handler) handleValidate(w http.ResponseWriter, r *http.Request) {
+	if h.Tooling == nil {
+		middleware.WriteError(w, serviceUnavailable())
+		return
+	}
+
+	p := middleware.GetPrincipal(r)
+	namespaceSlug := r.PathValue("namespace")
+
+	entries, err := readPackageFromRequest(r)
+	if err != nil {
+		middleware.WriteJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "failed to read package: " + err.Error(),
+		})
+		return
+	}
+
+	result, err := h.Tooling.Validate(r.Context(), namespaceSlug, entries, p.UserID, "PUBLIC", p.PlatformRoles)
+	if err != nil {
+		middleware.WriteError(w, err)
+		return
+	}
+	middleware.WriteJSON(w, http.StatusOK, result)
+}
+
+func (h *Handler) handlePublish(w http.ResponseWriter, r *http.Request) {
+	if h.Tooling == nil {
+		middleware.WriteError(w, serviceUnavailable())
+		return
+	}
+
+	p := middleware.GetPrincipal(r)
+	namespaceSlug := r.PathValue("namespace")
+
+	entries, err := readPackageFromRequest(r)
+	if err != nil {
+		middleware.WriteJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "failed to read package: " + err.Error(),
+		})
+		return
+	}
+
+	result, err := h.Tooling.Publish(r.Context(), namespaceSlug, entries, p.UserID, "PUBLIC", p.PlatformRoles, false)
+	if err != nil {
+		middleware.WriteError(w, err)
+		return
+	}
+	middleware.WriteJSON(w, http.StatusCreated, result)
+}
+
+// ── zip extraction ────────────────────────────────────────────────────────
+
+// readPackageFromRequest reads a zip package from multipart/form-data upload
+// and returns the extracted PackageEntry slice.  It expects the form field
+// "package" containing the zip file, matching the miqro CLI upload convention.
+func readPackageFromRequest(r *http.Request) ([]packagekit.PackageEntry, error) {
+	file, _, err := r.FormFile("package")
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	body, err := io.ReadAll(file)
+	if err != nil {
+		return nil, err
+	}
+
+	return extractZip(body)
+}
+
+func extractZip(src []byte) ([]packagekit.PackageEntry, error) {
+	zr, err := zip.NewReader(bytes.NewReader(src), int64(len(src)))
+	if err != nil {
+		return nil, err
+	}
+	var entries []packagekit.PackageEntry
+	for _, f := range zr.File {
+		if f.FileInfo().IsDir() {
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return nil, err
+		}
+		content, err := io.ReadAll(rc)
+		rc.Close()
+		if err != nil {
+			return nil, err
+		}
+		entries = append(entries, packagekit.PackageEntry{
+			Path:        f.Name,
+			Content:     content,
+			Size:        int64(len(content)),
+			ContentType: "application/octet-stream",
+		})
+	}
+	return entries, nil
+}
+
+// ── helpers ───────────────────────────────────────────────────────────────
 
 type svcUnavailableError struct{}
 

@@ -22,11 +22,13 @@ import (
 	"miqro-skillhub/server/internal/http/middleware"
 	"miqro-skillhub/server/internal/http/observability"
 	"miqro-skillhub/server/internal/http/portal"
+	"miqro-skillhub/server/internal/http/toolapi"
 	"miqro-skillhub/server/sdk/skillhub/auth"
 	"miqro-skillhub/server/sdk/skillhub/namespace"
 	"miqro-skillhub/server/sdk/skillhub/packagekit"
 	"miqro-skillhub/server/sdk/skillhub/search"
 	"miqro-skillhub/server/sdk/skillhub/skill"
+	"miqro-skillhub/server/sdk/skillhub/tooling"
 )
 
 func main() {
@@ -146,6 +148,13 @@ func main() {
 		handlerCLI = &cliapi.Handler{SkillSvc: skillSvc, SearchSvc: srcSvc}
 	}
 
+	// Tool API handler — always constructed when the skill service is available.
+	var handlerToolAPI *toolapi.Handler
+	if skillSvc != nil {
+		toolingSvc := tooling.NewService(skillSvc)
+		handlerToolAPI = &toolapi.Handler{Tooling: toolingSvc}
+	}
+
 	// ── Router ────────────────────────────────────────────────────────────
 	metricsReg := observability.NewMetricsRegistry()
 	router := httpx.NewRouter(httpx.RouterConfig{
@@ -157,6 +166,7 @@ func main() {
 		PortalSkill:     handlerSkill,
 		PortalSearch:    handlerSearch,
 		CLI:             handlerCLI,
+		ToolAPI:         handlerToolAPI,
 		MetricsRegistry: metricsReg,
 	})
 

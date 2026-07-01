@@ -37,6 +37,25 @@ import {
   type GovernanceWorkbenchActions,
   type AdminPageReadModel,
   type AdminPageActions,
+  // Tool API types
+  type WorkspaceMetadataResponse,
+  type PackageEntry,
+  type PackageManifest,
+  type PackageHashResponse,
+  type ResolveResult,
+  type InstallTarget,
+  type AgentRuntime,
+  type VersionDiff,
+  type DiffSummary,
+  type DiffFile,
+  type DiffHunk,
+  type DiffLine,
+  type ToolValidateResponse,
+  type ToolPublishResponse,
+  type EvaluateRequest,
+  type EvaluateResponse,
+  type ProposalRequest,
+  type ProposalResponse,
 } from "./index.js";
 
 describe("SkillHubClient", () => {
@@ -350,6 +369,188 @@ describe("Frontend type shapes", () => {
     };
     assert.strictEqual(model.availableActions.canManageSkills, true);
     assert.strictEqual(model.availableActions.canManageUsers, false);
+  });
+});
+
+describe("Tool API client methods", () => {
+  const client = new SkillHubClient("http://localhost:8080");
+
+  it("toolWorkspaceMetadata is a function", () => {
+    assert.strictEqual(typeof client.toolWorkspaceMetadata, "function");
+  });
+
+  it("toolPackageHash is a function", () => {
+    assert.strictEqual(typeof client.toolPackageHash, "function");
+  });
+
+  it("toolResolve is a function", () => {
+    assert.strictEqual(typeof client.toolResolve, "function");
+  });
+
+  it("toolInstall is a function", () => {
+    assert.strictEqual(typeof client.toolInstall, "function");
+  });
+
+  it("toolDiff is a function", () => {
+    assert.strictEqual(typeof client.toolDiff, "function");
+  });
+
+  it("toolValidate is a function", () => {
+    assert.strictEqual(typeof client.toolValidate, "function");
+  });
+
+  it("toolPublish is a function", () => {
+    assert.strictEqual(typeof client.toolPublish, "function");
+  });
+
+  it("toolEvaluate is a function", () => {
+    assert.strictEqual(typeof client.toolEvaluate, "function");
+  });
+
+  it("toolPropose is a function", () => {
+    assert.strictEqual(typeof client.toolPropose, "function");
+  });
+});
+
+describe("Tool API type shapes", () => {
+  it("WorkspaceMetadataResponse shape", () => {
+    const ws: WorkspaceMetadataResponse = {
+      workspace: {
+        requiredFiles: ["SKILL.md"],
+        optionalFiles: ["README.md"],
+        manifestFormat: "SKILL.md with YAML frontmatter",
+        schema: {
+          fields: ["name", "description", "version"],
+          required: ["name"],
+        },
+      },
+    };
+    assert.deepStrictEqual(ws.workspace.requiredFiles, ["SKILL.md"]);
+  });
+
+  it("PackageManifest shape", () => {
+    const m: PackageManifest = {
+      entries: [
+        { path: "SKILL.md", size: 100, contentType: "text/markdown", sha256: "abc123" },
+      ],
+      hash: "sha256:def456",
+      totalSize: 100,
+      fileCount: 1,
+    };
+    assert.strictEqual(m.hash, "sha256:def456");
+    assert.strictEqual(m.fileCount, 1);
+  });
+
+  it("PackageHashRequest shape", () => {
+    const entries: PackageEntry[] = [
+      { path: "a.txt", content: "hello", size: 5, contentType: "text/plain" },
+    ];
+    assert.strictEqual(entries.length, 1);
+    assert.strictEqual(entries[0].path, "a.txt");
+  });
+
+  it("ResolveResult shape", () => {
+    const r: ResolveResult = {
+      skillId: 1,
+      namespace: "ns",
+      slug: "my-skill",
+      version: "1.0.0",
+      versionId: 5,
+      fingerprint: "sha256:abc123",
+      downloadUrl: "/api/v1/skills/ns/my-skill/versions/1.0.0/download",
+    };
+    assert.strictEqual(r.fingerprint.startsWith("sha256:"), true);
+  });
+
+  it("InstallTarget shape", () => {
+    const agent: AgentRuntime = { type: "claude-code", minVersion: "1.0.0" };
+    const target: InstallTarget = {
+      skillId: 1,
+      skillSlug: "my-skill",
+      namespace: "ns",
+      version: "1.0.0",
+      fingerprint: "sha256:abc",
+      downloadUrl: "/download",
+      supportedAgents: [agent],
+    };
+    assert.strictEqual(target.supportedAgents![0].type, "claude-code");
+  });
+
+  it("VersionDiff shape", () => {
+    const line: DiffLine = { type: "ADD", content: "new line" };
+    const hunk: DiffHunk = {
+      oldStart: 1, oldLines: 0, newStart: 1, newLines: 1,
+      lines: [line],
+    };
+    const file: DiffFile = {
+      path: "a.txt",
+      changeType: "MODIFIED",
+      oldSize: 10, newSize: 12,
+      binary: false, truncated: false,
+      hunks: [hunk],
+    };
+    const summary: DiffSummary = {
+      totalFiles: 1, addedFiles: 0, modifiedFiles: 1, removedFiles: 0,
+      addedLines: 1, removedLines: 1,
+    };
+    const diff: VersionDiff = {
+      fromVersion: "1.0", toVersion: "2.0",
+      summary,
+      files: [file],
+    };
+    assert.strictEqual(diff.summary.totalFiles, 1);
+    assert.strictEqual(diff.files[0].changeType, "MODIFIED");
+  });
+
+  it("ToolValidateResponse shape", () => {
+    const r: ToolValidateResponse = {
+      valid: true,
+      warnings: [],
+      resolvedSlug: "my-skill",
+      resolvedVersion: "1.0.0",
+    };
+    assert.strictEqual(r.valid, true);
+  });
+
+  it("ToolPublishResponse shape", () => {
+    const r: ToolPublishResponse = {
+      skillId: 1,
+      slug: "my-skill",
+      version: { id: 10, version: "1.0.0", status: "PUBLISHED" },
+    };
+    assert.strictEqual(r.version.version, "1.0.0");
+  });
+
+  it("EvaluateRequest shape", () => {
+    const req: EvaluateRequest = { skillId: 1, versionId: 2, trigger: "publish" };
+    assert.strictEqual(req.trigger, "publish");
+  });
+
+  it("EvaluateResponse shape (placeholder)", () => {
+    const resp: EvaluateResponse = {
+      accepted: false,
+      message: "evaluation trigger is not yet implemented (Phase 12)",
+    };
+    assert.strictEqual(resp.accepted, false);
+  });
+
+  it("ProposalRequest shape", () => {
+    const req: ProposalRequest = {
+      skillId: 1,
+      namespace: "ns",
+      slug: "my-skill",
+      title: "Update README",
+      description: "Better docs",
+    };
+    assert.strictEqual(req.title, "Update README");
+  });
+
+  it("ProposalResponse shape (placeholder)", () => {
+    const resp: ProposalResponse = {
+      accepted: false,
+      message: "proposal preparation is not yet implemented (Phase 11)",
+    };
+    assert.strictEqual(resp.accepted, false);
   });
 });
 

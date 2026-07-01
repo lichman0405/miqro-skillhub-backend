@@ -244,3 +244,24 @@ type PackageHashResponse struct {
 type ServiceConfig struct {
 	SkillService *skill.Service
 }
+
+// ---------------------------------------------------------------------------
+// Validate / Publish request types — tool-facing protocol wrappers
+// ---------------------------------------------------------------------------
+
+// ValidateRequest is the tool-facing request for server-compatible validation.
+// The handler extracts PackageEntry from the uploaded zip; this type holds the
+// resolved parameters.
+type ValidateRequest struct {
+	Namespace  string                   `json:"namespace"`
+	Entries    []packagekit.PackageEntry `json:"entries"`
+	Visibility string                   `json:"visibility"`
+}
+
+// PublishRequest is the tool-facing request for publishing a skill package.
+type PublishRequest struct {
+	Namespace  string                   `json:"namespace"`
+	Entries    []packagekit.PackageEntry `json:"entries"`
+	Visibility string                   `json:"visibility"`
+	Force      bool                     `json:"force"`
+}
