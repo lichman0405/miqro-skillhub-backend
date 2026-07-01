@@ -1,0 +1,203 @@
+package portal
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"strconv"
+
+	"miqro-skillhub/server/internal/http/middleware"
+	"miqro-skillhub/server/sdk/skillhub/auth"
+)
+
+// AuthHandler exposes /api/v1/auth/* routes.
+type AuthHandler struct {
+	AuthSvc *auth.Service
+}
+
+// RegisterAuthRoutes registers auth routes on the given mux.
+func (h *AuthHandler) RegisterAuthRoutes(mux *http.ServeMux, authMW *middleware.AuthMiddleware) {
+	mux.HandleFunc("POST /api/v1/auth/login", h.handleLocalLogin)
+	mux.HandleFunc("POST /api/v1/auth/register", h.handleLocalRegister)
+	mux.HandleFunc("POST /api/v1/auth/logout", h.handleLogout)
+
+	mux.HandleFunc("GET /api/v1/auth/me", authMW.Authenticate(middleware.RequireAuth(h.handleMe)))
+	mux.HandleFunc("GET /api/v1/auth/tokens", authMW.Authenticate(middleware.RequireAuth(h.handleListTokens)))
+	mux.HandleFunc("POST /api/v1/auth/tokens", authMW.Authenticate(middleware.RequireAuth(h.handleCreateToken)))
+	mux.HandleFunc("DELETE /api/v1/auth/tokens/{id}", authMW.Authenticate(middleware.RequireAuth(h.handleRevokeToken)))
+
+	mux.HandleFunc("POST /api/v1/auth/password-reset/request", h.handleRequestPasswordReset)
+	mux.HandleFunc("POST /api/v1/auth/password-reset/confirm", h.handleConfirmPasswordReset)
+}
+
+func (h *AuthHandler) handleLocalLogin(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		middleware.WriteError(w, err)
+		return
+	}
+
+	principal, err := h.AuthSvc.Local.Login(r.Context(), req.Username, req.Password)
+	if err != nil {
+		middleware.WriteError(w, err)
+		return
+	}
+
+	middleware.WriteJSON(w, http.StatusOK, map[string]any{
+		"userID":        principal.UserID,
+		"displayName":   principal.DisplayName,
+		"email":         principal.Email,
+		"platformRoles": principal.Roles,
+	})
+}
+
+func (h *AuthHandler) handleLocalRegister(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Username    string `json:"username"`
+		Password    string `json:"password"`
+		DisplayName string `json:"displayName"`
+		Email       string `json:"email"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		middleware.WriteError(w, err)
+		return
+	}
+
+	result, err := h.AuthSvc.Local.Register(r.Context(), req.Username, req.Email, req.Password)
+	if err != nil {
+		middleware.WriteError(w, err)
+		return
+	}
+
+	middleware.WriteJSON(w, http.StatusCreated, map[string]any{
+		"id":          result.User.ID,
+		"displayName": result.User.DisplayName,
+		"email":       result.User.Email,
+	})
+}
+
+func (h *AuthHandler) handleLogout(w http.ResponseWriter, r *http.Request) {
+	middleware.WriteJSON(w, http.StatusOK, map[string]string{"status": "logged_out"})
+}
+
+func (h *AuthHandler) handleMe(w http.ResponseWriter, r *http.Request) {
+	p := middleware.GetPrincipal(r)
+	middleware.WriteJSON(w, http.StatusOK, map[string]any{
+		"userID":          p.UserID,
+		"displayName":     p.UserDisplayName,
+		"email":           p.Email,
+		"authMethod":      p.AuthMethod,
+		"platformRoles":   p.PlatformRoles,
+		"isAuthenticated": p.IsAuthenticated,
+	})
+}
+
+func (h *AuthHandler) handleListTokens(w http.ResponseWriter, r *http.Request) {
+	p := middleware.GetPrincipal(r)
+	tokens, err := h.AuthSvc.Token.ListTokens(r.Context(), p.UserID)
+	if err != nil {
+		middleware.WriteError(w, err)
+		return
+	}
+
+	type tokenView struct {
+		ID         int64    `json:"id"`
+		Name       string   `json:"name"`
+		Prefix     string   `json:"prefix"`
+		Scopes     []string `json:"scopes"`
+		CreatedAt  string   `json:"createdAt"`
+		LastUsedAt string   `json:"lastUsedAt,omitempty"`
+	}
+
+	views := make([]tokenView, len(tokens))
+	for i, t := range tokens {
+		v := tokenView{
+			ID:        t.ID,
+			Name:      t.Name,
+			Prefix:    t.TokenPrefix,
+			Scopes:    auth.ParseScopes(t.ScopeJSON),
+			CreatedAt: t.CreatedAt.Format("2006-01-02T15:04:05Z"),
+		}
+		if t.LastUsedAt != nil {
+			v.LastUsedAt = t.LastUsedAt.Format("2006-01-02T15:04:05Z")
+		}
+		views[i] = v
+	}
+	middleware.WriteJSON(w, http.StatusOK, views)
+}
+
+func (h *AuthHandler) handleCreateToken(w http.ResponseWriter, r *http.Request) {
+	p := middleware.GetPrincipal(r)
+	var req struct {
+		Name   string   `json:"name"`
+		Scopes []string `json:"scopes"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		middleware.WriteError(w, err)
+		return
+	}
+
+	result, err := h.AuthSvc.Token.CreateToken(r.Context(), p.UserID, req.Name, req.Scopes, nil)
+	if err != nil {
+		middleware.WriteError(w, err)
+		return
+	}
+
+	middleware.WriteJSON(w, http.StatusCreated, map[string]any{
+		"id":        result.Token.ID,
+		"name":      result.Token.Name,
+		"rawToken":  result.RawToken,
+		"prefix":    result.Token.TokenPrefix,
+		"createdAt": result.Token.CreatedAt.Format("2006-01-02T15:04:05Z"),
+	})
+}
+
+func (h *AuthHandler) handleRevokeToken(w http.ResponseWriter, r *http.Request) {
+	p := middleware.GetPrincipal(r)
+	tokenID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		middleware.WriteError(w, err)
+		return
+	}
+	if err := h.AuthSvc.Token.RevokeToken(r.Context(), tokenID, p.UserID); err != nil {
+		middleware.WriteError(w, err)
+		return
+	}
+	middleware.WriteJSON(w, http.StatusOK, map[string]string{"status": "revoked"})
+}
+
+func (h *AuthHandler) handleRequestPasswordReset(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Email string `json:"email"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		middleware.WriteError(w, err)
+		return
+	}
+	_ = h.AuthSvc.PasswordReset.RequestPasswordReset(r.Context(), req.Email)
+	// Always return success to prevent email enumeration.
+	middleware.WriteJSON(w, http.StatusOK, map[string]string{"status": "reset_email_sent"})
+}
+
+func (h *AuthHandler) handleConfirmPasswordReset(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Email       string `json:"email"`
+		Code        string `json:"code"`
+		NewPassword string `json:"newPassword"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		middleware.WriteError(w, err)
+		return
+	}
+	if err := h.AuthSvc.PasswordReset.ConfirmPasswordReset(r.Context(), req.Email, req.Code, req.NewPassword); err != nil {
+		middleware.WriteError(w, err)
+		return
+	}
+	middleware.WriteJSON(w, http.StatusOK, map[string]string{"status": "password_reset"})
+}
+
+// Ensure fmt is used.
+var _ = fmt.Sprintf

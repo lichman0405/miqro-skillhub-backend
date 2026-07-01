@@ -26,7 +26,9 @@ func main() {
 	}
 
 	health := &httpx.HealthHandler{}
-	router := httpx.NewRouter(health)
+	router := httpx.NewRouter(httpx.RouterConfig{
+		Health: health,
+	})
 
 	srv := &http.Server{
 		Addr:         cfg.APIAddr,

@@ -1,0 +1,190 @@
+openapi: "3.0.3"
+info:
+  title: SkillHub API
+  description: |
+    SkillHub backend HTTP API.  Covers native portal routes (/api/v1/),
+    web aliases (/api/web/), CLI routes (/api/cli/v1/), ClawHub
+    compatibility, and well-known discovery endpoints.
+  version: "1.0.0"
+
+servers:
+  - url: http://localhost:8080
+    description: Local development server
+
+paths:
+  # --- Health ---
+  /healthz:
+    get:
+      summary: Liveness probe
+      responses:
+        "200":
+          description: Server is alive
+  /readyz:
+    get:
+      summary: Readiness probe
+      responses:
+        "200":
+          description: Server is ready
+        "503":
+          description: Server is not ready
+
+  # --- Auth ---
+  /api/v1/auth/login:
+    post:
+      summary: Local username/password login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username: { type: string }
+                password: { type: string }
+      responses:
+        "200":
+          description: Login successful; returns user principal
+        "401":
+          description: Invalid credentials
+
+  /api/v1/auth/register:
+    post:
+      summary: Register a new local user account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username: { type: string }
+                password: { type: string }
+                displayName: { type: string }
+                email: { type: string }
+      responses:
+        "201":
+          description: User registered
+        "409":
+          description: Username or email already taken
+
+  /api/v1/auth/me:
+    get:
+      summary: Returns the authenticated caller's identity
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Current user principal
+        "401":
+          description: Not authenticated
+
+  /api/v1/search:
+    get:
+      summary: Search skills (GET — query params)
+      parameters:
+        - name: keyword
+          in: query
+          schema: { type: string }
+        - name: sortBy
+          in: query
+          schema: { type: string, enum: [relevance, downloads, rating, newest] }
+        - name: installableOnly
+          in: query
+          schema: { type: boolean }
+      responses:
+        "200":
+          description: SearchResult with skill IDs and total count
+
+  /api/v1/skills/{namespace}/{slug}:
+    get:
+      summary: Get skill detail
+      parameters:
+        - name: namespace
+          in: path
+          required: true
+          schema: { type: string }
+        - name: slug
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: SkillDetail
+
+  /api/v1/skills/{namespace}/{slug}/download:
+    get:
+      summary: Download latest published version
+      parameters:
+        - name: namespace
+          in: path
+          required: true
+          schema: { type: string }
+        - name: slug
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Zip archive of the skill package
+
+  /api/v1/namespaces/{slug}:
+    get:
+      summary: Get namespace by slug
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Namespace detail
+
+  # --- CLI ---
+  /api/cli/v1/auth/whoami:
+    get:
+      summary: CLI whoami — returns authenticated user
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: CLI-compatible user principal
+
+  /api/cli/v1/skills/search:
+    get:
+      summary: CLI search with installability filter
+      parameters:
+        - name: q
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: SearchResult
+
+  # --- Well-known ---
+  /.well-known/skillhub:
+    get:
+      summary: SkillHub registry discovery
+      responses:
+        "200":
+          description: Registry metadata
+
+  /.well-known/clawhub:
+    get:
+      summary: ClawHub compatibility discovery
+      responses:
+        "200":
+          description: ClawHub compatibility metadata
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: API token (format: sk_...)
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: skillhub_session

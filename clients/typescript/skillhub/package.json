@@ -1,0 +1,19 @@
+{
+  "name": "@miqro/skillhub-client",
+  "version": "0.8.0",
+  "description": "Generated TypeScript client for the SkillHub HTTP API.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "node --test dist/**/*.test.js",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  },
+  "files": [
+    "dist/"
+  ],
+  "license": "MIT"
+}
