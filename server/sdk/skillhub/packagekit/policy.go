@@ -18,6 +18,10 @@ const (
 	MaxSingleFileSize = 10 * 1024 * 1024
 	// MaxTotalPackageSize is the maximum total size in bytes for all files (100 MB).
 	MaxTotalPackageSize = 100 * 1024 * 1024
+	// MaxUploadZipSize is the maximum allowed size in bytes for an uploaded zip
+	// file.  It matches MaxTotalPackageSize so the server never accepts a zip
+	// that could expand beyond the total package limit.
+	MaxUploadZipSize = MaxTotalPackageSize
 	// SkillMDPath is the required root manifest filename.
 	SkillMDPath = "SKILL.md"
 )
