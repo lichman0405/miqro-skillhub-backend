@@ -9,6 +9,7 @@ import (
 	"miqro-skillhub/server/internal/http/middleware"
 	"miqro-skillhub/server/internal/http/observability"
 	"miqro-skillhub/server/internal/http/portal"
+	"miqro-skillhub/server/internal/http/toolapi"
 	"miqro-skillhub/server/internal/http/webalias"
 	"miqro-skillhub/server/internal/http/wellknown"
 )
@@ -27,6 +28,9 @@ type RouterConfig struct {
 
 	// CLI handler.
 	CLI *cliapi.Handler
+
+	// Tool API handler — tool-facing /api/tool/v1/* routes.
+	ToolAPI *toolapi.Handler
 
 	// Metrics registry — if non-nil, /metrics returns real data.
 	MetricsRegistry *observability.MetricsRegistry
@@ -88,6 +92,11 @@ func NewRouter(cfg RouterConfig) *http.ServeMux {
 		cfg.CLI.RegisterRoutes(mux, cfg.AuthMW, rl)
 	} else {
 		registerUnconfiguredRoute(mux, "GET /api/cli/v1/skills/search")
+	}
+
+	// Tool API /api/tool/v1/* routes — miqro CLI protocol surface.
+	if cfg.ToolAPI != nil {
+		cfg.ToolAPI.RegisterRoutes(mux, cfg.AuthMW, rl)
 	}
 
 	// Frontend page-oriented read models — all routes go through optional auth

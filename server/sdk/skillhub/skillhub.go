@@ -25,6 +25,7 @@ import (
 	"miqro-skillhub/server/sdk/skillhub/security"
 	"miqro-skillhub/server/sdk/skillhub/skill"
 	"miqro-skillhub/server/sdk/skillhub/social"
+	"miqro-skillhub/server/sdk/skillhub/tooling"
 )
 
 // Service is the root facade for all SkillHub domain services.
@@ -45,4 +46,5 @@ type Service struct {
 	Notifications *notification.NotificationService
 	Security      *security.Service
 	Audit         *audit.AuditLogService
+	Tooling       *tooling.Service
 }
