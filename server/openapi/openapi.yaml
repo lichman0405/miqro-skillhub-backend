@@ -361,7 +361,7 @@ components:
     bearerAuth:
       type: http
       scheme: bearer
-      description: API token (format: sk_...)
+      description: "API token (format: sk_...)"
     sessionCookie:
       type: apiKey
       in: cookie
