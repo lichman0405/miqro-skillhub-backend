@@ -109,14 +109,12 @@ func TestNewRouter_Phase08CoreRoutes(t *testing.T) {
 	}
 
 	// Routes with SDK handlers that need full DB wiring to return non-404.
-	// These require the underlying repositories to be set up — in this
-	// integration-style test we skip them to avoid nil-pointer panics.
 	skipDueToSDKPipeline := map[string]bool{
-		"GET /api/v1/skills/ns1/slug1":                   true, // GetSkillDetail needs nsRepo
-		"GET /api/v1/skills/ns1/slug1/versions":           true, // ListVersions needs nsRepo
-		"GET /api/v1/namespaces/slug1":                    true, // GetBySlug needs nsRepo
-		"GET /api/v1/frontend/skills/ns/slug":             true, // namespaceRoleForSlug needs nsRepo
-		"GET /api/v1/frontend/skills/ns/slug/versions/v1": true, // namespaceRoleForSlug needs nsRepo
+		"GET /api/v1/skills/ns1/slug1":                    true, // GetSkillDetail needs nsRepo
+		"GET /api/v1/skills/ns1/slug1/versions":            true, // ListVersions needs nsRepo
+		"GET /api/v1/namespaces/slug1":                     true, // GetBySlug needs nsRepo
+		"GET /api/v1/frontend/skills/ns/slug":              true, // namespaceRoleForSlug needs nsRepo
+		"GET /api/v1/frontend/skills/ns/slug/versions/v1":  true, // namespaceRoleForSlug needs nsRepo
 	}
 
 	for _, rt := range requiredRoutes {
@@ -139,24 +137,86 @@ func TestNewRouter_Phase08CoreRoutes(t *testing.T) {
 	}
 }
 
-// TestNewRouter_RateLimiterApplied verifies the rate limiter is configured.
-func TestNewRouter_RateLimiterApplied(t *testing.T) {
-	limiter := middleware.NewRateLimiter(1, 1.0)
+// TestNewRouter_RateLimiterEnforced verifies that the rate limiter actually
+// returns 429 when capacity is exhausted for a given category+client.
+func TestNewRouter_RateLimiterEnforced(t *testing.T) {
+	limiter := middleware.NewRateLimiter(1, 0.0) // capacity=1, no refill
 
-	cfg := RouterConfig{
+	authH := &portal.AuthHandler{AuthSvc: &auth.Service{Local: &auth.LocalAuthService{}}}
+	authMW := middleware.NewAuthMiddleware(nil, nil, nil, nil, nil)
+
+	router := NewRouter(RouterConfig{
 		Health:          &HealthHandler{},
+		AuthMW:          authMW,
 		RateLimiter:     limiter,
+		PortalAuth:      authH,
 		MetricsRegistry: observability.NewMetricsRegistry(),
+	})
+
+	// First request to a rate-limited route should succeed (status != 429).
+	req1 := httptest.NewRequest("POST", "/api/v1/auth/login", nil)
+	req1.RemoteAddr = "192.0.2.1:12345"
+	w1 := httptest.NewRecorder()
+	router.ServeHTTP(w1, req1)
+	if w1.Code == http.StatusTooManyRequests {
+		t.Errorf("first request should not be rate-limited, got %d", w1.Code)
 	}
 
-	router := NewRouter(cfg)
+	// Second request from the same client to the same category should be 429.
+	req2 := httptest.NewRequest("POST", "/api/v1/auth/login", nil)
+	req2.RemoteAddr = "192.0.2.1:12345"
+	w2 := httptest.NewRecorder()
+	router.ServeHTTP(w2, req2)
+	if w2.Code != http.StatusTooManyRequests {
+		t.Errorf("second request in same category should be 429, got %d", w2.Code)
+	}
 
-	// Health endpoint should not be rate-limited (no auth, no limit).
-	req := httptest.NewRequest("GET", "/healthz", nil)
-	w := httptest.NewRecorder()
-	router.ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Errorf("healthz returned %d, want 200", w.Code)
+	// Health endpoint should NOT be rate-limited (it's excluded by design).
+	reqHealth := httptest.NewRequest("GET", "/healthz", nil)
+	reqHealth.RemoteAddr = "192.0.2.1:12345"
+	wHealth := httptest.NewRecorder()
+	router.ServeHTTP(wHealth, reqHealth)
+	if wHealth.Code != http.StatusOK {
+		t.Errorf("healthz should not be rate-limited, got %d", wHealth.Code)
+	}
+}
+
+// TestNewRouter_RateLimiterDifferentCategories verifies that rate limit
+// buckets are independent per category.
+func TestNewRouter_RateLimiterDifferentCategories(t *testing.T) {
+	limiter := middleware.NewRateLimiter(1, 0.0)
+
+	authH := &portal.AuthHandler{AuthSvc: &auth.Service{Local: &auth.LocalAuthService{}}}
+	searchH := &portal.SearchHandler{SearchSvc: &search.Service{Query: &stubSearchQuery{}}}
+	authMW := middleware.NewAuthMiddleware(nil, nil, nil, nil, nil)
+
+	router := NewRouter(RouterConfig{
+		Health:          &HealthHandler{},
+		AuthMW:          authMW,
+		RateLimiter:     limiter,
+		PortalAuth:      authH,
+		PortalSearch:    searchH,
+		MetricsRegistry: observability.NewMetricsRegistry(),
+	})
+
+	client := "192.0.2.10:12345"
+
+	// Exhaust "auth" category bucket.
+	reqAuth := httptest.NewRequest("POST", "/api/v1/auth/login", nil)
+	reqAuth.RemoteAddr = client
+	wAuth1 := httptest.NewRecorder()
+	router.ServeHTTP(wAuth1, reqAuth)
+	if wAuth1.Code == http.StatusTooManyRequests {
+		t.Fatal("first auth request should succeed")
+	}
+
+	// Same client, different category ("search") should still be allowed.
+	reqSearch := httptest.NewRequest("GET", "/api/v1/search", nil)
+	reqSearch.RemoteAddr = client
+	wSearch := httptest.NewRecorder()
+	router.ServeHTTP(wSearch, reqSearch)
+	if wSearch.Code == http.StatusTooManyRequests {
+		t.Error("search should not be rate-limited by auth category bucket")
 	}
 }
 

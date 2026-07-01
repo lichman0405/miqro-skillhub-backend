@@ -16,9 +16,19 @@ type AuthHandler struct {
 }
 
 // RegisterAuthRoutes registers auth routes on the given mux.
-func (h *AuthHandler) RegisterAuthRoutes(mux *http.ServeMux, authMW *middleware.AuthMiddleware) {
-	mux.HandleFunc("POST /api/v1/auth/login", h.handleLocalLogin)
-	mux.HandleFunc("POST /api/v1/auth/register", h.handleLocalRegister)
+// Login and register are rate-limited under the "auth" category to
+// mitigate brute-force attacks.
+func (h *AuthHandler) RegisterAuthRoutes(mux *http.ServeMux, authMW *middleware.AuthMiddleware, rl *middleware.RateLimiter) {
+	// Rate-limit helper.
+	withLimit := func(category string, next http.HandlerFunc) http.HandlerFunc {
+		if rl != nil {
+			return rl.Limit(category)(next)
+		}
+		return next
+	}
+
+	mux.HandleFunc("POST /api/v1/auth/login", withLimit("auth", h.handleLocalLogin))
+	mux.HandleFunc("POST /api/v1/auth/register", withLimit("auth", h.handleLocalRegister))
 	mux.HandleFunc("POST /api/v1/auth/logout", h.handleLogout)
 
 	mux.HandleFunc("GET /api/v1/auth/me", authMW.Authenticate(middleware.RequireAuth(h.handleMe)))

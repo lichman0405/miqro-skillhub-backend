@@ -20,17 +20,35 @@ type Handler struct {
 }
 
 // RegisterRoutes registers CLI API routes on the given mux.
-func (h *Handler) RegisterRoutes(mux *http.ServeMux, authMW *middleware.AuthMiddleware) {
+// Public read routes use optional auth so handlers can apply viewer scoping.
+func (h *Handler) RegisterRoutes(mux *http.ServeMux, authMW *middleware.AuthMiddleware, rl *middleware.RateLimiter) {
+	// Optional-auth helper.
+	optAuth := func(next http.HandlerFunc) http.HandlerFunc {
+		if authMW != nil {
+			return authMW.Authenticate(next)
+		}
+		return next
+	}
+
+	// Rate-limit helper.
+	withLimit := func(category string, next http.HandlerFunc) http.HandlerFunc {
+		if rl != nil {
+			return rl.Limit(category)(next)
+		}
+		return next
+	}
+
 	// Auth.
 	mux.HandleFunc("GET /api/cli/v1/auth/whoami", authMW.Authenticate(middleware.RequireAuth(h.handleWhoami)))
 
-	// Skills.
-	mux.HandleFunc("GET /api/cli/v1/skills/search", h.handleSearch)
-	mux.HandleFunc("GET /api/cli/v1/skills/{namespace}/{slug}/resolve", h.handleResolve)
-	mux.HandleFunc("GET /api/cli/v1/skills/{namespace}/{slug}/download", h.handleDownload)
-	mux.HandleFunc("GET /api/cli/v1/skills/{namespace}/{slug}/versions/{version}/download", h.handleVersionDownload)
+	// Skills — public read routes with optional auth.
+	mux.HandleFunc("GET /api/cli/v1/skills/search", optAuth(h.handleSearch))
+	mux.HandleFunc("GET /api/cli/v1/skills/{namespace}/{slug}/resolve", optAuth(h.handleResolve))
+	mux.HandleFunc("GET /api/cli/v1/skills/{namespace}/{slug}/download", optAuth(withLimit("download", h.handleDownload)))
+	mux.HandleFunc("GET /api/cli/v1/skills/{namespace}/{slug}/versions/{version}/download", optAuth(withLimit("download", h.handleVersionDownload)))
 	mux.HandleFunc("POST /api/cli/v1/skills/{namespace}/publish/validate", authMW.Authenticate(middleware.RequireAuth(h.handleValidate)))
-	mux.HandleFunc("POST /api/cli/v1/skills/{namespace}/publish", authMW.Authenticate(middleware.RequireAuth(h.handlePublish)))
+	mux.HandleFunc("POST /api/cli/v1/skills/{namespace}/publish", withLimit("publish",
+		authMW.Authenticate(middleware.RequireAuth(h.handlePublish))))
 	mux.HandleFunc("DELETE /api/cli/v1/skills/{namespace}/{slug}", authMW.Authenticate(middleware.RequireAuth(h.handleDelete)))
 }
 

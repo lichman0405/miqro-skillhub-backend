@@ -15,15 +15,26 @@ type NamespaceHandler struct {
 }
 
 // RegisterNamespaceRoutes registers namespace routes.
-func (h *NamespaceHandler) RegisterNamespaceRoutes(mux *http.ServeMux, authMW *middleware.AuthMiddleware) {
-	mux.HandleFunc("GET /api/v1/namespaces", h.handleListNamespaces)
-	mux.HandleFunc("GET /api/v1/namespaces/{slug}", h.handleGetNamespace)
+// Public read routes use optional auth so handlers can apply viewer scoping.
+func (h *NamespaceHandler) RegisterNamespaceRoutes(mux *http.ServeMux, authMW *middleware.AuthMiddleware, rl *middleware.RateLimiter) {
+	// Optional-auth helper.
+	optAuth := func(next http.HandlerFunc) http.HandlerFunc {
+		if authMW != nil {
+			return authMW.Authenticate(next)
+		}
+		return next
+	}
+
+	_ = rl // reserved for future rate-limit categories on namespace mutating routes
+
+	mux.HandleFunc("GET /api/v1/namespaces", optAuth(h.handleListNamespaces))
+	mux.HandleFunc("GET /api/v1/namespaces/{slug}", optAuth(h.handleGetNamespace))
 
 	mux.HandleFunc("POST /api/v1/namespaces", authMW.Authenticate(middleware.RequireAuth(h.handleCreateNamespace)))
 	mux.HandleFunc("PATCH /api/v1/namespaces/{id}", authMW.Authenticate(middleware.RequireAuth(h.handleUpdateNamespace)))
 	mux.HandleFunc("DELETE /api/v1/namespaces/{id}", authMW.Authenticate(middleware.RequireAuth(h.handleDeleteNamespace)))
 
-	mux.HandleFunc("GET /api/v1/namespaces/{id}/members", h.handleListMembers)
+	mux.HandleFunc("GET /api/v1/namespaces/{id}/members", optAuth(h.handleListMembers))
 	mux.HandleFunc("POST /api/v1/namespaces/{id}/members", authMW.Authenticate(middleware.RequireAuth(h.handleAddMember)))
 	mux.HandleFunc("DELETE /api/v1/namespaces/{id}/members/{userID}", authMW.Authenticate(middleware.RequireAuth(h.handleRemoveMember)))
 

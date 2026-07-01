@@ -14,9 +14,18 @@ type SearchHandler struct {
 }
 
 // RegisterSearchRoutes registers search routes on the given mux.
-func (h *SearchHandler) RegisterSearchRoutes(mux *http.ServeMux, authMW *middleware.AuthMiddleware) {
-	mux.HandleFunc("GET /api/v1/search", h.handleSearch)
-	mux.HandleFunc("POST /api/v1/search", h.handleSearch)
+// Search is public but uses optional auth so that the handler can apply
+// visibility scoping when the caller is authenticated.
+func (h *SearchHandler) RegisterSearchRoutes(mux *http.ServeMux, authMW *middleware.AuthMiddleware, rl *middleware.RateLimiter) {
+	handler := h.handleSearch
+	if authMW != nil {
+		handler = authMW.Authenticate(handler)
+	}
+	if rl != nil {
+		handler = rl.Limit("search")(handler)
+	}
+	mux.HandleFunc("GET /api/v1/search", handler)
+	mux.HandleFunc("POST /api/v1/search", handler)
 }
 
 func (h *SearchHandler) handleSearch(w http.ResponseWriter, r *http.Request) {

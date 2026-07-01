@@ -6,8 +6,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"miqro-skillhub/server/internal/http/middleware"
+	"miqro-skillhub/server/sdk/skillhub/auth"
 	"miqro-skillhub/server/sdk/skillhub/namespace"
 )
 
@@ -430,5 +432,136 @@ func TestFrontend_NamespaceDetail_ScopedLookup_MatchedNs(t *testing.T) {
 	}
 	if resp.Data.AvailableActions.CanDelete {
 		t.Error("without nsH, should NOT have CanDelete (defensive default)")
+	}
+}
+
+// ── Auth integration: real Authorization header → authenticated principal ──
+
+const testRawToken = "test-api-token-for-integration-test"
+
+// stubApiTokenRepo returns a specific ApiToken for a known hash.
+type stubApiTokenRepo struct{}
+
+func (s *stubApiTokenRepo) Save(ctx context.Context, token auth.ApiToken) (auth.ApiToken, error) {
+	return token, nil
+}
+func (s *stubApiTokenRepo) FindByID(ctx context.Context, id int64) (*auth.ApiToken, error) {
+	return nil, nil
+}
+func (s *stubApiTokenRepo) FindByTokenHash(ctx context.Context, hash string) (*auth.ApiToken, error) {
+	expectedHash := middleware.HashToken(testRawToken)
+	if hash == expectedHash {
+		return &auth.ApiToken{
+			ID:     1,
+			UserID: "user-bearer-1",
+			Name:   "test-token",
+		}, nil
+	}
+	return nil, nil
+}
+func (s *stubApiTokenRepo) FindByUserID(ctx context.Context, userID string) ([]auth.ApiToken, error) {
+	return nil, nil
+}
+func (s *stubApiTokenRepo) FindActiveByName(ctx context.Context, userID string, name string) (*auth.ApiToken, error) {
+	return nil, nil
+}
+func (s *stubApiTokenRepo) UpdateLastUsed(ctx context.Context, id int64) error { return nil }
+func (s *stubApiTokenRepo) UpdateExpiration(ctx context.Context, id int64, expiresAt *time.Time) error {
+	return nil
+}
+func (s *stubApiTokenRepo) Revoke(ctx context.Context, id int64) error { return nil }
+
+// TestFrontend_AuthIntegration_BearerToken proves that a real HTTP request
+// with an Authorization: Bearer header flows through Authenticate and
+// populates the principal — NOT relying on manual SetPrincipal.
+func TestFrontend_AuthIntegration_BearerToken(t *testing.T) {
+	// Build a real AuthMiddleware with a stub token service.
+	tokenSvc := auth.NewApiTokenService(&stubApiTokenRepo{})
+	authMW := middleware.NewAuthMiddleware(nil, tokenSvc, nil, nil, nil)
+
+	// Wrap the registry search handler with Authenticate for optional auth.
+	handler := authMW.Authenticate(handleRegistrySearch)
+
+	req := httptest.NewRequest("GET", "/api/v1/frontend/search", nil)
+	req.Header.Set("Authorization", "Bearer "+testRawToken)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var resp struct {
+		Success bool                    `json:"success"`
+		Data    RegistrySearchReadModel `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	// The principal should be authenticated via the bearer token.
+	if !resp.Data.AvailableActions.CanCreateSkill {
+		t.Error("bearer-authenticated user should be able to create skill")
+	}
+	if !resp.Data.AvailableActions.CanCreateNamespace {
+		t.Error("bearer-authenticated user should be able to create namespace")
+	}
+	if resp.Data.AvailableActions.CanAccessAdmin {
+		t.Error("bearer user without SUPER_ADMIN should NOT have admin access")
+	}
+}
+
+// TestFrontend_AuthIntegration_Anonymous proves that a request WITHOUT
+// an Authorization header gets an anonymous principal (not authenticated).
+func TestFrontend_AuthIntegration_Anonymous(t *testing.T) {
+	tokenSvc := auth.NewApiTokenService(&stubApiTokenRepo{})
+	authMW := middleware.NewAuthMiddleware(nil, tokenSvc, nil, nil, nil)
+
+	handler := authMW.Authenticate(handleRegistrySearch)
+
+	req := httptest.NewRequest("GET", "/api/v1/frontend/search", nil)
+	// No Authorization header — should be anonymous.
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	var resp struct {
+		Success bool                    `json:"success"`
+		Data    RegistrySearchReadModel `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if resp.Data.AvailableActions.CanCreateSkill {
+		t.Error("anonymous (no auth header) should NOT be able to create skill")
+	}
+	if resp.Data.AvailableActions.CanCreateNamespace {
+		t.Error("anonymous (no auth header) should NOT be able to create namespace")
+	}
+}
+
+// TestFrontend_AuthIntegration_InvalidToken proves that an invalid bearer
+// token is treated as anonymous (no privilege escalation).
+func TestFrontend_AuthIntegration_InvalidToken(t *testing.T) {
+	tokenSvc := auth.NewApiTokenService(&stubApiTokenRepo{})
+	authMW := middleware.NewAuthMiddleware(nil, tokenSvc, nil, nil, nil)
+
+	handler := authMW.Authenticate(handleRegistrySearch)
+
+	req := httptest.NewRequest("GET", "/api/v1/frontend/search", nil)
+	req.Header.Set("Authorization", "Bearer invalid-token-that-does-not-exist")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	var resp struct {
+		Success bool                    `json:"success"`
+		Data    RegistrySearchReadModel `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if resp.Data.AvailableActions.CanCreateSkill {
+		t.Error("invalid token should be treated as anonymous — should NOT create skill")
 	}
 }

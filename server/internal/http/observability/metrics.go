@@ -8,22 +8,28 @@ import (
 	"time"
 )
 
-// maxMetricsKeys is the upper bound on unique metric keys.  When exceeded,
-// the oldest entries are evicted to prevent unbounded memory growth from
-// cardinality explosions (e.g., UUIDs or raw IDs in URL paths).
+// maxMetricsKeys is the upper bound on unique metric keys per map.  When
+// exceeded, the oldest entries are evicted to prevent unbounded memory
+// growth from cardinality explosions (e.g., raw IDs in URL paths).
 const maxMetricsKeys = 5000
 
-// uuidPattern matches UUIDs and numeric segments in URL paths for normalization.
+// uuidPattern matches UUID segments in URL paths for normalization.
 var uuidPattern = regexp.MustCompile(`/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`)
 
-// MetricsRegistry provides a simple in-memory Prometheus-compatible metrics store.
-// Production deployments should replace this with a proper Prometheus client.
+// digitSegmentPattern matches bare numeric path segments (e.g. /123, /42/)
+// so that dynamic integer IDs don't explode metric cardinality.
+var digitSegmentPattern = regexp.MustCompile(`/\d+(/|$)`)
+
+// MetricsRegistry provides a simple in-memory Prometheus-compatible metrics
+// store.  Production deployments should replace this with a proper
+// Prometheus client library.
 type MetricsRegistry struct {
-	mu            sync.RWMutex
-	requestCount  map[string]int64 // "method:path:status" → count
-	requestDurSum map[string]float64
-	startTime     time.Time
-	evictOrder    []string // FIFO eviction order
+	mu              sync.RWMutex
+	requestCount    map[string]int64   // "method:path:status" → count
+	requestDurSum   map[string]float64 // "method:path" → duration sum (seconds)
+	startTime       time.Time
+	countEvictOrder []string // FIFO eviction order for requestCount keys
+	durEvictOrder   []string // FIFO eviction order for requestDurSum keys
 }
 
 // NewMetricsRegistry creates a new MetricsRegistry.
@@ -36,38 +42,56 @@ func NewMetricsRegistry() *MetricsRegistry {
 }
 
 // RecordRequest records a completed HTTP request.
-// The path is normalized using r.Pattern (static route pattern from Go 1.22+
-// ServeMux) when available; otherwise URL path is normalized by replacing
-// UUID and numeric-ID segments with {param} to prevent unbounded key growth.
+//
+// The path is normalized (UUIDs → {id}, bare numeric segments → {id}) to
+// prevent unbounded key growth.  Both requestCount and requestDurSum are
+// independently capped at maxMetricsKeys via FIFO eviction.
 func (m *MetricsRegistry) RecordRequest(method, path string, statusCode int, duration time.Duration) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	path = normalizePath(path)
 	key := fmt.Sprintf("%s:%s:%d", method, path, statusCode)
-	m.requestCount[key]++
 	durKey := fmt.Sprintf("%s:%s", method, path)
+
+	// Track new keys for FIFO eviction.
+	if _, exists := m.requestCount[key]; !exists {
+		m.countEvictOrder = append(m.countEvictOrder, key)
+	}
+	if _, exists := m.requestDurSum[durKey]; !exists {
+		m.durEvictOrder = append(m.durEvictOrder, durKey)
+	}
+
+	m.requestCount[key]++
 	m.requestDurSum[durKey] += duration.Seconds()
 
-	// Evict oldest keys when map exceeds maxMetricsKeys.
-	if len(m.requestCount) > maxMetricsKeys {
-		// Rebuild evictOrder from current requestCount keys.
-		m.evictOrder = nil
-		for k := range m.requestCount {
-			m.evictOrder = append(m.evictOrder, k)
-			break // just one sample to evict
-		}
-		for _, k := range m.evictOrder {
-			delete(m.requestCount, k)
+	// Evict oldest entries from requestCount.
+	for len(m.requestCount) > maxMetricsKeys {
+		if len(m.countEvictOrder) == 0 {
 			break
 		}
+		oldest := m.countEvictOrder[0]
+		m.countEvictOrder = m.countEvictOrder[1:]
+		delete(m.requestCount, oldest)
+	}
+
+	// Evict oldest entries from requestDurSum.
+	for len(m.requestDurSum) > maxMetricsKeys {
+		if len(m.durEvictOrder) == 0 {
+			break
+		}
+		oldest := m.durEvictOrder[0]
+		m.durEvictOrder = m.durEvictOrder[1:]
+		delete(m.requestDurSum, oldest)
 	}
 }
 
-// normalizePath replaces UUID segments with {id} and bare numeric segments
-// with {id} so that dynamic URL components don't explode metric cardinality.
+// normalizePath replaces UUID segments and bare numeric segments with
+// {id} so that dynamic URL components don't explode metric cardinality.
 func normalizePath(path string) string {
-	return uuidPattern.ReplaceAllString(path, "/{id}")
+	path = uuidPattern.ReplaceAllString(path, "/{id}")
+	path = digitSegmentPattern.ReplaceAllString(path, "/{id}$1")
+	return path
 }
 
 // ServeHTTP implements http.Handler to expose Prometheus-text metrics.

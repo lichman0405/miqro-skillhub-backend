@@ -19,15 +19,36 @@ type SkillHandler struct {
 }
 
 // RegisterSkillRoutes registers skill routes.
-func (h *SkillHandler) RegisterSkillRoutes(mux *http.ServeMux, authMW *middleware.AuthMiddleware) {
-	mux.HandleFunc("GET /api/v1/skills/{namespace}/{slug}", h.handleGetSkillDetail)
-	mux.HandleFunc("GET /api/v1/skills/{namespace}/{slug}/versions", h.handleListVersions)
-	mux.HandleFunc("GET /api/v1/skills/{namespace}/{slug}/versions/{version}", h.handleGetVersionDetail)
-	mux.HandleFunc("GET /api/v1/skills/{namespace}/{slug}/files", h.handleListFiles)
-	mux.HandleFunc("GET /api/v1/skills/{namespace}/{slug}/resolve", h.handleResolve)
-	mux.HandleFunc("GET /api/v1/skills/{namespace}/{slug}/download", h.handleDownload)
+// Public read routes use optional auth so the handler can apply
+// visibility scoping.  Publish and download are rate-limited by category.
+func (h *SkillHandler) RegisterSkillRoutes(mux *http.ServeMux, authMW *middleware.AuthMiddleware, rl *middleware.RateLimiter) {
+	// Optional-auth helper — wraps a handler with Authenticate when authMW is non-nil.
+	optAuth := func(next http.HandlerFunc) http.HandlerFunc {
+		if authMW != nil {
+			return authMW.Authenticate(next)
+		}
+		return next
+	}
 
-	mux.HandleFunc("POST /api/v1/skills/{namespace}/publish", authMW.Authenticate(middleware.RequireAuth(h.handlePublish)))
+	// Rate-limit helper.
+	withLimit := func(category string, next http.HandlerFunc) http.HandlerFunc {
+		if rl != nil {
+			return rl.Limit(category)(next)
+		}
+		return next
+	}
+
+	// Public read routes — optional auth for viewer context.
+	mux.HandleFunc("GET /api/v1/skills/{namespace}/{slug}", optAuth(h.handleGetSkillDetail))
+	mux.HandleFunc("GET /api/v1/skills/{namespace}/{slug}/versions", optAuth(h.handleListVersions))
+	mux.HandleFunc("GET /api/v1/skills/{namespace}/{slug}/versions/{version}", optAuth(h.handleGetVersionDetail))
+	mux.HandleFunc("GET /api/v1/skills/{namespace}/{slug}/files", optAuth(h.handleListFiles))
+	mux.HandleFunc("GET /api/v1/skills/{namespace}/{slug}/resolve", optAuth(h.handleResolve))
+	mux.HandleFunc("GET /api/v1/skills/{namespace}/{slug}/download", optAuth(withLimit("download", h.handleDownload)))
+
+	// Mutating routes — require auth + rate limiting.
+	mux.HandleFunc("POST /api/v1/skills/{namespace}/publish", withLimit("publish",
+		authMW.Authenticate(middleware.RequireAuth(h.handlePublish))))
 	mux.HandleFunc("DELETE /api/v1/skills/{namespace}/{slug}", authMW.Authenticate(middleware.RequireAuth(h.handleDeleteSkill)))
 }
 
