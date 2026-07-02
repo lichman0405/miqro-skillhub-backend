@@ -137,12 +137,26 @@ GET /api/v1/auth/me
 Authorization: Bearer sk_...
 ```
 
+### Logout
+
+```
+POST /api/v1/auth/logout
+Authorization: Bearer sk_...
+```
+
 ### API tokens
 
 ```
 GET /api/v1/auth/tokens          # list tokens
 POST /api/v1/auth/tokens          # create token
 DELETE /api/v1/auth/tokens/{id}   # revoke token
+```
+
+### Password reset
+
+```
+POST /api/v1/auth/password-reset/request   # request reset email
+POST /api/v1/auth/password-reset/confirm   # confirm with token from email
 ```
 
 ---
@@ -553,7 +567,20 @@ GET /healthz                          # liveness probe
 GET /readyz                           # readiness probe
 GET /.well-known/skillhub             # registry discovery
 GET /.well-known/clawhub              # ClawHub compatibility
-GET /api/cli/v1/auth/whoami           # CLI whoami
-GET /api/cli/v1/skills/search?q=...   # CLI search
 GET /metrics                          # Prometheus metrics (text/plain)
+```
+
+## CLI API (`/api/cli/v1`)
+
+Legacy CLI interface for the miqro CLI tool:
+
+```
+GET  /api/cli/v1/auth/whoami                                        # CLI whoami
+GET  /api/cli/v1/skills/search?q=...                                # CLI search
+GET  /api/cli/v1/skills/{namespace}/{slug}/resolve                  # CLI resolve
+GET  /api/cli/v1/skills/{namespace}/{slug}/download                 # CLI download latest
+GET  /api/cli/v1/skills/{namespace}/{slug}/versions/{version}/download  # CLI download specific version
+POST /api/cli/v1/skills/{namespace}/publish/validate                # CLI dry-run validate (multipart)
+POST /api/cli/v1/skills/{namespace}/publish                         # CLI publish (multipart)
+DELETE /api/cli/v1/skills/{namespace}/{slug}                        # CLI delete skill
 ```

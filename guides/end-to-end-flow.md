@@ -67,16 +67,22 @@ After a successful publish, the version is in `PUBLISHED` status. The version re
 
 ### 5. CI pipeline trigger
 
-When a version is published, the server creates a CI pipeline run with all configured checks:
+When a version is published, the server creates a CI pipeline run with 6 default checks:
 
-- **manifest-validation** — deterministic `SKILL.md` manifest check
-- **secret-scan** — scans files for secrets/key patterns
-- **documentation-quality** — checks documentation completeness
-- **llm-review** — LLM-powered quality review (optional, requires `AGENTCI_LLM_*` env vars)
+| Check | Runner Type | Blocking |
+|---|---|---|
+| **manifest-validation** | deterministic | ✅ yes |
+| **package-policy-validation** | deterministic | ✅ yes |
+| **secret-scan** | deterministic | ✅ yes |
+| **install-smoke-test** | deterministic | ✅ yes |
+| **documentation-quality** | deterministic | ✅ yes |
+| **release-notes-suggestion** | LLM | ❌ no (non-blocking) |
+
+The first 5 checks use the local deterministic runner; `release-notes-suggestion` requires LLM configuration (`AGENTCI_LLM_*` env vars) and is non-blocking.
 
 **Status:** ✅ Implemented (pipeline creation and trigger). Local deterministic runner is wired; LLM runner requires configuration.
 
-**Known gap:** LLM runner returns SKIPPED without `AGENTCI_LLM_*` env vars. This is by design — the deterministic checks still run.
+**Known gap:** `release-notes-suggestion` returns SKIPPED without `AGENTCI_LLM_*` env vars. This is by design — the deterministic checks still run.
 
 ### 6. Worker executes CI checks
 
@@ -172,6 +178,21 @@ GET /api/tool/v1/skills/{namespace}/{slug}/resolve  # resolve version + fingerpr
 
 **Status:** ✅ Implemented (download, resolve). Install metadata returns target info including supported agent runtimes.
 
+## Version status flow
+
+After a skill package is published, the version transitions through statuses:
+
+```
+DRAFT ──→ PUBLISHED ──→ (can create release)
+  │
+  └──→ PENDING_REVIEW ──→ PUBLISHED (reviewer approves)
+                         └── REJECTED (reviewer rejects)
+```
+
+- **Direct publish** (`POST /api/v1/skills/{namespace}/publish`) → version becomes `PUBLISHED` directly
+- **Review path** → version becomes `PENDING_REVIEW`, reviewer approves/rejects
+- **Release gate** → CI gates are evaluated both at review approval (`review_approve`) and at release publish (`release_publish`)
+
 ## Flow diagram
 
 ```
@@ -223,10 +244,10 @@ GET /api/tool/v1/skills/{namespace}/{slug}/resolve  # resolve version + fingerpr
 | Namespace setup | ✅ Implemented | Global namespace seeded; CRUD via API |
 | Package upload (publish) | ✅ Implemented | Zip extraction, file storage, version creation |
 | Package validation | ✅ Implemented | Dry-run via tool API |
-| CI pipeline creation | ✅ Implemented | Checks created on publish trigger |
+| CI pipeline creation | ✅ Implemented | 6 checks created on publish trigger |
 | Worker execution | ✅ Implemented | Poll + ClaimPending + execute |
-| Deterministic checks | ✅ Implemented | manifest-validation, secret-scan, documentation-quality |
-| LLM-powered checks | 🔶 Stub | Returns SKIPPED without LLM config |
+| Deterministic checks (5) | ✅ Implemented | manifest-validation, package-policy-validation, secret-scan, install-smoke-test, documentation-quality |
+| LLM-powered check | 🔶 Stub | release-notes-suggestion returns SKIPPED without LLM config |
 | Step logs | 🔶 Not wired | `LogStore` remains nil — step logs not persisted |
 | CI gate evaluation | ✅ Implemented | Per-policy evaluation with pass/fail |
 | Review submission | ✅ Implemented | SDK complete |

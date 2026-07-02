@@ -120,6 +120,11 @@ func (svc *Service) TriggerPipeline(ctx context.Context, input TriggerPipelineIn
 
 	checkCount := 0
 	for _, step := range steps {
+			// Default blocking=true; only false if step explicitly sets Blocking: false.
+			isBlocking := true
+			if step.Blocking != nil {
+				isBlocking = *step.Blocking
+			}
 		check := CheckRun{
 			PipelineRunID: saved.ID,
 			SkillID:       input.SkillID,
@@ -128,7 +133,7 @@ func (svc *Service) TriggerPipeline(ctx context.Context, input TriggerPipelineIn
 			Name:          step.Name,
 			RunnerType:    step.RunnerType,
 			Status:        CheckStatusPending,
-			IsBlocking:    true,
+			IsBlocking:    isBlocking,
 			CreatedAt:     now,
 			UpdatedAt:     now,
 		}
@@ -593,14 +598,18 @@ func parsePipelineSteps(stepsJSON string) ([]PipelineStepDefinition, error) {
 }
 
 // DefaultPipelineSteps returns the default set of checks for a standard
-// publish/review pipeline.
+// publish/review pipeline. The first 5 checks run on the deterministic runner
+// and are blocking (must pass for gate enforcement). The last check runs on an
+// LLM runner and is non-blocking (skipped if no LLM configured).
 func DefaultPipelineSteps() []PipelineStepDefinition {
+	t := true
+	f := false
 	return []PipelineStepDefinition{
-		{Name: "manifest-validation", RunnerType: "deterministic"},
-		{Name: "package-policy-validation", RunnerType: "deterministic"},
-		{Name: "secret-scan", RunnerType: "deterministic"},
-		{Name: "install-smoke-test", RunnerType: "deterministic"},
-		{Name: "documentation-quality", RunnerType: "deterministic"},
-		{Name: "release-notes-suggestion", RunnerType: "llm"}, // optional/non-blocking
+		{Name: "manifest-validation", RunnerType: "deterministic", Blocking: &t},
+		{Name: "package-policy-validation", RunnerType: "deterministic", Blocking: &t},
+		{Name: "secret-scan", RunnerType: "deterministic", Blocking: &t},
+		{Name: "install-smoke-test", RunnerType: "deterministic", Blocking: &t},
+		{Name: "documentation-quality", RunnerType: "deterministic", Blocking: &t},
+		{Name: "release-notes-suggestion", RunnerType: "llm", Blocking: &f},
 	}
 }

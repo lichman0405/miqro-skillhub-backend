@@ -662,22 +662,35 @@ func TestRegisterRunner(t *testing.T) {
 
 func TestDefaultPipelineSteps(t *testing.T) {
 	steps := DefaultPipelineSteps()
-	if len(steps) < 5 {
-		t.Errorf("expected at least 5 default steps, got %d", len(steps))
+	if len(steps) != 6 {
+		t.Errorf("expected 6 default steps, got %d", len(steps))
 	}
-	found := make(map[string]bool)
+	// Verify all 6 step names.
+	names := make(map[string]bool)
 	for _, s := range steps {
-		found[s.Name] = true
+		names[s.Name] = true
 	}
-	required := []string{"manifest-validation", "package-policy-validation", "secret-scan", "install-smoke-test", "documentation-quality"}
-	for _, name := range required {
-		if !found[name] {
+	expected := []string{
+		"manifest-validation", "package-policy-validation", "secret-scan",
+		"install-smoke-test", "documentation-quality", "release-notes-suggestion",
+	}
+	for _, name := range expected {
+		if !names[name] {
 			t.Errorf("missing required default step: %s", name)
 		}
 	}
-	// release-notes-suggestion should be llm type.
+	// release-notes-suggestion should be llm type and non-blocking.
 	if steps[5].RunnerType != "llm" {
 		t.Errorf("expected release-notes-suggestion runnerType=llm, got %s", steps[5].RunnerType)
+	}
+	if steps[5].Blocking == nil || *steps[5].Blocking {
+		t.Error("expected release-notes-suggestion Blocking=false")
+	}
+	// First 5 steps should be blocking.
+	for i := 0; i < 5; i++ {
+		if steps[i].Blocking == nil || !*steps[i].Blocking {
+			t.Errorf("expected step %q Blocking=true", steps[i].Name)
+		}
 	}
 }
 
@@ -774,6 +787,79 @@ func TestGateEnforce_Fails(t *testing.T) {
 	})
 	if err == nil {
 		t.Error("GateEnforce: expected error when gates fail")
+	}
+}
+
+// ── Non-blocking check gate tests ─────────────────────────────────────────────
+
+func TestEvaluateGates_NonBlockingFailedCheck_StillPasses(t *testing.T) {
+	// Gate with required_passed: a non-blocking check that FAILED should not block.
+	svc := testSvcWithGates()
+	rid := int64(99)
+	// Blocking check passed — satisfies required_passed.
+	svc.checkRunRepo.Create(context.Background(), CheckRun{
+		PipelineRunID: 1, SkillID: 100, ReleaseID: &rid,
+		Name: "secret-scan", RunnerType: "deterministic",
+		Status: CheckStatusPassed, IsBlocking: true, CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	})
+	// Non-blocking check (llm) failed — should be ignored by gate.
+	svc.checkRunRepo.Create(context.Background(), CheckRun{
+		PipelineRunID: 1, SkillID: 100, ReleaseID: &rid,
+		Name: "release-notes-suggestion", RunnerType: "llm",
+		Status: CheckStatusFailed, IsBlocking: false, CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	})
+
+	result, err := svc.EvaluateGates(context.Background(), GateEvalRequest{
+		SkillID:     100,
+		ReleaseID:   &rid,
+		TriggerType: "release_publish",
+	})
+	if err != nil {
+		t.Fatalf("EvaluateGates: %v", err)
+	}
+	if !result.Passed {
+		t.Errorf("expected gates to pass (non-blocking failed check should be ignored), got reason=%q", result.Reason)
+	}
+}
+
+func TestGateEnforce_NonBlockingSkippedCheck_Passes(t *testing.T) {
+	// GateEnforce with GateRuleRequiredPassed: non-blocking SKIPPED check should not block.
+	svc := NewService(
+		newStubPipelineDefRepo(PipelineDefinition{
+			Name:      "test-pipeline",
+			TriggerOn: "release",
+			StepsJSON: `[{"name":"secret-scan","runnerType":"deterministic"}]`,
+			Enabled:   true,
+		}),
+		newStubPipelineRunRepo(),
+		newStubCheckRunRepo(),
+		nil, nil,
+		newStubGatePolicyRepo(
+			GatePolicy{Name: "Release Gate", TriggerOn: "release_publish", RequiredRule: GateRuleRequiredPassed, Enabled: true},
+		),
+		nil, nil,
+	)
+	rid := int64(99)
+	// Blocking check passed.
+	svc.checkRunRepo.Create(context.Background(), CheckRun{
+		PipelineRunID: 1, SkillID: 100, ReleaseID: &rid,
+		Name: "secret-scan", RunnerType: "deterministic",
+		Status: CheckStatusPassed, IsBlocking: true, CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	})
+	// Non-blocking check skipped (e.g., no LLM configured) — should not block.
+	svc.checkRunRepo.Create(context.Background(), CheckRun{
+		PipelineRunID: 1, SkillID: 100, ReleaseID: &rid,
+		Name: "release-notes-suggestion", RunnerType: "llm",
+		Status: CheckStatusSkipped, IsBlocking: false, CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	})
+
+	err := svc.GateEnforce(context.Background(), GateEvalRequest{
+		SkillID:     100,
+		ReleaseID:   &rid,
+		TriggerType: "release_publish",
+	})
+	if err != nil {
+		t.Errorf("GateEnforce: expected no error (non-blocking SKIPPED should not block), got %v", err)
 	}
 }
 

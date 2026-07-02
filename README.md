@@ -51,7 +51,7 @@ miqro-skillhub/
 │   │   │   ├── middleware/  # Auth, rate limiting, error handling
 │   │   │   └── observability/ # Logging, metrics
 │   │   └── testutil/        # Integration test helpers
-│   ├── migrations/          # PostgreSQL migration SQL files (12 groups)
+│   ├── migrations/          # PostgreSQL migration SQL files (8 groups)
 │   ├── openapi/             # OpenAPI 3.0.3 specification
 │   ├── cmd/
 │   │   ├── skillhub-server/ # HTTP server entry point
@@ -89,7 +89,7 @@ miqro-skillhub/
 | Tool API (miqro CLI protocol) | ✅ |
 | OpenAPI 3.0.3 spec | ✅ |
 | TypeScript SDK | ✅ |
-| PostgreSQL migrations (35+ tables) | ✅ |
+| PostgreSQL migrations (8 groups, ~50 tables) | ✅ |
 | Docker Compose stack | ✅ |
 
 ## Local development

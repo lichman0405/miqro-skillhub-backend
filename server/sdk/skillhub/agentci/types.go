@@ -45,9 +45,10 @@ type PipelineDefinition struct {
 
 // PipelineStepDefinition is one step within a pipeline definition.
 type PipelineStepDefinition struct {
-	Name       string `json:"name"`
+	Name     string `json:"name"`
 	RunnerType string `json:"runnerType"` // "deterministic", "llm", "container", "adapter"
-	Config     string `json:"config,omitempty"`
+	Config   string `json:"config,omitempty"`
+	Blocking *bool  `json:"blocking,omitempty"` // nil means default (true); false means non-blocking
 }
 
 // PipelineRun is one execution of a pipeline for a skill version or release.
