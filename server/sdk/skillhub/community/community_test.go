@@ -659,7 +659,7 @@ func TestAcceptAnswer_NonAuthorRejected(t *testing.T) {
 
 func TestWikiPageCreateAndRead(t *testing.T) {
 	svc := newTestService()
-	p, err := svc.CreateWikiPage(ctx, viewer("u1"), CreateWikiPageInput{
+	p, err := svc.CreateWikiPage(ctx, viewer("owner1"), "owner1", 10, CreateWikiPageInput{
 		SkillID: 1, Title: "Getting Started", Slug: "getting-started", Body: "Welcome!",
 	})
 	if err != nil {
@@ -690,11 +690,11 @@ func TestWikiPageCreateAndRead(t *testing.T) {
 
 func TestWikiPageUpdate(t *testing.T) {
 	svc := newTestService()
-	p, _ := svc.CreateWikiPage(ctx, viewer("u1"), CreateWikiPageInput{
+	p, _ := svc.CreateWikiPage(ctx, viewer("owner1"), "owner1", 10, CreateWikiPageInput{
 		SkillID: 1, Title: "Docs", Slug: "docs", Body: "First version",
 	})
 
-	updated, err := svc.UpdateWikiPage(ctx, viewer("u1"), UpdateWikiPageInput{
+	updated, err := svc.UpdateWikiPage(ctx, viewer("owner1"), "owner1", 10, UpdateWikiPageInput{
 		PageID: p.ID, Body: "Second version", ChangeSummary: "Updated content",
 	})
 	if err != nil {
@@ -735,7 +735,7 @@ func TestChangeProposal_Accept(t *testing.T) {
 	})
 
 	accepted := "ACCEPTED"
-	updated, err := svc.UpdateChangeProposalStatus(ctx, viewer("u1"), UpdateChangeProposalInput{
+	updated, err := svc.UpdateChangeProposalStatus(ctx, viewer("owner1"), "owner1", 10, UpdateChangeProposalInput{
 		ID: p.ID, Status: &accepted, Comment: "Looks good!",
 	})
 	if err != nil {
@@ -753,7 +753,7 @@ func TestChangeProposal_Withdraw(t *testing.T) {
 	})
 
 	withdrawn := "WITHDRAWN"
-	updated, err := svc.UpdateChangeProposalStatus(ctx, viewer("u1"), UpdateChangeProposalInput{
+	updated, err := svc.UpdateChangeProposalStatus(ctx, viewer("u1"), "owner1", 10, UpdateChangeProposalInput{
 		ID: p.ID, Status: &withdrawn,
 	})
 	if err != nil {
@@ -771,7 +771,7 @@ func TestChangeProposal_NonAuthorCannotWithdraw(t *testing.T) {
 	})
 
 	withdrawn := "WITHDRAWN"
-	_, err := svc.UpdateChangeProposalStatus(ctx, viewer("u2"), UpdateChangeProposalInput{
+	_, err := svc.UpdateChangeProposalStatus(ctx, viewer("u2"), "owner1", 10, UpdateChangeProposalInput{
 		ID: p.ID, Status: &withdrawn,
 	})
 	if err == nil {
@@ -857,7 +857,7 @@ func TestPinnedDiscussion(t *testing.T) {
 	})
 
 	pinned := true
-	updated, err := svc.UpdateDiscussion(ctx, viewer("u1"), UpdateDiscussionInput{
+	updated, err := svc.UpdateDiscussion(ctx, superAdmin("admin1"), UpdateDiscussionInput{
 		ID: d.ID, Pinned: &pinned,
 	})
 	if err != nil {
@@ -875,7 +875,7 @@ func TestLockedDiscussion(t *testing.T) {
 	})
 
 	locked := true
-	updated, err := svc.UpdateDiscussion(ctx, viewer("u1"), UpdateDiscussionInput{
+	updated, err := svc.UpdateDiscussion(ctx, superAdmin("admin1"), UpdateDiscussionInput{
 		ID: d.ID, Locked: &locked,
 	})
 	if err != nil {
@@ -909,3 +909,129 @@ func TestChangeProposal_NotFound(t *testing.T) {
 		t.Fatal("expected not found")
 	}
 }
+
+// ── AcceptAnswer validation tests ────────────────────────────────────────────
+
+func TestAcceptAnswer_NonQADiscussionRejected(t *testing.T) {
+	svc := newTestService()
+	d, _ := svc.CreateDiscussion(ctx, viewer("u1"), CreateDiscussionInput{
+		SkillID: 1, Title: "General chat", Category: "GENERAL",
+	})
+	c, _ := svc.AddDiscussionComment(ctx, viewer("u2"), AddDiscussionCommentInput{
+		DiscussionID: d.ID, Body: "Reply",
+	})
+	_, err := svc.AcceptAnswer(ctx, viewer("u1"), d.ID, c.ID)
+	if err == nil {
+		t.Fatal("expected error accepting answer on non-QA discussion")
+	}
+}
+
+func TestAcceptAnswer_CommentFromOtherDiscussionRejected(t *testing.T) {
+	svc := newTestService()
+	d1, _ := svc.CreateDiscussion(ctx, viewer("u1"), CreateDiscussionInput{
+		SkillID: 1, Title: "Q1", Category: "QA",
+	})
+	d2, _ := svc.CreateDiscussion(ctx, viewer("u1"), CreateDiscussionInput{
+		SkillID: 1, Title: "Q2", Category: "QA",
+	})
+	c, _ := svc.AddDiscussionComment(ctx, viewer("u2"), AddDiscussionCommentInput{
+		DiscussionID: d2.ID, Body: "Answer for Q2",
+	})
+	_, err := svc.AcceptAnswer(ctx, viewer("u1"), d1.ID, c.ID)
+	if err == nil {
+		t.Fatal("expected error accepting comment from different discussion")
+	}
+}
+
+func TestAcceptAnswer_NonexistentCommentRejected(t *testing.T) {
+	svc := newTestService()
+	d, _ := svc.CreateDiscussion(ctx, viewer("u1"), CreateDiscussionInput{
+		SkillID: 1, Title: "Q&A", Category: "QA",
+	})
+	_, err := svc.AcceptAnswer(ctx, viewer("u1"), d.ID, 9999)
+	if err == nil {
+		t.Fatal("expected error for nonexistent comment")
+	}
+}
+
+// ── Maintainer authorization tests ───────────────────────────────────────────
+
+func TestWikiCreate_NonMaintainerRejected(t *testing.T) {
+	svc := newTestService()
+	// viewer "u3" is neither skill owner "owner1" nor super admin.
+	_, err := svc.CreateWikiPage(ctx, viewer("u3"), "owner2", 10, CreateWikiPageInput{
+		SkillID: 1, Title: "Unauthorized", Slug: "unauth", Body: "nope",
+	})
+	if err == nil {
+		t.Fatal("expected forbidden for non-maintainer wiki creation")
+	}
+}
+
+func TestWikiCreate_OwnerCanCreate(t *testing.T) {
+	svc := newTestService()
+	p, err := svc.CreateWikiPage(ctx, viewer("owner1"), "owner1", 10, CreateWikiPageInput{
+		SkillID: 1, Title: "Owner Page", Slug: "owner-page", Body: "OK",
+	})
+	if err != nil {
+		t.Fatalf("owner should be able to create wiki: %v", err)
+	}
+	if p.Title != "Owner Page" {
+		t.Errorf("unexpected title: %s", p.Title)
+	}
+}
+
+func TestWikiCreate_SuperAdminCanCreate(t *testing.T) {
+	svc := newTestService()
+	p, err := svc.CreateWikiPage(ctx, superAdmin("admin1"), "owner1", 10, CreateWikiPageInput{
+		SkillID: 1, Title: "Admin Page", Slug: "admin-page", Body: "OK",
+	})
+	if err != nil {
+		t.Fatalf("super admin should be able to create wiki: %v", err)
+	}
+	if p.Title != "Admin Page" {
+		t.Errorf("unexpected title: %s", p.Title)
+	}
+}
+
+func TestWikiDelete_NonMaintainerRejected(t *testing.T) {
+	svc := newTestService()
+	p, _ := svc.CreateWikiPage(ctx, viewer("owner1"), "owner1", 10, CreateWikiPageInput{
+		SkillID: 1, Title: "To Delete", Slug: "to-delete", Body: "content",
+	})
+	err := svc.DeleteWikiPage(ctx, viewer("u3"), "owner1", 10, p.ID)
+	if err == nil {
+		t.Fatal("expected forbidden for non-maintainer wiki deletion")
+	}
+}
+
+func TestProposalAccept_NonMaintainerRejected(t *testing.T) {
+	svc := newTestService()
+	p, _ := svc.CreateChangeProposal(ctx, viewer("u1"), CreateChangeProposalInput{
+		SkillID: 1, Title: "Improve",
+	})
+	accepted := "ACCEPTED"
+	_, err := svc.UpdateChangeProposalStatus(ctx, viewer("u3"), "owner1", 10, UpdateChangeProposalInput{
+		ID: p.ID, Status: &accepted,
+	})
+	if err == nil {
+		t.Fatal("expected forbidden for non-maintainer accepting proposal")
+	}
+}
+
+func TestProposalAccept_MaintainerCanAccept(t *testing.T) {
+	svc := newTestService()
+	p, _ := svc.CreateChangeProposal(ctx, viewer("u1"), CreateChangeProposalInput{
+		SkillID: 1, Title: "Improve",
+	})
+	accepted := "ACCEPTED"
+	updated, err := svc.UpdateChangeProposalStatus(ctx, viewer("owner1"), "owner1", 10, UpdateChangeProposalInput{
+		ID: p.ID, Status: &accepted,
+	})
+	if err != nil {
+		t.Fatalf("maintainer should be able to accept: %v", err)
+	}
+	if updated.Status != "ACCEPTED" {
+		t.Errorf("expected ACCEPTED, got %s", updated.Status)
+	}
+}
+

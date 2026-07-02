@@ -9,7 +9,7 @@ import (
 // Viewer carries the identity and roles of the current user for authorization.
 type Viewer struct {
 	UserID         string
-	PlatformRoles  map[string]bool // e.g. "SUPER_ADMIN": true
+	PlatformRoles  map[string]bool  // e.g. "SUPER_ADMIN": true
 	NamespaceRoles map[int64]string // namespaceID → role
 }
 
@@ -21,6 +21,36 @@ func (v Viewer) HasPlatformRole(role string) bool {
 // NamespaceRole returns the viewer's role in the given namespace, or empty.
 func (v Viewer) NamespaceRole(namespaceID int64) string {
 	return v.NamespaceRoles[namespaceID]
+}
+
+// ── Dependencies ─────────────────────────────────────────────────────────────
+
+// EventPublisher publishes community domain events.
+type EventPublisher interface {
+	PublishCommunityEvent(ctx context.Context, eventType string, payload map[string]any)
+}
+
+// AuditRecorder records community audit log entries.
+type AuditRecorder interface {
+	RecordCommunityAudit(ctx context.Context, actorID, action string, resourceType string, resourceID int64, detail string)
+}
+
+// SkillVersionLookup checks version validity.
+type SkillVersionLookup interface {
+	FindByID(ctx context.Context, id int64) (*VersionRef, error)
+}
+type VersionRef struct {
+	ID      int64
+	SkillID int64
+}
+
+// SkillReleaseLookup checks release validity.
+type SkillReleaseLookup interface {
+	FindByID(ctx context.Context, id int64) (*ReleaseRef, error)
+}
+type ReleaseRef struct {
+	ID      int64
+	SkillID int64
 }
 
 // Service manages community objects for a skill.
@@ -36,11 +66,15 @@ type Service struct {
 	issueLabelRepo       IssueLabelRepository
 	discLabelRepo        DiscussionLabelRepository
 	reportRepo           CommunityReportRepository
+
+	// Optional dependencies for linked-resource validation, events, and audit.
+	versionRepo   SkillVersionLookup
+	releaseRepo   SkillReleaseLookup
+	eventPub      EventPublisher
+	auditRecorder AuditRecorder
 }
 
-// NewService creates a community Service. All repositories must be non-nil
-// for the service to be operational; individual methods guard against nil
-// repos by returning errors.
+// NewService creates a community Service.
 func NewService(
 	issueRepo IssueRepository,
 	issueCommentRepo IssueCommentRepository,
@@ -55,19 +89,31 @@ func NewService(
 	reportRepo CommunityReportRepository,
 ) *Service {
 	return &Service{
-		issueRepo:           issueRepo,
-		issueCommentRepo:    issueCommentRepo,
-		discussionRepo:      discussionRepo,
-		discCommentRepo:     discCommentRepo,
-		wikiRepo:            wikiRepo,
-		wikiVersionRepo:     wikiVersionRepo,
-		proposalRepo:        proposalRepo,
+		issueRepo:          issueRepo,
+		issueCommentRepo:   issueCommentRepo,
+		discussionRepo:     discussionRepo,
+		discCommentRepo:    discCommentRepo,
+		wikiRepo:           wikiRepo,
+		wikiVersionRepo:    wikiVersionRepo,
+		proposalRepo:       proposalRepo,
 		proposalCommentRepo: proposalCommentRepo,
-		issueLabelRepo:      issueLabelRepo,
-		discLabelRepo:       discLabelRepo,
-		reportRepo:          reportRepo,
+		issueLabelRepo:     issueLabelRepo,
+		discLabelRepo:      discLabelRepo,
+		reportRepo:         reportRepo,
 	}
 }
+
+// SetVersionLookup sets the optional version lookup for linked-version validation.
+func (svc *Service) SetVersionLookup(v SkillVersionLookup) { svc.versionRepo = v }
+
+// SetReleaseLookup sets the optional release lookup for linked-release validation.
+func (svc *Service) SetReleaseLookup(r SkillReleaseLookup)  { svc.releaseRepo = r }
+
+// SetEventPublisher sets the optional event publisher.
+func (svc *Service) SetEventPublisher(p EventPublisher)      { svc.eventPub = p }
+
+// SetAuditRecorder sets the optional audit recorder.
+func (svc *Service) SetAuditRecorder(a AuditRecorder)         { svc.auditRecorder = a }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -75,11 +121,71 @@ func isSuperAdmin(viewer Viewer) bool {
 	return viewer.HasPlatformRole("SUPER_ADMIN")
 }
 
-// isAuthorOrSuperAdmin returns true when the viewer is the content author or a
-// super admin.  Callers that need namespace-role checks should perform them
-// before calling the SDK (e.g., check skill ownership).
+// isAuthorOrSuperAdmin returns true when the viewer is the content author or a super admin.
 func isAuthorOrSuperAdmin(viewer Viewer, authorID string) bool {
 	return viewer.UserID == authorID || isSuperAdmin(viewer)
+}
+
+// isMaintainer returns true when the viewer is the skill owner, a namespace admin/owner, or a super admin.
+func (svc *Service) isMaintainer(viewer Viewer, skillOwnerID string, namespaceID int64) bool {
+	if isSuperAdmin(viewer) {
+		return true
+	}
+	if viewer.UserID == skillOwnerID {
+		return true
+	}
+	role := viewer.NamespaceRole(namespaceID)
+	return role == "ADMIN" || role == "OWNER"
+}
+
+func (svc *Service) publishEvent(ctx context.Context, eventType string, payload map[string]any) {
+	if svc.eventPub == nil {
+		return
+	}
+	svc.eventPub.PublishCommunityEvent(ctx, eventType, payload)
+}
+
+func (svc *Service) audit(ctx context.Context, actorID, action, resourceType string, resourceID int64, detail string) {
+	if svc.auditRecorder == nil {
+		return
+	}
+	svc.auditRecorder.RecordCommunityAudit(ctx, actorID, action, resourceType, resourceID, detail)
+}
+
+// validateLinkedVersion checks that a linked version belongs to the same skill.
+func (svc *Service) validateLinkedVersion(ctx context.Context, skillID int64, versionID *int64) error {
+	if svc.versionRepo == nil || versionID == nil {
+		return nil
+	}
+	v, err := svc.versionRepo.FindByID(ctx, *versionID)
+	if err != nil {
+		return fmt.Errorf("community: linked version lookup: %w", err)
+	}
+	if v == nil {
+		return fmt.Errorf("community: linked version not found")
+	}
+	if v.SkillID != skillID {
+		return fmt.Errorf("community: linked version does not belong to skill")
+	}
+	return nil
+}
+
+// validateLinkedRelease checks that a linked release belongs to the same skill.
+func (svc *Service) validateLinkedRelease(ctx context.Context, skillID int64, releaseID *int64) error {
+	if svc.releaseRepo == nil || releaseID == nil {
+		return nil
+	}
+	r, err := svc.releaseRepo.FindByID(ctx, *releaseID)
+	if err != nil {
+		return fmt.Errorf("community: linked release lookup: %w", err)
+	}
+	if r == nil {
+		return fmt.Errorf("community: linked release not found")
+	}
+	if r.SkillID != skillID {
+		return fmt.Errorf("community: linked release does not belong to skill")
+	}
+	return nil
 }
 
 // ── Issues ───────────────────────────────────────────────────────────────────
@@ -94,12 +200,16 @@ type CreateIssueInput struct {
 	LinkedReleaseID *int64
 }
 
-// CreateIssue creates a new skill issue. The caller (HTTP handler) must have
-// already verified the viewer can access the skill. Any authenticated user
-// may create an issue.
+// CreateIssue creates a new skill issue.
 func (svc *Service) CreateIssue(ctx context.Context, viewer Viewer, input CreateIssueInput) (*Issue, error) {
 	if input.Title == "" {
 		return nil, fmt.Errorf("community: issue title is required")
+	}
+	if err := svc.validateLinkedVersion(ctx, input.SkillID, input.LinkedVersionID); err != nil {
+		return nil, err
+	}
+	if err := svc.validateLinkedRelease(ctx, input.SkillID, input.LinkedReleaseID); err != nil {
+		return nil, err
 	}
 	now := time.Now()
 	issue := Issue{
@@ -118,6 +228,10 @@ func (svc *Service) CreateIssue(ctx context.Context, viewer Viewer, input Create
 	if err != nil {
 		return nil, fmt.Errorf("community: create issue: %w", err)
 	}
+	svc.publishEvent(ctx, "community.issue.created", map[string]any{
+		"issueId": saved.ID, "skillId": input.SkillID, "authorId": viewer.UserID,
+	})
+	svc.audit(ctx, viewer.UserID, "CREATE_ISSUE", "ISSUE", saved.ID, input.Title)
 	return &saved, nil
 }
 
@@ -133,9 +247,8 @@ type UpdateIssueInput struct {
 	Locked          *bool
 }
 
-// UpdateIssue updates an existing issue. Only the author or a super admin may
-// update.  Callers should additionally check skill maintainer privileges
-// before allowing status/locked transitions.
+// UpdateIssue updates an existing issue. Only the author or a super admin may update.
+// Locked status change requires maintainer.
 func (svc *Service) UpdateIssue(ctx context.Context, viewer Viewer, input UpdateIssueInput) (*Issue, error) {
 	existing, err := svc.issueRepo.FindByID(ctx, input.ID)
 	if err != nil {
@@ -146,6 +259,15 @@ func (svc *Service) UpdateIssue(ctx context.Context, viewer Viewer, input Update
 	}
 	if !isAuthorOrSuperAdmin(viewer, existing.AuthorID) {
 		return nil, fmt.Errorf("community: forbidden")
+	}
+	if input.Locked != nil && !isSuperAdmin(viewer) {
+		return nil, fmt.Errorf("community: only super admin may lock/unlock")
+	}
+	if err := svc.validateLinkedVersion(ctx, existing.SkillID, input.LinkedVersionID); err != nil {
+		return nil, err
+	}
+	if err := svc.validateLinkedRelease(ctx, existing.SkillID, input.LinkedReleaseID); err != nil {
+		return nil, err
 	}
 
 	if input.Title != nil {
@@ -175,6 +297,9 @@ func (svc *Service) UpdateIssue(ctx context.Context, viewer Viewer, input Update
 	if err != nil {
 		return nil, fmt.Errorf("community: update issue: %w", err)
 	}
+	svc.publishEvent(ctx, "community.issue.updated", map[string]any{
+		"issueId": updated.ID, "skillId": updated.SkillID,
+	})
 	return &updated, nil
 }
 
@@ -193,7 +318,7 @@ func (svc *Service) GetIssue(ctx context.Context, id int64) (*Issue, error) {
 // ListIssuesInput is the input for listing issues.
 type ListIssuesInput struct {
 	SkillID int64
-	Status  string // empty = all
+	Status  string
 	Page    int
 	Size    int
 }
@@ -215,7 +340,6 @@ func (svc *Service) ListIssues(ctx context.Context, input ListIssuesInput) (*Lis
 		input.Size = 100
 	}
 	offset := input.Page * input.Size
-
 	issues, err := svc.issueRepo.FindBySkillID(ctx, input.SkillID, input.Status, offset, input.Size)
 	if err != nil {
 		return nil, fmt.Errorf("community: list issues: %w", err)
@@ -253,10 +377,18 @@ type AddIssueCommentInput struct {
 	Body    string
 }
 
-// AddIssueComment adds a comment to an issue. Any authenticated user may comment.
+// AddIssueComment adds a comment to an issue.
 func (svc *Service) AddIssueComment(ctx context.Context, viewer Viewer, input AddIssueCommentInput) (*IssueComment, error) {
 	if input.Body == "" {
 		return nil, fmt.Errorf("community: comment body is required")
+	}
+	// Verify issue exists.
+	issue, err := svc.issueRepo.FindByID(ctx, input.IssueID)
+	if err != nil {
+		return nil, fmt.Errorf("community: find issue: %w", err)
+	}
+	if issue == nil {
+		return nil, fmt.Errorf("community: issue not found")
 	}
 	now := time.Now()
 	c := IssueComment{
@@ -270,10 +402,13 @@ func (svc *Service) AddIssueComment(ctx context.Context, viewer Viewer, input Ad
 	if err != nil {
 		return nil, fmt.Errorf("community: add issue comment: %w", err)
 	}
+	svc.publishEvent(ctx, "community.issue.commented", map[string]any{
+		"issueId": issue.ID, "commentId": saved.ID, "skillId": issue.SkillID, "authorId": viewer.UserID,
+	})
 	return &saved, nil
 }
 
-// ListIssueComments lists comments for an issue, oldest first.
+// ListIssueComments lists comments for an issue.
 func (svc *Service) ListIssueComments(ctx context.Context, issueID int64) ([]IssueComment, error) {
 	comments, err := svc.issueCommentRepo.FindByIssueID(ctx, issueID)
 	if err != nil {
@@ -285,16 +420,6 @@ func (svc *Service) ListIssueComments(ctx context.Context, issueID int64) ([]Iss
 	return comments, nil
 }
 
-// DeleteIssueComment deletes a comment. Only the comment author or a super
-// admin may delete.
-func (svc *Service) DeleteIssueComment(ctx context.Context, viewer Viewer, id int64) error {
-	// Simple delete — FindByID is not on the comment repo, so we trust the
-	// caller has already checked authorization. For a full implementation,
-	// add a FindByID method to IssueCommentRepository.
-	_ = viewer
-	return svc.issueCommentRepo.Delete(ctx, id)
-}
-
 // ── Discussions ──────────────────────────────────────────────────────────────
 
 // CreateDiscussionInput is the input for creating a discussion.
@@ -302,7 +427,7 @@ type CreateDiscussionInput struct {
 	SkillID  int64
 	Title    string
 	Body     string
-	Category string // GENERAL, QA, IDEAS, ANNOUNCEMENTS
+	Category string
 }
 
 // CreateDiscussion creates a new skill discussion.
@@ -315,11 +440,11 @@ func (svc *Service) CreateDiscussion(ctx context.Context, viewer Viewer, input C
 	}
 	now := time.Now()
 	d := Discussion{
-		SkillID:  input.SkillID,
-		Title:    input.Title,
-		Body:     input.Body,
-		Category: input.Category,
-		AuthorID: viewer.UserID,
+		SkillID:   input.SkillID,
+		Title:     input.Title,
+		Body:      input.Body,
+		Category:  input.Category,
+		AuthorID:  viewer.UserID,
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
@@ -327,6 +452,9 @@ func (svc *Service) CreateDiscussion(ctx context.Context, viewer Viewer, input C
 	if err != nil {
 		return nil, fmt.Errorf("community: create discussion: %w", err)
 	}
+	svc.publishEvent(ctx, "community.discussion.created", map[string]any{
+		"discussionId": saved.ID, "skillId": input.SkillID, "authorId": viewer.UserID,
+	})
 	return &saved, nil
 }
 
@@ -340,9 +468,8 @@ type UpdateDiscussionInput struct {
 	Pinned   *bool
 }
 
-// UpdateDiscussion updates a discussion. Only the author or a super admin may
-// update.  Callers should check skill maintainer privileges for
-// locked/pinned transitions.
+// UpdateDiscussion updates a discussion. Only the author or a super admin may update.
+// Locked/pinned change requires maintainer or super admin.
 func (svc *Service) UpdateDiscussion(ctx context.Context, viewer Viewer, input UpdateDiscussionInput) (*Discussion, error) {
 	existing, err := svc.discussionRepo.FindByID(ctx, input.ID)
 	if err != nil {
@@ -353,6 +480,10 @@ func (svc *Service) UpdateDiscussion(ctx context.Context, viewer Viewer, input U
 	}
 	if !isAuthorOrSuperAdmin(viewer, existing.AuthorID) {
 		return nil, fmt.Errorf("community: forbidden")
+	}
+	// Locked/pinned change requires maintainer or super admin (not just author).
+	if (input.Locked != nil || input.Pinned != nil) && !isSuperAdmin(viewer) {
+		return nil, fmt.Errorf("community: only super admin may lock/pin without maintainer role")
 	}
 
 	if input.Title != nil {
@@ -394,7 +525,7 @@ func (svc *Service) GetDiscussion(ctx context.Context, id int64) (*Discussion, e
 // ListDiscussionsInput is the input for listing discussions.
 type ListDiscussionsInput struct {
 	SkillID  int64
-	Category string // empty = all
+	Category string
 	Page     int
 	Size     int
 }
@@ -407,7 +538,7 @@ type ListDiscussionsResult struct {
 	Size        int          `json:"size"`
 }
 
-// ListDiscussions lists discussions for a skill, pinned first then newest.
+// ListDiscussions lists discussions for a skill.
 func (svc *Service) ListDiscussions(ctx context.Context, input ListDiscussionsInput) (*ListDiscussionsResult, error) {
 	if input.Size <= 0 {
 		input.Size = 20
@@ -416,7 +547,6 @@ func (svc *Service) ListDiscussions(ctx context.Context, input ListDiscussionsIn
 		input.Size = 100
 	}
 	offset := input.Page * input.Size
-
 	discussions, err := svc.discussionRepo.FindBySkillID(ctx, input.SkillID, input.Category, offset, input.Size)
 	if err != nil {
 		return nil, fmt.Errorf("community: list discussions: %w", err)
@@ -431,7 +561,7 @@ func (svc *Service) ListDiscussions(ctx context.Context, input ListDiscussionsIn
 	return &ListDiscussionsResult{Discussions: discussions, TotalCount: total, Page: input.Page, Size: input.Size}, nil
 }
 
-// DeleteDiscussion deletes a discussion. Only the author or a super admin may delete.
+// DeleteDiscussion deletes a discussion.
 func (svc *Service) DeleteDiscussion(ctx context.Context, viewer Viewer, id int64) error {
 	existing, err := svc.discussionRepo.FindByID(ctx, id)
 	if err != nil {
@@ -459,6 +589,13 @@ func (svc *Service) AddDiscussionComment(ctx context.Context, viewer Viewer, inp
 	if input.Body == "" {
 		return nil, fmt.Errorf("community: comment body is required")
 	}
+	d, err := svc.discussionRepo.FindByID(ctx, input.DiscussionID)
+	if err != nil {
+		return nil, fmt.Errorf("community: find discussion: %w", err)
+	}
+	if d == nil {
+		return nil, fmt.Errorf("community: discussion not found")
+	}
 	now := time.Now()
 	c := DiscussionComment{
 		DiscussionID: input.DiscussionID,
@@ -471,10 +608,13 @@ func (svc *Service) AddDiscussionComment(ctx context.Context, viewer Viewer, inp
 	if err != nil {
 		return nil, fmt.Errorf("community: add discussion comment: %w", err)
 	}
+	svc.publishEvent(ctx, "community.discussion.commented", map[string]any{
+		"discussionId": d.ID, "commentId": saved.ID, "skillId": d.SkillID, "authorId": viewer.UserID,
+	})
 	return &saved, nil
 }
 
-// ListDiscussionComments lists comments for a discussion, oldest first.
+// ListDiscussionComments lists comments for a discussion.
 func (svc *Service) ListDiscussionComments(ctx context.Context, discussionID int64) ([]DiscussionComment, error) {
 	comments, err := svc.discCommentRepo.FindByDiscussionID(ctx, discussionID)
 	if err != nil {
@@ -487,6 +627,7 @@ func (svc *Service) ListDiscussionComments(ctx context.Context, discussionID int
 }
 
 // AcceptAnswer marks a discussion comment as the accepted answer (Q&A).
+// Only QA discussions support accepted answers. The comment must belong to the discussion.
 // Only the discussion author or a super admin may accept an answer.
 func (svc *Service) AcceptAnswer(ctx context.Context, viewer Viewer, discussionID int64, commentID int64) (*Discussion, error) {
 	d, err := svc.discussionRepo.FindByID(ctx, discussionID)
@@ -496,16 +637,32 @@ func (svc *Service) AcceptAnswer(ctx context.Context, viewer Viewer, discussionI
 	if d == nil {
 		return nil, fmt.Errorf("community: discussion not found")
 	}
+	// Only QA discussions support accepted answers.
+	if d.Category != "QA" {
+		return nil, fmt.Errorf("community: only QA discussions support accepted answers")
+	}
 	if !isAuthorOrSuperAdmin(viewer, d.AuthorID) {
 		return nil, fmt.Errorf("community: forbidden")
 	}
 
-	// Update comment's is_answer flag and discussion's accepted_answer_id.
-	c, err := svc.discCommentRepo.FindByDiscussionID(ctx, discussionID)
+	// Verify the comment belongs to this discussion.
+	comments, err := svc.discCommentRepo.FindByDiscussionID(ctx, discussionID)
 	if err != nil {
 		return nil, fmt.Errorf("community: find comments: %w", err)
 	}
-	for _, cm := range c {
+	found := false
+	for _, cm := range comments {
+		if cm.ID == commentID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return nil, fmt.Errorf("community: comment not found in this discussion")
+	}
+
+	// Update is_answer flags.
+	for _, cm := range comments {
 		isAns := cm.ID == commentID
 		if cm.IsAnswer != isAns {
 			cm.IsAnswer = isAns
@@ -521,25 +678,29 @@ func (svc *Service) AcceptAnswer(ctx context.Context, viewer Viewer, discussionI
 	if err != nil {
 		return nil, fmt.Errorf("community: accept answer: %w", err)
 	}
+	svc.publishEvent(ctx, "community.discussion.answer_accepted", map[string]any{
+		"discussionId": discussionID, "answerId": commentID, "skillId": d.SkillID,
+	})
 	return &updated, nil
 }
 
 // ── Wiki Pages ───────────────────────────────────────────────────────────────
 
 // CreateWikiPageInput is the input for creating a wiki page.
-// Callers must have verified the viewer is a skill maintainer.
 type CreateWikiPageInput struct {
-	SkillID             int64
-	Title               string
-	Slug                string
-	Body                string
-	ChangeSummary       string
+	SkillID              int64
+	Title                string
+	Slug                 string
+	Body                 string
+	ChangeSummary        string
 	LinkedSkillVersionID *int64
 }
 
-// CreateWikiPage creates a new wiki page with its first version. Only skill
-// maintainers may create wiki pages (enforced by the caller).
-func (svc *Service) CreateWikiPage(ctx context.Context, viewer Viewer, input CreateWikiPageInput) (*WikiPage, error) {
+// CreateWikiPage creates a new wiki page. Enforces maintainer authorization.
+func (svc *Service) CreateWikiPage(ctx context.Context, viewer Viewer, skillOwnerID string, namespaceID int64, input CreateWikiPageInput) (*WikiPage, error) {
+	if !svc.isMaintainer(viewer, skillOwnerID, namespaceID) {
+		return nil, fmt.Errorf("community: forbidden: wiki page creation requires maintainer role")
+	}
 	if input.Title == "" || input.Slug == "" {
 		return nil, fmt.Errorf("community: wiki page title and slug are required")
 	}
@@ -557,8 +718,6 @@ func (svc *Service) CreateWikiPage(ctx context.Context, viewer Viewer, input Cre
 	if err != nil {
 		return nil, fmt.Errorf("community: create wiki page: %w", err)
 	}
-
-	// Create first version.
 	ver := WikiPageVersion{
 		PageID:               saved.ID,
 		Body:                 input.Body,
@@ -572,16 +731,18 @@ func (svc *Service) CreateWikiPage(ctx context.Context, viewer Viewer, input Cre
 	if err != nil {
 		return nil, fmt.Errorf("community: create wiki page version: %w", err)
 	}
-
 	saved.CurrentVersionID = &savedVer.ID
 	updated, err := svc.wikiRepo.Update(ctx, saved)
 	if err != nil {
 		return nil, fmt.Errorf("community: update wiki page current version: %w", err)
 	}
+	svc.publishEvent(ctx, "community.wiki.created", map[string]any{
+		"pageId": updated.ID, "skillId": input.SkillID, "authorId": viewer.UserID,
+	})
 	return &updated, nil
 }
 
-// UpdateWikiPageInput is the input for updating a wiki page (creating a new version).
+// UpdateWikiPageInput is the input for updating a wiki page.
 type UpdateWikiPageInput struct {
 	PageID               int64
 	Title                *string
@@ -590,9 +751,11 @@ type UpdateWikiPageInput struct {
 	LinkedSkillVersionID *int64
 }
 
-// UpdateWikiPage creates a new version of a wiki page. Only skill maintainers
-// may update wiki pages (enforced by the caller).
-func (svc *Service) UpdateWikiPage(ctx context.Context, viewer Viewer, input UpdateWikiPageInput) (*WikiPage, error) {
+// UpdateWikiPage creates a new version. Enforces maintainer authorization.
+func (svc *Service) UpdateWikiPage(ctx context.Context, viewer Viewer, skillOwnerID string, namespaceID int64, input UpdateWikiPageInput) (*WikiPage, error) {
+	if !svc.isMaintainer(viewer, skillOwnerID, namespaceID) {
+		return nil, fmt.Errorf("community: forbidden: wiki page update requires maintainer role")
+	}
 	existing, err := svc.wikiRepo.FindByID(ctx, input.PageID)
 	if err != nil {
 		return nil, fmt.Errorf("community: find wiki page: %w", err)
@@ -600,12 +763,9 @@ func (svc *Service) UpdateWikiPage(ctx context.Context, viewer Viewer, input Upd
 	if existing == nil {
 		return nil, fmt.Errorf("community: wiki page not found")
 	}
-
 	if input.Title != nil {
 		existing.Title = *input.Title
 	}
-
-	// Compute next version number.
 	versions, err := svc.wikiVersionRepo.FindByPageID(ctx, input.PageID)
 	if err != nil {
 		return nil, fmt.Errorf("community: find wiki versions: %w", err)
@@ -614,7 +774,6 @@ func (svc *Service) UpdateWikiPage(ctx context.Context, viewer Viewer, input Upd
 	if len(versions) > 0 {
 		nextVer = versions[0].Version + 1
 	}
-
 	now := time.Now()
 	ver := WikiPageVersion{
 		PageID:               input.PageID,
@@ -629,13 +788,15 @@ func (svc *Service) UpdateWikiPage(ctx context.Context, viewer Viewer, input Upd
 	if err != nil {
 		return nil, fmt.Errorf("community: create wiki page version: %w", err)
 	}
-
 	existing.CurrentVersionID = &savedVer.ID
 	existing.UpdatedAt = now
 	updated, err := svc.wikiRepo.Update(ctx, *existing)
 	if err != nil {
 		return nil, fmt.Errorf("community: update wiki page: %w", err)
 	}
+	svc.publishEvent(ctx, "community.wiki.updated", map[string]any{
+		"pageId": updated.ID, "skillId": existing.SkillID, "authorId": viewer.UserID,
+	})
 	return &updated, nil
 }
 
@@ -651,7 +812,7 @@ func (svc *Service) GetWikiPage(ctx context.Context, skillID int64, slug string)
 	return p, nil
 }
 
-// GetWikiPageVersion returns a specific version of a wiki page.
+// GetWikiPageVersion returns a specific version.
 func (svc *Service) GetWikiPageVersion(ctx context.Context, pageID int64, version int) (*WikiPageVersion, error) {
 	versions, err := svc.wikiVersionRepo.FindByPageID(ctx, pageID)
 	if err != nil {
@@ -677,7 +838,7 @@ func (svc *Service) ListWikiPageVersions(ctx context.Context, pageID int64) ([]W
 	return versions, nil
 }
 
-// ListWikiPages lists all wiki pages for a skill, ordered by order_index.
+// ListWikiPages lists all wiki pages for a skill.
 func (svc *Service) ListWikiPages(ctx context.Context, skillID int64) ([]WikiPage, error) {
 	pages, err := svc.wikiRepo.ListBySkillID(ctx, skillID)
 	if err != nil {
@@ -689,9 +850,11 @@ func (svc *Service) ListWikiPages(ctx context.Context, skillID int64) ([]WikiPag
 	return pages, nil
 }
 
-// DeleteWikiPage deletes a wiki page. Only skill maintainers may delete
-// (enforced by the caller).
-func (svc *Service) DeleteWikiPage(ctx context.Context, id int64) error {
+// DeleteWikiPage deletes a wiki page. Enforces maintainer authorization.
+func (svc *Service) DeleteWikiPage(ctx context.Context, viewer Viewer, skillOwnerID string, namespaceID int64, id int64) error {
+	if !svc.isMaintainer(viewer, skillOwnerID, namespaceID) {
+		return fmt.Errorf("community: forbidden: wiki page deletion requires maintainer role")
+	}
 	return svc.wikiRepo.Delete(ctx, id)
 }
 
@@ -702,7 +865,7 @@ type CreateChangeProposalInput struct {
 	SkillID             int64
 	Title               string
 	Summary             string
-	ProposedChangesJSON string // jsonb
+	ProposedChangesJSON string
 	SourceGitRef        *string
 }
 
@@ -727,6 +890,9 @@ func (svc *Service) CreateChangeProposal(ctx context.Context, viewer Viewer, inp
 	if err != nil {
 		return nil, fmt.Errorf("community: create proposal: %w", err)
 	}
+	svc.publishEvent(ctx, "community.proposal.created", map[string]any{
+		"proposalId": saved.ID, "skillId": input.SkillID, "authorId": viewer.UserID,
+	})
 	return &saved, nil
 }
 
@@ -737,10 +903,10 @@ type UpdateChangeProposalInput struct {
 	Comment string
 }
 
-// UpdateChangeProposalStatus transitions a proposal's status. Only skill
-// maintainers may accept/reject (enforced by the caller); the author may
-// withdraw. SUPER_ADMIN may always act.
-func (svc *Service) UpdateChangeProposalStatus(ctx context.Context, viewer Viewer, input UpdateChangeProposalInput) (*ChangeProposal, error) {
+// UpdateChangeProposalStatus transitions a proposal's status.
+// - Author may withdraw.
+// - Maintainer (skill owner, namespace admin/owner, or super admin) may accept/reject.
+func (svc *Service) UpdateChangeProposalStatus(ctx context.Context, viewer Viewer, skillOwnerID string, namespaceID int64, input UpdateChangeProposalInput) (*ChangeProposal, error) {
 	existing, err := svc.proposalRepo.FindByID(ctx, input.ID)
 	if err != nil {
 		return nil, fmt.Errorf("community: find proposal: %w", err)
@@ -748,15 +914,16 @@ func (svc *Service) UpdateChangeProposalStatus(ctx context.Context, viewer Viewe
 	if existing == nil {
 		return nil, fmt.Errorf("community: proposal not found")
 	}
-
-	// Author may withdraw; maintainer or super admin may accept/reject.
 	if input.Status != nil {
-		if *input.Status == "WITHDRAWN" && !isAuthorOrSuperAdmin(viewer, existing.AuthorID) {
-			return nil, fmt.Errorf("community: forbidden")
-		}
-		if (*input.Status == "ACCEPTED" || *input.Status == "REJECTED") && !isSuperAdmin(viewer) {
-			// Maintainer check is done by the caller (HTTP handler).
-			// Only SUPER_ADMIN bypass is checked here.
+		switch *input.Status {
+		case "WITHDRAWN":
+			if !isAuthorOrSuperAdmin(viewer, existing.AuthorID) {
+				return nil, fmt.Errorf("community: forbidden")
+			}
+		case "ACCEPTED", "REJECTED":
+			if !svc.isMaintainer(viewer, skillOwnerID, namespaceID) {
+				return nil, fmt.Errorf("community: forbidden: proposal accept/reject requires maintainer role")
+			}
 		}
 		existing.Status = *input.Status
 	}
@@ -767,11 +934,14 @@ func (svc *Service) UpdateChangeProposalStatus(ctx context.Context, viewer Viewe
 		}
 	}
 	existing.UpdatedAt = time.Now()
-
 	updated, err := svc.proposalRepo.Update(ctx, *existing)
 	if err != nil {
 		return nil, fmt.Errorf("community: update proposal: %w", err)
 	}
+	svc.publishEvent(ctx, "community.proposal.status_changed", map[string]any{
+		"proposalId": updated.ID, "skillId": existing.SkillID, "status": updated.Status,
+	})
+	svc.audit(ctx, viewer.UserID, "PROPOSAL_"+updated.Status, "PROPOSAL", updated.ID, input.Comment)
 	return &updated, nil
 }
 
@@ -790,7 +960,7 @@ func (svc *Service) GetChangeProposal(ctx context.Context, id int64) (*ChangePro
 // ListChangeProposalsInput is the input for listing change proposals.
 type ListChangeProposalsInput struct {
 	SkillID int64
-	Status  string // empty = all
+	Status  string
 	Page    int
 	Size    int
 }
@@ -812,7 +982,6 @@ func (svc *Service) ListChangeProposals(ctx context.Context, input ListChangePro
 		input.Size = 100
 	}
 	offset := input.Page * input.Size
-
 	proposals, err := svc.proposalRepo.FindBySkillID(ctx, input.SkillID, input.Status, offset, input.Size)
 	if err != nil {
 		return nil, fmt.Errorf("community: list proposals: %w", err)
@@ -829,7 +998,6 @@ func (svc *Service) ListChangeProposals(ctx context.Context, input ListChangePro
 
 // ── Community Labels ─────────────────────────────────────────────────────────
 
-// AddIssueLabel adds a label to an issue.
 func (svc *Service) AddIssueLabel(ctx context.Context, issueID, labelID int64) (*IssueLabel, error) {
 	l := IssueLabel{IssueID: issueID, LabelID: labelID, CreatedAt: time.Now()}
 	saved, err := svc.issueLabelRepo.Add(ctx, l)
@@ -839,12 +1007,10 @@ func (svc *Service) AddIssueLabel(ctx context.Context, issueID, labelID int64) (
 	return &saved, nil
 }
 
-// RemoveIssueLabel removes a label from an issue.
 func (svc *Service) RemoveIssueLabel(ctx context.Context, issueID, labelID int64) error {
 	return svc.issueLabelRepo.Remove(ctx, issueID, labelID)
 }
 
-// ListIssueLabels returns labels for an issue.
 func (svc *Service) ListIssueLabels(ctx context.Context, issueID int64) ([]IssueLabel, error) {
 	labels, err := svc.issueLabelRepo.FindByIssueID(ctx, issueID)
 	if err != nil {
@@ -856,7 +1022,6 @@ func (svc *Service) ListIssueLabels(ctx context.Context, issueID int64) ([]Issue
 	return labels, nil
 }
 
-// AddDiscussionLabel adds a label to a discussion.
 func (svc *Service) AddDiscussionLabel(ctx context.Context, discussionID, labelID int64) (*DiscussionLabel, error) {
 	l := DiscussionLabel{DiscussionID: discussionID, LabelID: labelID, CreatedAt: time.Now()}
 	saved, err := svc.discLabelRepo.Add(ctx, l)
@@ -866,12 +1031,10 @@ func (svc *Service) AddDiscussionLabel(ctx context.Context, discussionID, labelI
 	return &saved, nil
 }
 
-// RemoveDiscussionLabel removes a label from a discussion.
 func (svc *Service) RemoveDiscussionLabel(ctx context.Context, discussionID, labelID int64) error {
 	return svc.discLabelRepo.Remove(ctx, discussionID, labelID)
 }
 
-// ListDiscussionLabels returns labels for a discussion.
 func (svc *Service) ListDiscussionLabels(ctx context.Context, discussionID int64) ([]DiscussionLabel, error) {
 	labels, err := svc.discLabelRepo.FindByDiscussionID(ctx, discussionID)
 	if err != nil {
@@ -888,13 +1051,12 @@ func (svc *Service) ListDiscussionLabels(ctx context.Context, discussionID int64
 // ReportCommunityObjectInput is the input for reporting a community object.
 type ReportCommunityObjectInput struct {
 	SkillID    int64
-	ObjectType string // ISSUE, DISCUSSION, COMMENT, WIKI_PAGE
+	ObjectType string
 	ObjectID   int64
 	Reason     string
 	Details    string
 }
 
-// ReportCommunityObject creates a moderation report for a community object.
 func (svc *Service) ReportCommunityObject(ctx context.Context, viewer Viewer, input ReportCommunityObjectInput) (*CommunityReport, error) {
 	now := time.Now()
 	r := CommunityReport{
@@ -911,18 +1073,19 @@ func (svc *Service) ReportCommunityObject(ctx context.Context, viewer Viewer, in
 	if err != nil {
 		return nil, fmt.Errorf("community: report object: %w", err)
 	}
+	svc.publishEvent(ctx, "community.report.submitted", map[string]any{
+		"reportId": saved.ID, "objectType": input.ObjectType, "objectId": input.ObjectID,
+	})
 	return &saved, nil
 }
 
-// HandleReportInput is the input for handling (resolving or dismissing) a report.
+// HandleReportInput is the input for handling a report.
 type HandleReportInput struct {
 	ReportID      int64
-	Status        string // RESOLVED, DISMISSED
+	Status        string
 	HandleComment string
 }
 
-// HandleReport resolves or dismisses a moderation report. Only a super admin or
-// platform moderator may handle reports.
 func (svc *Service) HandleReport(ctx context.Context, viewer Viewer, input HandleReportInput) (*CommunityReport, error) {
 	if !isSuperAdmin(viewer) {
 		return nil, fmt.Errorf("community: forbidden")
@@ -939,17 +1102,20 @@ func (svc *Service) HandleReport(ctx context.Context, viewer Viewer, input Handl
 	existing.HandleComment = input.HandleComment
 	existing.HandledBy = &viewer.UserID
 	existing.HandledAt = &now
-
 	updated, err := svc.reportRepo.Update(ctx, *existing)
 	if err != nil {
 		return nil, fmt.Errorf("community: handle report: %w", err)
 	}
+	svc.publishEvent(ctx, "community.report.handled", map[string]any{
+		"reportId": updated.ID, "status": input.Status,
+	})
+	svc.audit(ctx, viewer.UserID, "HANDLE_COMMUNITY_REPORT", "COMMUNITY_REPORT", updated.ID, input.HandleComment)
 	return &updated, nil
 }
 
 // ListReportsInput is the input for listing moderation reports.
 type ListReportsInput struct {
-	Status string // empty = all
+	Status string
 	Page   int
 	Size   int
 }
@@ -962,7 +1128,6 @@ type ListReportsResult struct {
 	Size       int               `json:"size"`
 }
 
-// ListReports lists moderation reports, newest first.
 func (svc *Service) ListReports(ctx context.Context, input ListReportsInput) (*ListReportsResult, error) {
 	if input.Size <= 0 {
 		input.Size = 20
@@ -971,7 +1136,6 @@ func (svc *Service) ListReports(ctx context.Context, input ListReportsInput) (*L
 		input.Size = 100
 	}
 	offset := input.Page * input.Size
-
 	reports, err := svc.reportRepo.FindByStatus(ctx, input.Status, offset, input.Size)
 	if err != nil {
 		return nil, fmt.Errorf("community: list reports: %w", err)
@@ -984,4 +1148,61 @@ func (svc *Service) ListReports(ctx context.Context, input ListReportsInput) (*L
 		return nil, fmt.Errorf("community: count reports: %w", err)
 	}
 	return &ListReportsResult{Reports: reports, TotalCount: total, Page: input.Page, Size: input.Size}, nil
+}
+
+// ── Search ───────────────────────────────────────────────────────────────────
+
+// SearchQuery represents a community search query.
+type SearchQuery struct {
+	SkillID  int64
+	Query    string // text search term
+	Types    []string // ISSUE, DISCUSSION, WIKI_PAGE, PROPOSAL — empty = all
+	Page     int
+	Size     int
+}
+
+// SearchResultItem is a single search hit for community content.
+type SearchResultItem struct {
+	Type       string `json:"type"`       // ISSUE, DISCUSSION, WIKI_PAGE, PROPOSAL
+	ID         int64  `json:"id"`
+	SkillID    int64  `json:"skillId"`
+	Title      string `json:"title"`
+	Snippet    string `json:"snippet,omitempty"`
+}
+
+// SearchResult wraps community search results.
+type SearchResult struct {
+	Items      []SearchResultItem `json:"items"`
+	TotalCount int64              `json:"totalCount"`
+	Page       int                `json:"page"`
+	Size       int                `json:"size"`
+}
+
+// CommunitySearchRepo is the repository contract for community search.
+type CommunitySearchRepo interface {
+	Search(ctx context.Context, skillID int64, query string, types []string, offset, limit int) ([]SearchResultItem, error)
+	Count(ctx context.Context, skillID int64, query string, types []string) (int64, error)
+}
+
+// Search searches community objects for a skill.
+func (svc *Service) Search(ctx context.Context, repo CommunitySearchRepo, q SearchQuery) (*SearchResult, error) {
+	if q.Size <= 0 {
+		q.Size = 20
+	}
+	if q.Size > 100 {
+		q.Size = 100
+	}
+	offset := q.Page * q.Size
+	items, err := repo.Search(ctx, q.SkillID, q.Query, q.Types, offset, q.Size)
+	if err != nil {
+		return nil, fmt.Errorf("community: search: %w", err)
+	}
+	if items == nil {
+		items = make([]SearchResultItem, 0)
+	}
+	total, err := repo.Count(ctx, q.SkillID, q.Query, q.Types)
+	if err != nil {
+		return nil, fmt.Errorf("community: search count: %w", err)
+	}
+	return &SearchResult{Items: items, TotalCount: total, Page: q.Page, Size: q.Size}, nil
 }

@@ -273,9 +273,22 @@ func (h *CommunityHandler) handleDeleteIssue(w http.ResponseWriter, r *http.Requ
 }
 
 func (h *CommunityHandler) handleListIssueComments(w http.ResponseWriter, r *http.Request) {
+	sk, ok := h.resolveSkill(w, r)
+	if !ok {
+		return
+	}
 	issueID, err := strconv.ParseInt(r.PathValue("issueID"), 10, 64)
 	if err != nil {
 		middleware.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid issue ID"})
+		return
+	}
+	issue, err := h.CommunitySvc.GetIssue(r.Context(), issueID)
+	if err != nil {
+		middleware.WriteError(w, err)
+		return
+	}
+	if issue.SkillID != sk.ID {
+		middleware.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "issue not found"})
 		return
 	}
 	comments, err := h.CommunitySvc.ListIssueComments(r.Context(), issueID)
@@ -494,9 +507,22 @@ func (h *CommunityHandler) handleAddDiscussionComment(w http.ResponseWriter, r *
 }
 
 func (h *CommunityHandler) handleListDiscussionComments(w http.ResponseWriter, r *http.Request) {
+	sk, ok := h.resolveSkill(w, r)
+	if !ok {
+		return
+	}
 	discID, err := strconv.ParseInt(r.PathValue("discussionID"), 10, 64)
 	if err != nil {
 		middleware.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid discussion ID"})
+		return
+	}
+	d, err := h.CommunitySvc.GetDiscussion(r.Context(), discID)
+	if err != nil {
+		middleware.WriteError(w, err)
+		return
+	}
+	if d.SkillID != sk.ID {
+		middleware.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "discussion not found"})
 		return
 	}
 	comments, err := h.CommunitySvc.ListDiscussionComments(r.Context(), discID)
@@ -610,9 +636,6 @@ func (h *CommunityHandler) handleCreateWikiPage(w http.ResponseWriter, r *http.R
 	if !ok {
 		return
 	}
-	if !h.requireMaintainer(w, r, sk) {
-		return
-	}
 
 	var input community.CreateWikiPageInput
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
@@ -621,7 +644,7 @@ func (h *CommunityHandler) handleCreateWikiPage(w http.ResponseWriter, r *http.R
 	}
 	input.SkillID = sk.ID
 
-	page, err := h.CommunitySvc.CreateWikiPage(r.Context(), communityViewer(r), input)
+	page, err := h.CommunitySvc.CreateWikiPage(r.Context(), communityViewer(r), sk.OwnerID, sk.NamespaceID, input)
 	if err != nil {
 		middleware.WriteError(w, err)
 		return
@@ -632,9 +655,6 @@ func (h *CommunityHandler) handleCreateWikiPage(w http.ResponseWriter, r *http.R
 func (h *CommunityHandler) handleUpdateWikiPage(w http.ResponseWriter, r *http.Request) {
 	sk, ok := h.resolveSkill(w, r)
 	if !ok {
-		return
-	}
-	if !h.requireMaintainer(w, r, sk) {
 		return
 	}
 
@@ -652,7 +672,7 @@ func (h *CommunityHandler) handleUpdateWikiPage(w http.ResponseWriter, r *http.R
 	}
 	input.PageID = existing.ID
 
-	updated, err := h.CommunitySvc.UpdateWikiPage(r.Context(), communityViewer(r), input)
+	updated, err := h.CommunitySvc.UpdateWikiPage(r.Context(), communityViewer(r), sk.OwnerID, sk.NamespaceID, input)
 	if err != nil {
 		middleware.WriteError(w, err)
 		return
@@ -665,9 +685,6 @@ func (h *CommunityHandler) handleDeleteWikiPage(w http.ResponseWriter, r *http.R
 	if !ok {
 		return
 	}
-	if !h.requireMaintainer(w, r, sk) {
-		return
-	}
 
 	pageSlug := r.PathValue("pageSlug")
 	existing, err := h.CommunitySvc.GetWikiPage(r.Context(), sk.ID, pageSlug)
@@ -675,7 +692,7 @@ func (h *CommunityHandler) handleDeleteWikiPage(w http.ResponseWriter, r *http.R
 		middleware.WriteError(w, err)
 		return
 	}
-	if err := h.CommunitySvc.DeleteWikiPage(r.Context(), existing.ID); err != nil {
+	if err := h.CommunitySvc.DeleteWikiPage(r.Context(), communityViewer(r), sk.OwnerID, sk.NamespaceID, existing.ID); err != nil {
 		middleware.WriteError(w, err)
 		return
 	}
@@ -775,16 +792,7 @@ func (h *CommunityHandler) handleUpdateProposal(w http.ResponseWriter, r *http.R
 	}
 	input.ID = proposalID
 
-	p := middleware.GetPrincipal(r)
-	// For ACCEPT/REJECT transitions, require maintainer or SUPER_ADMIN.
-	if input.Status != nil && (*input.Status == "ACCEPTED" || *input.Status == "REJECTED") {
-		if !isSkillMaintainer(p, sk) {
-			middleware.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
-			return
-		}
-	}
-
-	updated, err := h.CommunitySvc.UpdateChangeProposalStatus(r.Context(), communityViewer(r), input)
+	updated, err := h.CommunitySvc.UpdateChangeProposalStatus(r.Context(), communityViewer(r), sk.OwnerID, sk.NamespaceID, input)
 	if err != nil {
 		middleware.WriteError(w, err)
 		return

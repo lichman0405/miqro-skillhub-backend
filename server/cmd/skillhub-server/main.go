@@ -19,6 +19,7 @@ import (
 	"miqro-skillhub/server/internal/config"
 	httpx "miqro-skillhub/server/internal/http"
 	"miqro-skillhub/server/internal/http/cliapi"
+	"miqro-skillhub/server/internal/http/frontend"
 	"miqro-skillhub/server/internal/http/middleware"
 	"miqro-skillhub/server/internal/http/observability"
 	"miqro-skillhub/server/internal/http/portal"
@@ -184,8 +185,14 @@ func main() {
 
 	// Community handler — always constructed when the community service is available.
 	var handlerCommunity *portal.CommunityHandler
+	var frontendCommunity *frontend.CommunityFrontendHandler
 	if communitySvc != nil && skillSvc != nil {
+		// Wire version/release lookups for cross-skill validation.
+		communitySvc.SetVersionLookup(postgres.NewCommunityVersionLookup(db))
+		communitySvc.SetReleaseLookup(postgres.NewCommunityReleaseLookup(db))
+
 		handlerCommunity = &portal.CommunityHandler{CommunitySvc: communitySvc, SkillSvc: skillSvc}
+		frontendCommunity = &frontend.CommunityFrontendHandler{CommunitySvc: communitySvc, SkillH: handlerSkill}
 	}
 
 	// Tool API handler — always constructed when the skill service is available.
@@ -205,9 +212,10 @@ func main() {
 		PortalNamespace: handlerNamespace,
 		PortalSkill:     handlerSkill,
 		PortalSearch:    handlerSearch,
-		PortalRelease:   handlerRelease,
-		PortalCommunity: handlerCommunity,
-		CLI:             handlerCLI,
+		PortalRelease:    handlerRelease,
+		PortalCommunity:  handlerCommunity,
+		FrontendCommunity: frontendCommunity,
+		CLI:              handlerCLI,
 		ToolAPI:         handlerToolAPI,
 		MetricsRegistry: metricsReg,
 	})

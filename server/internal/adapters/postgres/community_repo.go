@@ -3,6 +3,8 @@ package postgres
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 
@@ -660,6 +662,158 @@ func (r *ProposalCommentRepo) FindByProposalID(ctx context.Context, proposalID i
 		out = append(out, c)
 	}
 	return out, nil
+}
+
+// ── Version/Release lookups for cross-skill validation ─────────────────────
+
+type CommunityVersionLookup struct{ DB *DB }
+
+func NewCommunityVersionLookup(db *DB) *CommunityVersionLookup {
+	return &CommunityVersionLookup{DB: db}
+}
+
+func (l *CommunityVersionLookup) FindByID(ctx context.Context, id int64) (*community.VersionRef, error) {
+	var v community.VersionRef
+	err := l.DB.queryRow(ctx,
+		`SELECT id, skill_id FROM skill_version WHERE id=$1`, id,
+	).Scan(&v.ID, &v.SkillID)
+	if noRows(err) {
+		return nil, nil
+	}
+	return &v, err
+}
+
+type CommunityReleaseLookup struct{ DB *DB }
+
+func NewCommunityReleaseLookup(db *DB) *CommunityReleaseLookup {
+	return &CommunityReleaseLookup{DB: db}
+}
+
+func (l *CommunityReleaseLookup) FindByID(ctx context.Context, id int64) (*community.ReleaseRef, error) {
+	var r community.ReleaseRef
+	err := l.DB.queryRow(ctx,
+		`SELECT id, skill_id FROM skill_release WHERE id=$1`, id,
+	).Scan(&r.ID, &r.SkillID)
+	if noRows(err) {
+		return nil, nil
+	}
+	return &r, err
+}
+
+// ── Community Search Repository ─────────────────────────────────────────────
+
+type CommunitySearchRepo struct{ DB *DB }
+
+func NewCommunitySearchRepo(db *DB) *CommunitySearchRepo {
+	return &CommunitySearchRepo{DB: db}
+}
+
+func (r *CommunitySearchRepo) Search(ctx context.Context, skillID int64, query string, types []string, offset, limit int) ([]community.SearchResultItem, error) {
+	// Build UNION ALL query across community tables.
+	var parts []string
+	var args []any
+	argIdx := 0
+
+	useTable := func(t string) bool {
+		if len(types) == 0 {
+			return true
+		}
+		for _, tt := range types {
+			if tt == t {
+				return true
+			}
+		}
+		return false
+	}
+
+	if useTable("ISSUE") {
+		argIdx++
+		parts = append(parts, fmt.Sprintf(
+			`SELECT 'ISSUE' AS type, id, skill_id, title, COALESCE(body,'') AS snippet FROM skill_issue WHERE skill_id=$1 AND ($%d::text='' OR title ILIKE '%%'||$%d::text||'%%' OR body ILIKE '%%'||$%d::text||'%%')`,
+			argIdx, argIdx, argIdx))
+		args = append(args, query)
+	}
+	if useTable("DISCUSSION") {
+		argIdx++
+		parts = append(parts, fmt.Sprintf(
+			`SELECT 'DISCUSSION' AS type, id, skill_id, title, COALESCE(body,'') AS snippet FROM skill_discussion WHERE skill_id=$1 AND ($%d::text='' OR title ILIKE '%%'||$%d::text||'%%' OR body ILIKE '%%'||$%d::text||'%%')`,
+			argIdx, argIdx, argIdx))
+		args = append(args, query)
+	}
+	if useTable("WIKI_PAGE") {
+		argIdx++
+		parts = append(parts, fmt.Sprintf(
+			`SELECT 'WIKI_PAGE' AS type, sp.id, sp.skill_id, sp.title, COALESCE(wv.body,'') AS snippet FROM skill_wiki_page sp LEFT JOIN skill_wiki_page_version wv ON wv.id = sp.current_version_id WHERE sp.skill_id=$1 AND ($%d::text='' OR sp.title ILIKE '%%'||$%d::text||'%%' OR wv.body ILIKE '%%'||$%d::text||'%%')`,
+			argIdx, argIdx, argIdx))
+		args = append(args, query)
+	}
+	if useTable("PROPOSAL") {
+		argIdx++
+		parts = append(parts, fmt.Sprintf(
+			`SELECT 'PROPOSAL' AS type, id, skill_id, title, COALESCE(summary,'') AS snippet FROM skill_change_proposal WHERE skill_id=$1 AND ($%d::text='' OR title ILIKE '%%'||$%d::text||'%%' OR summary ILIKE '%%'||$%d::text||'%%')`,
+			argIdx, argIdx, argIdx))
+		args = append(args, query)
+	}
+
+	if len(parts) == 0 {
+		return nil, nil
+	}
+
+	sql := strings.Join(parts, " UNION ALL ") + fmt.Sprintf(" ORDER BY type, title LIMIT $%d OFFSET $%d", argIdx+1, argIdx+2)
+	args = append(args, limit, offset)
+
+	allArgs := append([]any{skillID}, args...)
+	rows, err := r.DB.query(ctx, sql, allArgs...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []community.SearchResultItem
+	for rows.Next() {
+		var item community.SearchResultItem
+		if err := rows.Scan(&item.Type, &item.ID, &item.SkillID, &item.Title, &item.Snippet); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, nil
+}
+
+func (r *CommunitySearchRepo) Count(ctx context.Context, skillID int64, query string, types []string) (int64, error) {
+	var total int64
+	useTable := func(t string) bool {
+		if len(types) == 0 {
+			return true
+		}
+		for _, tt := range types {
+			if tt == t {
+				return true
+			}
+		}
+		return false
+	}
+	if useTable("ISSUE") {
+		var c int64
+		r.DB.queryRow(ctx, `SELECT COUNT(*) FROM skill_issue WHERE skill_id=$1`, skillID).Scan(&c)
+		total += c
+	}
+	if useTable("DISCUSSION") {
+		var c int64
+		r.DB.queryRow(ctx, `SELECT COUNT(*) FROM skill_discussion WHERE skill_id=$1`, skillID).Scan(&c)
+		total += c
+	}
+	if useTable("WIKI_PAGE") {
+		var c int64
+		r.DB.queryRow(ctx, `SELECT COUNT(*) FROM skill_wiki_page WHERE skill_id=$1`, skillID).Scan(&c)
+		total += c
+	}
+	if useTable("PROPOSAL") {
+		var c int64
+		r.DB.queryRow(ctx, `SELECT COUNT(*) FROM skill_change_proposal WHERE skill_id=$1`, skillID).Scan(&c)
+		total += c
+	}
+	return total, nil
 }
 
 // ── Scan helpers ─────────────────────────────────────────────────────────────

@@ -626,6 +626,153 @@ export interface ReleaseDetailActions {
   canUnYank: boolean;
 }
 
+// ── Community Types ────────────────────────────────────────────────────
+
+/** A skill-scoped issue. */
+export interface Issue {
+  id: number;
+  skillId: number;
+  title: string;
+  body?: string;
+  status: "OPEN" | "CLOSED";
+  assigneeId?: string;
+  linkedVersionId?: number;
+  linkedReleaseId?: number;
+  authorId: string;
+  locked: boolean;
+  commentCount: number;
+}
+
+export interface IssueComment {
+  id: number;
+  issueId: number;
+  authorId: string;
+  body: string;
+}
+
+export interface CreateIssueRequest {
+  title: string;
+  body?: string;
+  assigneeId?: string;
+  linkedVersionId?: number;
+  linkedReleaseId?: number;
+}
+
+export interface UpdateIssueRequest {
+  title?: string;
+  body?: string;
+  status?: "OPEN" | "CLOSED";
+  assigneeId?: string;
+  locked?: boolean;
+}
+
+export interface Discussion {
+  id: number;
+  skillId: number;
+  title: string;
+  body?: string;
+  category: "GENERAL" | "QA" | "IDEAS" | "ANNOUNCEMENTS";
+  acceptedAnswerId?: number;
+  authorId: string;
+  locked: boolean;
+  pinned: boolean;
+  commentCount: number;
+}
+
+export interface DiscussionComment {
+  id: number;
+  discussionId: number;
+  authorId: string;
+  body: string;
+  isAnswer: boolean;
+}
+
+export interface WikiPage {
+  id: number;
+  skillId: number;
+  title: string;
+  slug: string;
+  currentVersionId?: number;
+  orderIndex: number;
+}
+
+export interface WikiPageVersion {
+  id: number;
+  pageId: number;
+  body: string;
+  version: number;
+  changeSummary?: string;
+  authorId: string;
+}
+
+export interface ChangeProposal {
+  id: number;
+  skillId: number;
+  title: string;
+  summary?: string;
+  status: "OPEN" | "ACCEPTED" | "REJECTED" | "WITHDRAWN";
+  authorId: string;
+  reviewerId?: string;
+  sourceGitRef?: string;
+  reviewComment?: string;
+}
+
+// ── Community Frontend Read Models ─────────────────────────────────────
+
+export interface IssueListView {
+  id: number; title: string; status: string; authorId: string; locked: boolean; commentCount: number;
+}
+export interface IssueListActions { canCreateIssue: boolean; }
+export interface IssueListReadModel {
+  issues: IssueListView[]; totalCount: number; page: number; size: number; availableActions: IssueListActions;
+}
+export interface IssueDetailView {
+  id: number; title: string; body?: string; status: string; authorId: string; locked: boolean;
+}
+export interface IssueDetailActions { canEdit: boolean; canDelete: boolean; canClose: boolean; canReopen: boolean; }
+export interface IssueDetailReadModel {
+  issue: IssueDetailView; comments?: CommentView[]; availableActions: IssueDetailActions;
+}
+export interface CommentView { id: number; authorId: string; body: string; }
+
+export interface DiscussionListView {
+  id: number; title: string; category: string; authorId: string; pinned: boolean; locked: boolean; commentCount: number;
+}
+export interface DiscussionListActions { canCreateDiscussion: boolean; }
+export interface DiscussionListReadModel {
+  discussions: DiscussionListView[]; totalCount: number; page: number; size: number; availableActions: DiscussionListActions;
+}
+export interface DiscussionDetailView {
+  id: number; title: string; body?: string; category: string; authorId: string; pinned: boolean; locked: boolean;
+}
+export interface DiscussionDetailActions { canEdit: boolean; canDelete: boolean; canLock: boolean; canPin: boolean; canAcceptAnswer: boolean; }
+export interface DiscussionDetailReadModel {
+  discussion: DiscussionDetailView; comments?: CommentView[]; availableActions: DiscussionDetailActions;
+}
+
+export interface WikiPageListView { id: number; title: string; slug: string; orderIndex: number; }
+export interface WikiPageListActions { canCreatePage: boolean; }
+export interface WikiPageListReadModel { pages: WikiPageListView[]; availableActions: WikiPageListActions; }
+export interface WikiPageDetailView { id: number; title: string; slug: string; version: number; body?: string; }
+export interface WikiVersionView { id: number; version: number; changeSummary?: string; authorId: string; }
+export interface WikiPageDetailActions { canEdit: boolean; canDelete: boolean; }
+export interface WikiPageDetailReadModel {
+  page: WikiPageDetailView; versions?: WikiVersionView[]; availableActions: WikiPageDetailActions;
+}
+
+export interface ProposalListView { id: number; title: string; status: string; authorId: string; }
+export interface ProposalListActions { canCreateProposal: boolean; }
+export interface ProposalListReadModel {
+  proposals: ProposalListView[]; totalCount: number; page: number; size: number; availableActions: ProposalListActions;
+}
+export interface ProposalDetailView {
+  id: number; title: string; summary?: string; status: string; authorId: string; reviewerId?: string; sourceGitRef?: string;
+}
+export interface ProposalDetailActions { canAccept: boolean; canReject: boolean; canWithdraw: boolean; }
+export interface ProposalDetailReadModel {
+  proposal: ProposalDetailView; availableActions: ProposalDetailActions;
+}
+
 // ── Client ─────────────────────────────────────────────────────────────
 
 /** SkillHub API client — thin HTTP wrapper over the backend. */
@@ -957,6 +1104,172 @@ export class SkillHubClient {
     return this.fetch(
       `/api/v1/frontend/skills/${namespace}/${slug}/releases/${releaseId}`
     );
+  }
+
+  // ── Community portal methods ──────────────────────────────────────
+
+  async listIssues(namespace: string, slug: string, params?: { status?: string; page?: number; size?: number }) {
+    const q = new URLSearchParams();
+    if (params?.status) q.set("status", params.status);
+    if (params?.page !== undefined) q.set("page", String(params.page));
+    if (params?.size !== undefined) q.set("size", String(params.size));
+    return this.fetch(`/api/v1/skills/${namespace}/${slug}/issues?${q}`);
+  }
+
+  async getIssue(namespace: string, slug: string, issueId: number) {
+    return this.fetch(`/api/v1/skills/${namespace}/${slug}/issues/${issueId}`);
+  }
+
+  async createIssue(namespace: string, slug: string, body: CreateIssueRequest) {
+    return this.fetch(`/api/v1/skills/${namespace}/${slug}/issues`, {
+      method: "POST", body: JSON.stringify(body),
+    });
+  }
+
+  async updateIssue(namespace: string, slug: string, issueId: number, body: UpdateIssueRequest) {
+    return this.fetch(`/api/v1/skills/${namespace}/${slug}/issues/${issueId}`, {
+      method: "PATCH", body: JSON.stringify(body),
+    });
+  }
+
+  async deleteIssue(namespace: string, slug: string, issueId: number) {
+    return this.fetch(`/api/v1/skills/${namespace}/${slug}/issues/${issueId}`, { method: "DELETE" });
+  }
+
+  async listIssueComments(namespace: string, slug: string, issueId: number) {
+    return this.fetch(`/api/v1/skills/${namespace}/${slug}/issues/${issueId}/comments`);
+  }
+
+  async addIssueComment(namespace: string, slug: string, issueId: number, body: { body: string }) {
+    return this.fetch(`/api/v1/skills/${namespace}/${slug}/issues/${issueId}/comments`, {
+      method: "POST", body: JSON.stringify(body),
+    });
+  }
+
+  async listDiscussions(namespace: string, slug: string, params?: { category?: string; page?: number; size?: number }) {
+    const q = new URLSearchParams();
+    if (params?.category) q.set("category", params.category);
+    if (params?.page !== undefined) q.set("page", String(params.page));
+    if (params?.size !== undefined) q.set("size", String(params.size));
+    return this.fetch(`/api/v1/skills/${namespace}/${slug}/discussions?${q}`);
+  }
+
+  async getDiscussion(namespace: string, slug: string, discussionId: number) {
+    return this.fetch(`/api/v1/skills/${namespace}/${slug}/discussions/${discussionId}`);
+  }
+
+  async createDiscussion(namespace: string, slug: string, body: { title: string; body?: string; category?: string }) {
+    return this.fetch(`/api/v1/skills/${namespace}/${slug}/discussions`, {
+      method: "POST", body: JSON.stringify(body),
+    });
+  }
+
+  async updateDiscussion(namespace: string, slug: string, discussionId: number, body: Record<string, unknown>) {
+    return this.fetch(`/api/v1/skills/${namespace}/${slug}/discussions/${discussionId}`, {
+      method: "PATCH", body: JSON.stringify(body),
+    });
+  }
+
+  async deleteDiscussion(namespace: string, slug: string, discussionId: number) {
+    return this.fetch(`/api/v1/skills/${namespace}/${slug}/discussions/${discussionId}`, { method: "DELETE" });
+  }
+
+  async listDiscussionComments(namespace: string, slug: string, discussionId: number) {
+    return this.fetch(`/api/v1/skills/${namespace}/${slug}/discussions/${discussionId}/comments`);
+  }
+
+  async addDiscussionComment(namespace: string, slug: string, discussionId: number, body: { body: string }) {
+    return this.fetch(`/api/v1/skills/${namespace}/${slug}/discussions/${discussionId}/comments`, {
+      method: "POST", body: JSON.stringify(body),
+    });
+  }
+
+  async acceptAnswer(namespace: string, slug: string, discussionId: number, commentId: number) {
+    return this.fetch(`/api/v1/skills/${namespace}/${slug}/discussions/${discussionId}/accept-answer`, {
+      method: "POST", body: JSON.stringify({ commentId }),
+    });
+  }
+
+  async listWikiPages(namespace: string, slug: string) {
+    return this.fetch(`/api/v1/skills/${namespace}/${slug}/wiki`);
+  }
+
+  async getWikiPage(namespace: string, slug: string, pageSlug: string) {
+    return this.fetch(`/api/v1/skills/${namespace}/${slug}/wiki/${pageSlug}`);
+  }
+
+  async createWikiPage(namespace: string, slug: string, body: { title: string; slug: string; body: string; changeSummary?: string }) {
+    return this.fetch(`/api/v1/skills/${namespace}/${slug}/wiki`, {
+      method: "POST", body: JSON.stringify(body),
+    });
+  }
+
+  async updateWikiPage(namespace: string, slug: string, pageSlug: string, body: { body: string; changeSummary?: string }) {
+    return this.fetch(`/api/v1/skills/${namespace}/${slug}/wiki/${pageSlug}`, {
+      method: "PUT", body: JSON.stringify(body),
+    });
+  }
+
+  async listWikiVersions(namespace: string, slug: string, pageSlug: string) {
+    return this.fetch(`/api/v1/skills/${namespace}/${slug}/wiki/${pageSlug}/versions`);
+  }
+
+  async listProposals(namespace: string, slug: string, params?: { status?: string; page?: number; size?: number }) {
+    const q = new URLSearchParams();
+    if (params?.status) q.set("status", params.status);
+    if (params?.page !== undefined) q.set("page", String(params.page));
+    if (params?.size !== undefined) q.set("size", String(params.size));
+    return this.fetch(`/api/v1/skills/${namespace}/${slug}/proposals?${q}`);
+  }
+
+  async getProposal(namespace: string, slug: string, proposalId: number) {
+    return this.fetch(`/api/v1/skills/${namespace}/${slug}/proposals/${proposalId}`);
+  }
+
+  async createProposal(namespace: string, slug: string, body: { title: string; summary?: string; proposedChangesJSON?: string }) {
+    return this.fetch(`/api/v1/skills/${namespace}/${slug}/proposals`, {
+      method: "POST", body: JSON.stringify(body),
+    });
+  }
+
+  async updateProposal(namespace: string, slug: string, proposalId: number, body: { status?: string; comment?: string }) {
+    return this.fetch(`/api/v1/skills/${namespace}/${slug}/proposals/${proposalId}`, {
+      method: "PATCH", body: JSON.stringify(body),
+    });
+  }
+
+  // ── Community frontend methods ────────────────────────────────────
+
+  async frontendIssueList(namespace: string, slug: string): Promise<Envelope<IssueListReadModel>> {
+    return this.fetch(`/api/v1/frontend/skills/${namespace}/${slug}/issues`);
+  }
+
+  async frontendIssueDetail(namespace: string, slug: string, issueId: number): Promise<Envelope<IssueDetailReadModel>> {
+    return this.fetch(`/api/v1/frontend/skills/${namespace}/${slug}/issues/${issueId}`);
+  }
+
+  async frontendDiscussionList(namespace: string, slug: string): Promise<Envelope<DiscussionListReadModel>> {
+    return this.fetch(`/api/v1/frontend/skills/${namespace}/${slug}/discussions`);
+  }
+
+  async frontendDiscussionDetail(namespace: string, slug: string, discussionId: number): Promise<Envelope<DiscussionDetailReadModel>> {
+    return this.fetch(`/api/v1/frontend/skills/${namespace}/${slug}/discussions/${discussionId}`);
+  }
+
+  async frontendWikiList(namespace: string, slug: string): Promise<Envelope<WikiPageListReadModel>> {
+    return this.fetch(`/api/v1/frontend/skills/${namespace}/${slug}/wiki`);
+  }
+
+  async frontendWikiDetail(namespace: string, slug: string, pageSlug: string): Promise<Envelope<WikiPageDetailReadModel>> {
+    return this.fetch(`/api/v1/frontend/skills/${namespace}/${slug}/wiki/${pageSlug}`);
+  }
+
+  async frontendProposalList(namespace: string, slug: string): Promise<Envelope<ProposalListReadModel>> {
+    return this.fetch(`/api/v1/frontend/skills/${namespace}/${slug}/proposals`);
+  }
+
+  async frontendProposalDetail(namespace: string, slug: string, proposalId: number): Promise<Envelope<ProposalDetailReadModel>> {
+    return this.fetch(`/api/v1/frontend/skills/${namespace}/${slug}/proposals/${proposalId}`);
   }
 }
 

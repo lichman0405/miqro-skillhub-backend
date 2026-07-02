@@ -22,6 +22,7 @@ func RegisterRoutes(
 	searchH *portal.SearchHandler,
 	skillH *portal.SkillHandler,
 	nsH *portal.NamespaceHandler,
+	communityH *CommunityFrontendHandler,
 ) {
 	// wrap applies optional auth and rate limiting to a frontend handler.
 	wrap := func(h http.HandlerFunc) http.HandlerFunc {
@@ -94,44 +95,60 @@ func RegisterRoutes(
 			handleReleaseDetail(w, r)
 		}))
 
-	// Community — issue list/detail pages.
+	// Community — issue list/detail pages (closure captures communityH).
 	mux.HandleFunc("GET /api/v1/frontend/skills/{namespace}/{slug}/issues",
 		wrap(func(w http.ResponseWriter, r *http.Request) {
-			handleIssueList(w, r)
+			if communityH != nil {
+				communityH.HandleIssueList(w, r)
+			}
 		}))
 	mux.HandleFunc("GET /api/v1/frontend/skills/{namespace}/{slug}/issues/{issueID}",
 		wrap(func(w http.ResponseWriter, r *http.Request) {
-			handleIssueDetail(w, r)
+			if communityH != nil {
+				communityH.HandleIssueDetail(w, r)
+			}
 		}))
 
 	// Community — discussion list/detail pages.
 	mux.HandleFunc("GET /api/v1/frontend/skills/{namespace}/{slug}/discussions",
 		wrap(func(w http.ResponseWriter, r *http.Request) {
-			handleDiscussionList(w, r)
+			if communityH != nil {
+				communityH.HandleDiscussionList(w, r)
+			}
 		}))
 	mux.HandleFunc("GET /api/v1/frontend/skills/{namespace}/{slug}/discussions/{discussionID}",
 		wrap(func(w http.ResponseWriter, r *http.Request) {
-			handleDiscussionDetail(w, r)
+			if communityH != nil {
+				communityH.HandleDiscussionDetail(w, r)
+			}
 		}))
 
 	// Community — wiki page list/detail pages.
 	mux.HandleFunc("GET /api/v1/frontend/skills/{namespace}/{slug}/wiki",
 		wrap(func(w http.ResponseWriter, r *http.Request) {
-			handleWikiPageList(w, r)
+			if communityH != nil {
+				communityH.HandleWikiList(w, r)
+			}
 		}))
 	mux.HandleFunc("GET /api/v1/frontend/skills/{namespace}/{slug}/wiki/{pageSlug}",
 		wrap(func(w http.ResponseWriter, r *http.Request) {
-			handleWikiPageDetail(w, r)
+			if communityH != nil {
+				communityH.HandleWikiDetail(w, r)
+			}
 		}))
 
 	// Community — change proposal list/detail pages.
 	mux.HandleFunc("GET /api/v1/frontend/skills/{namespace}/{slug}/proposals",
 		wrap(func(w http.ResponseWriter, r *http.Request) {
-			handleProposalList(w, r)
+			if communityH != nil {
+				communityH.HandleProposalList(w, r)
+			}
 		}))
 	mux.HandleFunc("GET /api/v1/frontend/skills/{namespace}/{slug}/proposals/{proposalID}",
 		wrap(func(w http.ResponseWriter, r *http.Request) {
-			handleProposalDetail(w, r)
+			if communityH != nil {
+				communityH.HandleProposalDetail(w, r)
+			}
 		}))
 
 	_ = searchH

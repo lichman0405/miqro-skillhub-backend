@@ -766,6 +766,405 @@ paths:
               schema:
                 $ref: "#/components/schemas/ReleaseDetailReadModel"
 
+  # ── Community: Issues ───────────────────────────────────────────────
+  /api/v1/skills/{namespace}/{slug}/issues:
+    get:
+      tags: [Community]
+      summary: List issues for a skill
+      parameters:
+        - { name: namespace, in: path, required: true, schema: { type: string } }
+        - { name: slug, in: path, required: true, schema: { type: string } }
+        - { name: status, in: query, schema: { type: string } }
+        - { name: page, in: query, schema: { type: integer, default: 0 } }
+        - { name: size, in: query, schema: { type: integer, default: 20 } }
+      responses:
+        "200": { description: Issue list }
+    post:
+      tags: [Community]
+      summary: Create a new issue
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: namespace, in: path, required: true, schema: { type: string } }
+        - { name: slug, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateIssueRequest"
+      responses:
+        "201": { description: Created issue }
+
+  /api/v1/skills/{namespace}/{slug}/issues/{issueID}:
+    get:
+      tags: [Community]
+      summary: Get an issue with comments and labels
+      parameters:
+        - { name: namespace, in: path, required: true, schema: { type: string } }
+        - { name: slug, in: path, required: true, schema: { type: string } }
+        - { name: issueID, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        "200": { description: Issue detail }
+    patch:
+      tags: [Community]
+      summary: Update an issue
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: namespace, in: path, required: true, schema: { type: string } }
+        - { name: slug, in: path, required: true, schema: { type: string } }
+        - { name: issueID, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateIssueRequest"
+      responses:
+        "200": { description: Updated issue }
+    delete:
+      tags: [Community]
+      summary: Delete an issue
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: namespace, in: path, required: true, schema: { type: string } }
+        - { name: slug, in: path, required: true, schema: { type: string } }
+        - { name: issueID, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        "200": { description: Deleted }
+
+  /api/v1/skills/{namespace}/{slug}/issues/{issueID}/comments:
+    get:
+      tags: [Community]
+      summary: List issue comments
+      parameters:
+        - { name: namespace, in: path, required: true, schema: { type: string } }
+        - { name: slug, in: path, required: true, schema: { type: string } }
+        - { name: issueID, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        "200": { description: Comment list }
+    post:
+      tags: [Community]
+      summary: Add a comment to an issue
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: namespace, in: path, required: true, schema: { type: string } }
+        - { name: slug, in: path, required: true, schema: { type: string } }
+        - { name: issueID, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, properties: { body: { type: string } }, required: [body] }
+      responses:
+        "201": { description: Created comment }
+
+  # ── Community: Discussions ──────────────────────────────────────────
+  /api/v1/skills/{namespace}/{slug}/discussions:
+    get:
+      tags: [Community]
+      summary: List discussions for a skill
+      parameters:
+        - { name: namespace, in: path, required: true, schema: { type: string } }
+        - { name: slug, in: path, required: true, schema: { type: string } }
+        - { name: category, in: query, schema: { type: string } }
+        - { name: page, in: query, schema: { type: integer, default: 0 } }
+        - { name: size, in: query, schema: { type: integer, default: 20 } }
+      responses:
+        "200": { description: Discussion list }
+    post:
+      tags: [Community]
+      summary: Create a new discussion
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: namespace, in: path, required: true, schema: { type: string } }
+        - { name: slug, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, properties: { title: { type: string }, body: { type: string }, category: { type: string } }, required: [title] }
+      responses:
+        "201": { description: Created discussion }
+
+  /api/v1/skills/{namespace}/{slug}/discussions/{discussionID}:
+    get:
+      tags: [Community]
+      summary: Get a discussion with comments
+      parameters:
+        - { name: namespace, in: path, required: true, schema: { type: string } }
+        - { name: slug, in: path, required: true, schema: { type: string } }
+        - { name: discussionID, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        "200": { description: Discussion detail }
+    patch:
+      tags: [Community]
+      summary: Update a discussion
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: namespace, in: path, required: true, schema: { type: string } }
+        - { name: slug, in: path, required: true, schema: { type: string } }
+        - { name: discussionID, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, properties: { title: { type: string }, body: { type: string }, category: { type: string }, locked: { type: boolean }, pinned: { type: boolean } } }
+      responses:
+        "200": { description: Updated discussion }
+    delete:
+      tags: [Community]
+      summary: Delete a discussion
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: namespace, in: path, required: true, schema: { type: string } }
+        - { name: slug, in: path, required: true, schema: { type: string } }
+        - { name: discussionID, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        "200": { description: Deleted }
+
+  /api/v1/skills/{namespace}/{slug}/discussions/{discussionID}/comments:
+    get:
+      tags: [Community]
+      summary: List discussion comments
+      parameters:
+        - { name: namespace, in: path, required: true, schema: { type: string } }
+        - { name: slug, in: path, required: true, schema: { type: string } }
+        - { name: discussionID, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        "200": { description: Comment list }
+    post:
+      tags: [Community]
+      summary: Add a comment to a discussion
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: namespace, in: path, required: true, schema: { type: string } }
+        - { name: slug, in: path, required: true, schema: { type: string } }
+        - { name: discussionID, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, properties: { body: { type: string } }, required: [body] }
+      responses:
+        "201": { description: Created comment }
+
+  /api/v1/skills/{namespace}/{slug}/discussions/{discussionID}/accept-answer:
+    post:
+      tags: [Community]
+      summary: Accept a comment as the answer (Q&A only)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: namespace, in: path, required: true, schema: { type: string } }
+        - { name: slug, in: path, required: true, schema: { type: string } }
+        - { name: discussionID, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, properties: { commentId: { type: integer, format: int64 } }, required: [commentId] }
+      responses:
+        "200": { description: Answer accepted }
+
+  # ── Community: Wiki Pages ───────────────────────────────────────────
+  /api/v1/skills/{namespace}/{slug}/wiki:
+    get:
+      tags: [Community]
+      summary: List wiki pages
+      parameters:
+        - { name: namespace, in: path, required: true, schema: { type: string } }
+        - { name: slug, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Wiki page list }
+    post:
+      tags: [Community]
+      summary: Create a wiki page (maintainer only)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: namespace, in: path, required: true, schema: { type: string } }
+        - { name: slug, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, properties: { title: { type: string }, slug: { type: string }, body: { type: string }, changeSummary: { type: string } }, required: [title, slug, body] }
+      responses:
+        "201": { description: Created wiki page }
+
+  /api/v1/skills/{namespace}/{slug}/wiki/{pageSlug}:
+    get:
+      tags: [Community]
+      summary: Get a wiki page with versions
+      parameters:
+        - { name: namespace, in: path, required: true, schema: { type: string } }
+        - { name: slug, in: path, required: true, schema: { type: string } }
+        - { name: pageSlug, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Wiki page detail }
+    put:
+      tags: [Community]
+      summary: Update a wiki page (maintainer only)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: namespace, in: path, required: true, schema: { type: string } }
+        - { name: slug, in: path, required: true, schema: { type: string } }
+        - { name: pageSlug, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, properties: { body: { type: string }, changeSummary: { type: string } }, required: [body] }
+      responses:
+        "200": { description: Updated wiki page }
+    delete:
+      tags: [Community]
+      summary: Delete a wiki page (maintainer only)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: namespace, in: path, required: true, schema: { type: string } }
+        - { name: slug, in: path, required: true, schema: { type: string } }
+        - { name: pageSlug, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Deleted }
+
+  /api/v1/skills/{namespace}/{slug}/wiki/{pageSlug}/versions:
+    get:
+      tags: [Community]
+      summary: List wiki page version history
+      parameters:
+        - { name: namespace, in: path, required: true, schema: { type: string } }
+        - { name: slug, in: path, required: true, schema: { type: string } }
+        - { name: pageSlug, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Version history }
+
+  # ── Community: Change Proposals ─────────────────────────────────────
+  /api/v1/skills/{namespace}/{slug}/proposals:
+    get:
+      tags: [Community]
+      summary: List change proposals
+      parameters:
+        - { name: namespace, in: path, required: true, schema: { type: string } }
+        - { name: slug, in: path, required: true, schema: { type: string } }
+        - { name: status, in: query, schema: { type: string } }
+        - { name: page, in: query, schema: { type: integer, default: 0 } }
+        - { name: size, in: query, schema: { type: integer, default: 20 } }
+      responses:
+        "200": { description: Proposal list }
+    post:
+      tags: [Community]
+      summary: Create a change proposal
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: namespace, in: path, required: true, schema: { type: string } }
+        - { name: slug, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, properties: { title: { type: string }, summary: { type: string }, proposedChangesJSON: { type: string } }, required: [title] }
+      responses:
+        "201": { description: Created proposal }
+
+  /api/v1/skills/{namespace}/{slug}/proposals/{proposalID}:
+    get:
+      tags: [Community]
+      summary: Get a change proposal
+      parameters:
+        - { name: namespace, in: path, required: true, schema: { type: string } }
+        - { name: slug, in: path, required: true, schema: { type: string } }
+        - { name: proposalID, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        "200": { description: Proposal detail }
+    patch:
+      tags: [Community]
+      summary: Update proposal status
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: namespace, in: path, required: true, schema: { type: string } }
+        - { name: slug, in: path, required: true, schema: { type: string } }
+        - { name: proposalID, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, properties: { status: { type: string }, comment: { type: string } } }
+      responses:
+        "200": { description: Updated proposal }
+
+  # ── Community Frontend Read Models ──────────────────────────────────
+  /api/v1/frontend/skills/{namespace}/{slug}/issues:
+    get:
+      tags: [Frontend]
+      summary: Frontend issue list
+      parameters:
+        - { name: namespace, in: path, required: true, schema: { type: string } }
+        - { name: slug, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Issue list read model }
+
+  /api/v1/frontend/skills/{namespace}/{slug}/issues/{issueID}:
+    get:
+      tags: [Frontend]
+      summary: Frontend issue detail
+      parameters:
+        - { name: namespace, in: path, required: true, schema: { type: string } }
+        - { name: slug, in: path, required: true, schema: { type: string } }
+        - { name: issueID, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        "200": { description: Issue detail read model }
+
+  /api/v1/frontend/skills/{namespace}/{slug}/discussions:
+    get:
+      tags: [Frontend]
+      summary: Frontend discussion list
+      parameters:
+        - { name: namespace, in: path, required: true, schema: { type: string } }
+        - { name: slug, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Discussion list read model }
+
+  /api/v1/frontend/skills/{namespace}/{slug}/discussions/{discussionID}:
+    get:
+      tags: [Frontend]
+      summary: Frontend discussion detail
+      parameters:
+        - { name: namespace, in: path, required: true, schema: { type: string } }
+        - { name: slug, in: path, required: true, schema: { type: string } }
+        - { name: discussionID, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        "200": { description: Discussion detail read model }
+
+  /api/v1/frontend/skills/{namespace}/{slug}/wiki:
+    get:
+      tags: [Frontend]
+      summary: Frontend wiki page list
+      parameters:
+        - { name: namespace, in: path, required: true, schema: { type: string } }
+        - { name: slug, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Wiki page list read model }
+
+  /api/v1/frontend/skills/{namespace}/{slug}/wiki/{pageSlug}:
+    get:
+      tags: [Frontend]
+      summary: Frontend wiki page detail
+      parameters:
+        - { name: namespace, in: path, required: true, schema: { type: string } }
+        - { name: slug, in: path, required: true, schema: { type: string } }
+        - { name: pageSlug, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Wiki page detail read model }
+
+  /api/v1/frontend/skills/{namespace}/{slug}/proposals:
+    get:
+      tags: [Frontend]
+      summary: Frontend proposal list
+      parameters:
+        - { name: namespace, in: path, required: true, schema: { type: string } }
+        - { name: slug, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Proposal list read model }
+
+  /api/v1/frontend/skills/{namespace}/{slug}/proposals/{proposalID}:
+    get:
+      tags: [Frontend]
+      summary: Frontend proposal detail
+      parameters:
+        - { name: namespace, in: path, required: true, schema: { type: string } }
+        - { name: slug, in: path, required: true, schema: { type: string } }
+        - { name: proposalID, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        "200": { description: Proposal detail read model }
+
 components:
   securitySchemes:
     bearerAuth:
@@ -1526,3 +1925,317 @@ components:
         canDelete: { type: boolean }
         canYank: { type: boolean }
         canUnYank: { type: boolean }
+
+    # ── Community schemas ─────────────────────────────────────────────
+    Issue:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        skillId: { type: integer, format: int64 }
+        title: { type: string }
+        body: { type: string }
+        status: { type: string }
+        assigneeId: { type: string }
+        linkedVersionId: { type: integer, format: int64 }
+        linkedReleaseId: { type: integer, format: int64 }
+        authorId: { type: string }
+        locked: { type: boolean }
+        commentCount: { type: integer }
+
+    IssueComment:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        issueId: { type: integer, format: int64 }
+        authorId: { type: string }
+        body: { type: string }
+
+    CreateIssueRequest:
+      type: object
+      required: [title]
+      properties:
+        title: { type: string }
+        body: { type: string }
+        assigneeId: { type: string }
+        linkedVersionId: { type: integer, format: int64 }
+        linkedReleaseId: { type: integer, format: int64 }
+
+    UpdateIssueRequest:
+      type: object
+      properties:
+        title: { type: string }
+        body: { type: string }
+        status: { type: string }
+        assigneeId: { type: string }
+        locked: { type: boolean }
+
+    Discussion:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        skillId: { type: integer, format: int64 }
+        title: { type: string }
+        body: { type: string }
+        category: { type: string, enum: [GENERAL, QA, IDEAS, ANNOUNCEMENTS] }
+        acceptedAnswerId: { type: integer, format: int64 }
+        authorId: { type: string }
+        locked: { type: boolean }
+        pinned: { type: boolean }
+        commentCount: { type: integer }
+
+    DiscussionComment:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        discussionId: { type: integer, format: int64 }
+        authorId: { type: string }
+        body: { type: string }
+        isAnswer: { type: boolean }
+
+    WikiPage:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        skillId: { type: integer, format: int64 }
+        title: { type: string }
+        slug: { type: string }
+        currentVersionId: { type: integer, format: int64 }
+        orderIndex: { type: integer }
+
+    WikiPageVersion:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        pageId: { type: integer, format: int64 }
+        body: { type: string }
+        version: { type: integer }
+        changeSummary: { type: string }
+        authorId: { type: string }
+
+    ChangeProposal:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        skillId: { type: integer, format: int64 }
+        title: { type: string }
+        summary: { type: string }
+        status: { type: string, enum: [OPEN, ACCEPTED, REJECTED, WITHDRAWN] }
+        authorId: { type: string }
+        reviewerId: { type: string }
+        sourceGitRef: { type: string }
+        reviewComment: { type: string }
+
+    CommunityReport:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        skillId: { type: integer, format: int64 }
+        objectType: { type: string, enum: [ISSUE, DISCUSSION, COMMENT, WIKI_PAGE] }
+        objectId: { type: integer, format: int64 }
+        reporterId: { type: string }
+        reason: { type: string }
+        status: { type: string, enum: [PENDING, RESOLVED, DISMISSED] }
+
+    # ── Community Frontend Read Models ────────────────────────────────
+    IssueListReadModel:
+      type: object
+      properties:
+        issues: { type: array, items: { $ref: "#/components/schemas/IssueListView" } }
+        totalCount: { type: integer, format: int64 }
+        page: { type: integer }
+        size: { type: integer }
+        availableActions: { $ref: "#/components/schemas/IssueListActions" }
+
+    IssueListView:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        title: { type: string }
+        status: { type: string }
+        authorId: { type: string }
+        locked: { type: boolean }
+        commentCount: { type: integer }
+
+    IssueListActions:
+      type: object
+      properties:
+        canCreateIssue: { type: boolean }
+
+    IssueDetailReadModel:
+      type: object
+      properties:
+        issue: { $ref: "#/components/schemas/IssueDetailView" }
+        comments: { type: array, items: { $ref: "#/components/schemas/CommentView" } }
+        availableActions: { $ref: "#/components/schemas/IssueDetailActions" }
+
+    IssueDetailView:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        title: { type: string }
+        body: { type: string }
+        status: { type: string }
+        authorId: { type: string }
+        locked: { type: boolean }
+
+    IssueDetailActions:
+      type: object
+      properties:
+        canEdit: { type: boolean }
+        canDelete: { type: boolean }
+        canClose: { type: boolean }
+        canReopen: { type: boolean }
+
+    CommentView:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        authorId: { type: string }
+        body: { type: string }
+
+    DiscussionListReadModel:
+      type: object
+      properties:
+        discussions: { type: array, items: { $ref: "#/components/schemas/DiscussionListView" } }
+        totalCount: { type: integer, format: int64 }
+        page: { type: integer }
+        size: { type: integer }
+        availableActions: { $ref: "#/components/schemas/DiscussionListActions" }
+
+    DiscussionListView:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        title: { type: string }
+        category: { type: string }
+        authorId: { type: string }
+        pinned: { type: boolean }
+        locked: { type: boolean }
+        commentCount: { type: integer }
+
+    DiscussionListActions:
+      type: object
+      properties:
+        canCreateDiscussion: { type: boolean }
+
+    DiscussionDetailReadModel:
+      type: object
+      properties:
+        discussion: { $ref: "#/components/schemas/DiscussionDetailView" }
+        comments: { type: array, items: { $ref: "#/components/schemas/CommentView" } }
+        availableActions: { $ref: "#/components/schemas/DiscussionDetailActions" }
+
+    DiscussionDetailView:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        title: { type: string }
+        body: { type: string }
+        category: { type: string }
+        authorId: { type: string }
+        pinned: { type: boolean }
+        locked: { type: boolean }
+
+    DiscussionDetailActions:
+      type: object
+      properties:
+        canEdit: { type: boolean }
+        canDelete: { type: boolean }
+        canLock: { type: boolean }
+        canPin: { type: boolean }
+        canAcceptAnswer: { type: boolean }
+
+    WikiPageListReadModel:
+      type: object
+      properties:
+        pages: { type: array, items: { $ref: "#/components/schemas/WikiPageListView" } }
+        availableActions: { $ref: "#/components/schemas/WikiPageListActions" }
+
+    WikiPageListView:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        title: { type: string }
+        slug: { type: string }
+        orderIndex: { type: integer }
+
+    WikiPageListActions:
+      type: object
+      properties:
+        canCreatePage: { type: boolean }
+
+    WikiPageDetailReadModel:
+      type: object
+      properties:
+        page: { $ref: "#/components/schemas/WikiPageDetailView" }
+        versions: { type: array, items: { $ref: "#/components/schemas/WikiVersionView" } }
+        availableActions: { $ref: "#/components/schemas/WikiPageDetailActions" }
+
+    WikiPageDetailView:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        title: { type: string }
+        slug: { type: string }
+        version: { type: integer }
+        body: { type: string }
+
+    WikiVersionView:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        version: { type: integer }
+        changeSummary: { type: string }
+        authorId: { type: string }
+
+    WikiPageDetailActions:
+      type: object
+      properties:
+        canEdit: { type: boolean }
+        canDelete: { type: boolean }
+
+    ProposalListReadModel:
+      type: object
+      properties:
+        proposals: { type: array, items: { $ref: "#/components/schemas/ProposalListView" } }
+        totalCount: { type: integer, format: int64 }
+        page: { type: integer }
+        size: { type: integer }
+        availableActions: { $ref: "#/components/schemas/ProposalListActions" }
+
+    ProposalListView:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        title: { type: string }
+        status: { type: string }
+        authorId: { type: string }
+
+    ProposalListActions:
+      type: object
+      properties:
+        canCreateProposal: { type: boolean }
+
+    ProposalDetailReadModel:
+      type: object
+      properties:
+        proposal: { $ref: "#/components/schemas/ProposalDetailView" }
+        availableActions: { $ref: "#/components/schemas/ProposalDetailActions" }
+
+    ProposalDetailView:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        title: { type: string }
+        summary: { type: string }
+        status: { type: string }
+        authorId: { type: string }
+        reviewerId: { type: string }
+        sourceGitRef: { type: string }
+
+    ProposalDetailActions:
+      type: object
+      properties:
+        canAccept: { type: boolean }
+        canReject: { type: boolean }
+        canWithdraw: { type: boolean }
