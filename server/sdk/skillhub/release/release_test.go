@@ -183,8 +183,11 @@ func TestCreateRelease_Success(t *testing.T) {
 	if r.Channel != "stable" {
 		t.Errorf("expected channel 'stable', got %q", r.Channel)
 	}
-	if r.Draft {
-		t.Error("expected non-draft release")
+	if !r.Draft {
+		t.Error("release must be created as draft — prevents bypassing gate enforcement")
+	}
+	if r.PublishedAt != nil {
+		t.Error("draft release should have nil PublishedAt")
 	}
 	if r.Yanked {
 		t.Error("expected non-yanked release")
@@ -414,6 +417,8 @@ func TestYankRelease(t *testing.T) {
 	r, _ := svc.CreateRelease(ctx, CreateReleaseInput{
 		SkillID: 1, VersionID: 10, Title: "v1", PublisherID: "u1",
 	})
+	// Publish first — releases are always created as drafts.
+	r, _ = svc.PublishRelease(ctx, r.ID)
 	if r.Yanked {
 		t.Error("new release should not be yanked")
 	}
@@ -440,6 +445,7 @@ func TestUnyankRelease(t *testing.T) {
 	r, _ := svc.CreateRelease(ctx, CreateReleaseInput{
 		SkillID: 1, VersionID: 10, Title: "v1", PublisherID: "u1",
 	})
+	r, _ = svc.PublishRelease(ctx, r.ID)
 	_, _ = svc.YankRelease(ctx, r.ID)
 
 	unyanked, err := svc.UnyankRelease(ctx, r.ID)
@@ -467,13 +473,15 @@ func TestYankReflectedInLatestStable(t *testing.T) {
 	svc := newTestService()
 	ctx := context.Background()
 
-	// Create two releases, yank the first.
+	// Create two releases, publish them, then yank the first.
 	r1, _ := svc.CreateRelease(ctx, CreateReleaseInput{
 		SkillID: 1, VersionID: 10, Title: "v1.0", PublisherID: "u1",
 	})
+	r1, _ = svc.PublishRelease(ctx, r1.ID)
 	r2, _ := svc.CreateRelease(ctx, CreateReleaseInput{
 		SkillID: 1, VersionID: 20, Title: "v2.0", PublisherID: "u1",
 	})
+	r2, _ = svc.PublishRelease(ctx, r2.ID)
 
 	_, _ = svc.YankRelease(ctx, r1.ID)
 
@@ -491,9 +499,10 @@ func TestGetLatestRelease_WrongChannel(t *testing.T) {
 	svc := newTestService()
 	ctx := context.Background()
 
-	_, _ = svc.CreateRelease(ctx, CreateReleaseInput{
+	r, _ := svc.CreateRelease(ctx, CreateReleaseInput{
 		SkillID: 1, VersionID: 10, Channel: "stable", Title: "Stable", PublisherID: "u1",
 	})
+	_, _ = svc.PublishRelease(ctx, r.ID)
 
 	_, err := svc.GetLatestRelease(ctx, 1, "beta")
 	if err == nil {
@@ -621,5 +630,69 @@ func TestCreateRelease_PublishedVersionOwnedBySameSkill_Accepted(t *testing.T) {
 	}
 	if r.SkillID != 1 || r.VersionID != 10 {
 		t.Errorf("unexpected release identity: skill=%d version=%d", r.SkillID, r.VersionID)
+	}
+}
+
+// ── Gate bypass prevention tests ──────────────────────────────────────────────
+
+func TestCreateRelease_AlwaysDraft(t *testing.T) {
+	svc := newTestService()
+	ctx := context.Background()
+
+	// Even when Draft is explicitly false, CreateRelease forces draft=true.
+	r, err := svc.CreateRelease(ctx, CreateReleaseInput{
+		SkillID: 1, VersionID: 10, Title: "Direct Publish Attempt", Draft: false, PublisherID: "u1",
+	})
+	if err != nil {
+		t.Fatalf("CreateRelease with Draft=false: %v", err)
+	}
+	if !r.Draft {
+		t.Error("CreateRelease must always create draft=true to prevent gate bypass")
+	}
+	if r.PublishedAt != nil {
+		t.Error("draft should have nil PublishedAt")
+	}
+}
+
+func TestUpdateRelease_RejectsDirectPublish(t *testing.T) {
+	svc := newTestService()
+	ctx := context.Background()
+
+	r, _ := svc.CreateRelease(ctx, CreateReleaseInput{
+		SkillID: 1, VersionID: 10, Title: "Safe Release", PublisherID: "u1",
+	})
+	if !r.Draft {
+		t.Fatal("expected draft=true after create")
+	}
+
+	// Attempting to set draft=false via UpdateRelease must fail.
+	draftFalse := false
+	_, err := svc.UpdateRelease(ctx, UpdateReleaseInput{ID: r.ID, Draft: &draftFalse})
+	if err == nil {
+		t.Fatal("expected error when trying to unpublish via UpdateRelease")
+	}
+}
+
+func TestPublishRelease_WorksAfterCreate(t *testing.T) {
+	svc := newTestService()
+	ctx := context.Background()
+
+	r, _ := svc.CreateRelease(ctx, CreateReleaseInput{
+		SkillID: 1, VersionID: 10, Title: "Gate Compliant", PublisherID: "u1",
+	})
+	if !r.Draft {
+		t.Fatal("expected draft=true")
+	}
+
+	// Publish through the proper gate-enforced flow.
+	pub, err := svc.PublishRelease(ctx, r.ID)
+	if err != nil {
+		t.Fatalf("PublishRelease: %v", err)
+	}
+	if pub.Draft {
+		t.Error("expected draft=false after proper publish")
+	}
+	if pub.PublishedAt == nil {
+		t.Error("expected PublishedAt after proper publish")
 	}
 }

@@ -20,12 +20,14 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
 	"miqro-skillhub/server/internal/adapters/agentrunner"
+	"miqro-skillhub/server/internal/adapters/localstorage"
 	"miqro-skillhub/server/internal/adapters/postgres"
 	"miqro-skillhub/server/sdk/skillhub/agentci"
 )
@@ -68,28 +70,48 @@ func main() {
 		nil, // log store not yet wired
 	)
 
+	// Object storage for reading package file content.
+	storageRoot := os.Getenv("STORAGE_ROOT")
+	if storageRoot == "" {
+		storageRoot = "./data/storage"
+	}
+	objStore, err := localstorage.New(storageRoot)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "skillhub-worker: WARNING: cannot create object storage: %v — checks will lack file content\n", err)
+		objStore = nil
+	}
+
 	// Register the local deterministic runner.
 	localRunner := agentrunner.NewLocalRunner()
 
-	// Wire version file reader using version/file repos.
+	// Wire version file reader using version/file repos + object storage for content.
 	localRunner.SetVersionFileReader(func(ctx context.Context, versionID, skillID int64) ([]agentci.PackageFileEntry, error) {
 		versionRepo := postgres.NewSkillVersionRepo(db)
 		fileRepo := postgres.NewSkillFileRepo(db)
-		version, err := versionRepo.FindByID(ctx, versionID)
-		if err != nil {
-			return nil, fmt.Errorf("find version: %w", err)
+		version, verr := versionRepo.FindByID(ctx, versionID)
+		if verr != nil {
+			return nil, fmt.Errorf("find version: %w", verr)
 		}
 		if version == nil {
 			return nil, fmt.Errorf("version %d not found", versionID)
 		}
-		files, err := fileRepo.FindByVersionID(ctx, versionID)
-		if err != nil {
-			return nil, fmt.Errorf("find files: %w", err)
+		files, ferr := fileRepo.FindByVersionID(ctx, versionID)
+		if ferr != nil {
+			return nil, fmt.Errorf("find files: %w", ferr)
 		}
 		entries := make([]agentci.PackageFileEntry, 0, len(files))
 		for _, f := range files {
+			var content []byte
+			if f.StorageKey != "" && objStore != nil {
+				rc, getErr := objStore.GetObject(ctx, f.StorageKey)
+				if getErr == nil {
+					content, _ = io.ReadAll(rc)
+					rc.Close()
+				}
+			}
 			entries = append(entries, agentci.PackageFileEntry{
 				Path:        f.FilePath,
+				Content:     content,
 				Size:        f.FileSize,
 				ContentType: f.ContentType,
 			})
@@ -130,29 +152,26 @@ func main() {
 			return
 		}
 
-		fmt.Fprintf(os.Stderr, "skillhub-worker: found %d pending/running runs\n", len(pendingRuns))
+		fmt.Fprintf(os.Stderr, "skillhub-worker: found %d pending runs\n", len(pendingRuns))
 
 		for _, run := range pendingRuns {
 			// Claim the run (atomically swap PENDING → RUNNING).
-			if run.Status == agentci.RunStatusPending {
-				claimed, err := agentciSvc.ClaimPendingRun(ctx, run.ID)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "skillhub-worker: error claiming run %d: %v\n", run.ID, err)
-					continue
-				}
-				if claimed == nil {
-					// Already claimed by another worker.
-					continue
-				}
-				run = *claimed
+			claimed, err := agentciSvc.ClaimPendingRun(ctx, run.ID)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "skillhub-worker: error claiming run %d: %v\n", run.ID, err)
+				continue
+			}
+			if claimed == nil {
+				// Already claimed by another worker.
+				continue
 			}
 
 			// Execute the pipeline run.
 			fmt.Fprintf(os.Stderr, "skillhub-worker: executing pipeline run %d (skill=%d, checks=%d)\n",
-				run.ID, run.SkillID, run.CheckCount)
+				claimed.ID, claimed.SkillID, claimed.CheckCount)
 
-			if err := exec.ExecutePipelineRun(ctx, run.ID); err != nil {
-				fmt.Fprintf(os.Stderr, "skillhub-worker: error executing run %d: %v\n", run.ID, err)
+			if err := exec.ExecutePipelineRun(ctx, claimed.ID); err != nil {
+				fmt.Fprintf(os.Stderr, "skillhub-worker: error executing run %d: %v\n", claimed.ID, err)
 			}
 		}
 	}

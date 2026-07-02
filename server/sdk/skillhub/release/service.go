@@ -40,6 +40,8 @@ type CreateReleaseInput struct {
 
 // CreateRelease creates a new release for a published skill version.
 // A published version can have exactly one stable release per channel.
+// Releases are always created as drafts to prevent bypassing CI gate enforcement.
+// Callers must explicitly publish the release through the publish flow.
 func (svc *Service) CreateRelease(ctx context.Context, input CreateReleaseInput) (*Release, error) {
 	if input.Channel == "" {
 		input.Channel = "stable"
@@ -76,25 +78,24 @@ func (svc *Service) CreateRelease(ctx context.Context, input CreateReleaseInput)
 	}
 
 	now := time.Now()
+	// Force draft=true — releases must go through gate enforcement in the publish flow.
+	// This prevents bypassing CI gate checks by creating a non-draft release directly.
 	r := Release{
 		SkillID:      input.SkillID,
 		VersionID:    input.VersionID,
 		Channel:      input.Channel,
 		Title:        input.Title,
 		Notes:        input.Notes,
-		Draft:        input.Draft,
+		Draft:        true,
 		Prerelease:   input.Prerelease,
 		Yanked:       false,
-		PublishedAt:  &now,
+		PublishedAt:  nil, // not published until explicit publish call
 		PublisherID:  input.PublisherID,
 		ReviewerID:   input.ReviewerID,
 		PackageHash:  input.PackageHash,
 		CiCheckRunID: input.CiCheckRunID,
 		CreatedAt:    now,
 		UpdatedAt:    now,
-	}
-	if input.Draft {
-		r.PublishedAt = nil
 	}
 
 	saved, err := svc.repo.Create(ctx, r)
@@ -211,11 +212,12 @@ func (svc *Service) UpdateRelease(ctx context.Context, input UpdateReleaseInput)
 		r.Notes = *input.Notes
 	}
 	if input.Draft != nil {
-		r.Draft = *input.Draft
-		if !r.Draft && r.PublishedAt == nil {
-			now := time.Now()
-			r.PublishedAt = &now
+		// Reject direct draft→non-draft transitions — the caller must use
+		// PublishRelease (which goes through gate enforcement) instead.
+		if !*input.Draft {
+			return nil, fmt.Errorf("release: cannot unpublish via update; use PublishRelease to go through gate enforcement")
 		}
+		r.Draft = *input.Draft
 	}
 	if input.Prerelease != nil {
 		r.Prerelease = *input.Prerelease
@@ -236,13 +238,28 @@ func (svc *Service) UpdateRelease(ctx context.Context, input UpdateReleaseInput)
 }
 
 // PublishRelease publishes a draft release — sets draft=false and
-// records the published timestamp.
+// records the published timestamp. This is the only path to go from
+// draft to published; UpdateRelease blocks direct draft→non-draft transitions.
 func (svc *Service) PublishRelease(ctx context.Context, id int64) (*Release, error) {
-	f := false
-	return svc.UpdateRelease(ctx, UpdateReleaseInput{
-		ID:    id,
-		Draft: &f,
-	})
+	r, err := svc.repo.FindByID(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("release: find: %w", err)
+	}
+	if r == nil {
+		return nil, fmt.Errorf("release: not found")
+	}
+	if !r.Draft {
+		return nil, fmt.Errorf("release: already published")
+	}
+	now := time.Now()
+	r.Draft = false
+	r.PublishedAt = &now
+	r.UpdatedAt = now
+	updated, err := svc.repo.Update(ctx, *r)
+	if err != nil {
+		return nil, fmt.Errorf("release: publish: %w", err)
+	}
+	return &updated, nil
 }
 
 // YankRelease marks a release as yanked.

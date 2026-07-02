@@ -10,6 +10,10 @@ import (
 	"miqro-skillhub/server/sdk/skillhub/skill"
 )
 
+// GateEnforcer is called before review approval to check CI gate policies.
+// If gates are not satisfied, the approval is blocked. Returns nil if gates pass.
+type GateEnforcer func(ctx context.Context, skillID, versionID int64, triggerType string) error
+
 // ReviewNotifier sends governance notifications for review events.
 type ReviewNotifier interface {
 	NotifyUser(ctx context.Context, userID, category, entityType string, entityID int64, title, bodyJSON string) error
@@ -25,6 +29,13 @@ type ReviewService struct {
 	permissionChecker *ReviewPermissionChecker
 	eventBus        eventbus.Bus
 	notifier        ReviewNotifier
+	gateEnforcer    GateEnforcer // optional: CI gate enforcement before approval
+}
+
+// SetGateEnforcer injects a gate enforcement function for CI gates.
+// When set, ApproveReview will call it before publishing the version.
+func (svc *ReviewService) SetGateEnforcer(enforcer GateEnforcer) {
+	svc.gateEnforcer = enforcer
 }
 
 // NewReviewService creates a ReviewService.
@@ -218,6 +229,16 @@ func (svc *ReviewService) ApproveReview(
 			return nil, fmt.Errorf("error.skill.approve.nameConflict %s", sk.Slug)
 		}
 	}
+
+	// ── Gate enforcement ──────────────────────────────────────────────────
+	// Before publishing the version via review approval, check that CI gates
+	// are satisfied. This is SDK-level enforcement, not just HTTP handler level.
+	if svc.gateEnforcer != nil {
+		if err := svc.gateEnforcer(ctx, sk.ID, skillVersion.ID, "review_approve"); err != nil {
+			return nil, fmt.Errorf("review: gate enforcement: %w", err)
+		}
+	}
+	// ── End gate enforcement ──────────────────────────────────────────────
 
 	// Publish the version.
 	skillVersion.Status = "PUBLISHED"

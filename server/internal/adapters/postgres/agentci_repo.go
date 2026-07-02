@@ -245,7 +245,7 @@ func (r *PipelineRunRepo) FindPending(ctx context.Context, limit int) ([]agentci
 	rows, err := r.DB.query(ctx,
 		`SELECT id, pipeline_id, skill_id, version_id, release_id, trigger_type, triggered_by,
 		 status, check_count, passed_count, failed_count, skipped_count, started_at, completed_at, created_at, updated_at
-		 FROM ci_pipeline_runs WHERE status IN ('PENDING','RUNNING') ORDER BY created_at ASC LIMIT $1`, limit)
+		 FROM ci_pipeline_runs WHERE status = 'PENDING' ORDER BY created_at ASC LIMIT $1`, limit)
 	if err != nil {
 		return nil, err
 	}

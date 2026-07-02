@@ -9,6 +9,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -26,6 +27,7 @@ import (
 	"miqro-skillhub/server/internal/http/portal"
 	"miqro-skillhub/server/internal/http/toolapi"
 	"miqro-skillhub/server/internal/adapters/agentrunner"
+	"miqro-skillhub/server/internal/adapters/localstorage"
 	"miqro-skillhub/server/sdk/skillhub/agentci"
 	"miqro-skillhub/server/sdk/skillhub/audit"
 	"miqro-skillhub/server/sdk/skillhub/auth"
@@ -34,8 +36,10 @@ import (
 	"miqro-skillhub/server/sdk/skillhub/namespace"
 	"miqro-skillhub/server/sdk/skillhub/packagekit"
 	"miqro-skillhub/server/sdk/skillhub/release"
+	"miqro-skillhub/server/sdk/skillhub/review"
 	"miqro-skillhub/server/sdk/skillhub/search"
 	"miqro-skillhub/server/sdk/skillhub/skill"
+	"miqro-skillhub/server/sdk/skillhub/storage"
 	"miqro-skillhub/server/sdk/skillhub/tooling"
 )
 
@@ -62,6 +66,8 @@ func main() {
 		releaseSvc     *release.Service
 		communitySvc   *community.Service
 		agentciSvc     *agentci.Service
+		reviewSvc      *review.ReviewService
+		objStore       storage.Store
 		limiter        *middleware.RateLimiter
 		authMW         *middleware.AuthMiddleware
 		validator      *packagekit.SkillPackageValidator
@@ -109,6 +115,17 @@ func main() {
 		// Skill service.
 		metadataParser = packagekit.NewSkillMetadataParser()
 		validator = packagekit.NewSkillPackageValidator(metadataParser)
+
+		// Object storage for development — local filesystem.
+		storageRoot := os.Getenv("STORAGE_ROOT")
+		if storageRoot == "" {
+			storageRoot = "./data/storage"
+		}
+		objStore, err = localstorage.New(storageRoot)
+		if err != nil {
+			log.Fatalf("object storage: %v", err)
+		}
+
 		skillSvc = skill.NewService(skill.ServiceConfig{
 			NamespaceRepo:       nsRepo,
 			NamespaceMemberRepo: nsMemberRepo,
@@ -116,6 +133,7 @@ func main() {
 			VersionRepo:         versionRepo,
 			FileRepo:            fileRepo,
 			TagRepo:             tagRepo,
+			Store:               objStore,
 			MetadataParser:      metadataParser,
 			PackageValidator:    validator,
 		})
@@ -171,8 +189,17 @@ func main() {
 				}
 				entries := make([]agentci.PackageFileEntry, 0, len(files))
 				for _, f := range files {
+					var content []byte
+					if f.StorageKey != "" && objStore != nil {
+						rc, getErr := objStore.GetObject(ctx, f.StorageKey)
+						if getErr == nil {
+							content, _ = io.ReadAll(rc)
+							rc.Close()
+						}
+					}
 					entries = append(entries, agentci.PackageFileEntry{
 						Path:        f.FilePath,
+						Content:     content,
 						Size:        f.FileSize,
 						ContentType: f.ContentType,
 					})
@@ -180,6 +207,30 @@ func main() {
 				return entries, nil
 			})
 			agentciSvc.RegisterRunner(localRunner)
+		}
+
+		// Review service — wired with CI gate enforcement for review approval.
+		{
+			reviewTaskRepo := postgres.NewReviewTaskRepo(db)
+			reviewSvc = review.NewReviewService(
+				reviewTaskRepo,
+				versionRepo,
+				skillRepo,
+				nsRepo,
+				nil, // permission checker (default)
+				eventbus.NewNoopBus(true),
+				nil, // notifier
+			)
+			// Wire gate enforcement — SDK-first, not just HTTP handler.
+			if agentciSvc != nil {
+				reviewSvc.SetGateEnforcer(func(ctx context.Context, skillID, versionID int64, triggerType string) error {
+					return agentciSvc.GateEnforce(ctx, agentci.GateEvalRequest{
+						SkillID:     skillID,
+						VersionID:   &versionID,
+						TriggerType: triggerType,
+					})
+				})
+			}
 		}
 
 		// Auth middleware with full namespace projection.

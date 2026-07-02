@@ -701,3 +701,59 @@ func contains(s, sub string) bool {
 	}
 	return false
 }
+
+// ── Gate enforcement tests ────────────────────────────────────────────────────
+
+func TestApproveReview_GatePasses_ApprovalSucceeds(t *testing.T) {
+	_, verRepo, _, _, svc := setupReviewService()
+	v, _ := verRepo.Save(context.Background(), skill.SkillVersion{
+		SkillID: 10, Version: "1.0.0", Status: "UPLOADED",
+	})
+	task, _ := svc.SubmitReview(context.Background(), v.ID, "owner-1", ownerRoles(), nil)
+
+	// Set a gate enforcer that passes.
+	svc.SetGateEnforcer(func(ctx context.Context, skillID, versionID int64, triggerType string) error {
+		return nil // gate passes
+	})
+
+	result, err := svc.ApproveReview(context.Background(), task.ID, "admin-user", "looks good", adminRoles(), nil)
+	if err != nil {
+		t.Fatalf("ApproveReview with passing gate: %v", err)
+	}
+	if result.Status != string(review.ReviewStatusApproved) {
+		t.Errorf("expected APPROVED, got %s", result.Status)
+	}
+
+	// Verify version published.
+	updated, _ := verRepo.FindByID(context.Background(), v.ID)
+	if updated.Status != "PUBLISHED" {
+		t.Errorf("expected version PUBLISHED when gate passes, got %s", updated.Status)
+	}
+}
+
+func TestApproveReview_GateFails_BlocksApproval(t *testing.T) {
+	_, verRepo, _, _, svc := setupReviewService()
+	v, _ := verRepo.Save(context.Background(), skill.SkillVersion{
+		SkillID: 10, Version: "1.0.0", Status: "UPLOADED",
+	})
+	task, _ := svc.SubmitReview(context.Background(), v.ID, "owner-1", ownerRoles(), nil)
+
+	// Set a gate enforcer that fails.
+	svc.SetGateEnforcer(func(ctx context.Context, skillID, versionID int64, triggerType string) error {
+		return context.DeadlineExceeded // simulate gate failure
+	})
+
+	_, err := svc.ApproveReview(context.Background(), task.ID, "admin-user", "looks good", adminRoles(), nil)
+	if err == nil {
+		t.Fatal("expected error when gate enforcement fails")
+	}
+	if !contains(err.Error(), "gate") {
+		t.Errorf("expected gate-related error, got: %v", err)
+	}
+
+	// Verify version NOT published (gate blocked it).
+	updated, _ := verRepo.FindByID(context.Background(), v.ID)
+	if updated.Status == "PUBLISHED" {
+		t.Error("version should NOT be published when gate fails")
+	}
+}

@@ -158,7 +158,7 @@ func (r *stubPipelineRunRepo) FindByReleaseID(_ context.Context, releaseID int64
 func (r *stubPipelineRunRepo) FindPending(_ context.Context, limit int) ([]PipelineRun, error) {
 	var out []PipelineRun
 	for _, pr := range r.rec {
-		if pr.Status == RunStatusPending || pr.Status == RunStatusRunning {
+		if pr.Status == RunStatusPending {
 			out = append(out, pr)
 			if len(out) >= limit {
 				break
@@ -781,15 +781,16 @@ func TestGateEnforce_Fails(t *testing.T) {
 
 func TestFindPendingRuns(t *testing.T) {
 	svc := testSvc()
-	vid := int64(42)
+	now := time.Now()
 
-	// Create a few runs.
+	// Create PENDING runs directly (TriggerPipeline marks them RUNNING).
 	for i := 0; i < 3; i++ {
-		svc.TriggerPipeline(context.Background(), TriggerPipelineInput{
-			SkillID:     100,
-			VersionID:   &vid,
-			TriggerType: "publish",
-			TriggeredBy: "u1",
+		svc.pipelineRunRepo.Create(context.Background(), PipelineRun{
+			PipelineID: 1,
+			SkillID:    100,
+			Status:     RunStatusPending,
+			CreatedAt:  now,
+			UpdatedAt:  now,
 		})
 	}
 
@@ -801,7 +802,7 @@ func TestFindPendingRuns(t *testing.T) {
 		t.Error("expected pending runs to be found")
 	}
 	for _, r := range runs {
-		if r.Status != RunStatusPending && r.Status != RunStatusRunning {
+		if r.Status != RunStatusPending {
 			t.Errorf("expected PENDING or RUNNING, got %s", r.Status)
 		}
 	}
