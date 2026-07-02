@@ -27,6 +27,7 @@ type RouterConfig struct {
 	PortalSearch    *portal.SearchHandler
 	PortalRelease   *portal.ReleaseHandler
 	PortalCommunity *portal.CommunityHandler
+	PortalAgentCI   *portal.AgentCIHandler
 
 	// Frontend community handler.
 	FrontendCommunity *frontend.CommunityFrontendHandler
@@ -100,6 +101,11 @@ func NewRouter(cfg RouterConfig) *http.ServeMux {
 	// Portal community routes.
 	if cfg.PortalCommunity != nil {
 		cfg.PortalCommunity.RegisterCommunityRoutes(mux, cfg.AuthMW, rl)
+	}
+
+	// Portal agent CI routes.
+	if cfg.PortalAgentCI != nil {
+		cfg.PortalAgentCI.RegisterAgentCIRoutes(mux, cfg.AuthMW, rl)
 	}
 
 	// CLI /api/cli/v1/* routes.

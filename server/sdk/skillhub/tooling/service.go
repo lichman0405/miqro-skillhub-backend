@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 
+	"miqro-skillhub/server/sdk/skillhub/agentci"
 	"miqro-skillhub/server/sdk/skillhub/namespace"
 	"miqro-skillhub/server/sdk/skillhub/packagekit"
 	"miqro-skillhub/server/sdk/skillhub/skill"
@@ -20,6 +21,7 @@ var errNoSkillService = fmt.Errorf("tooling: skill service is not configured")
 type Service struct {
 	skillSvc      *skill.Service
 	slugFunc      func(string) (string, error) // namespace.Slugify
+	agentciSvc    *agentci.Service // Phase 12: non-nil after wiring
 }
 
 // NewService creates a tooling Service.
@@ -28,6 +30,11 @@ func NewService(skillSvc *skill.Service) *Service {
 		skillSvc: skillSvc,
 		slugFunc: namespace.Slugify,
 	}
+}
+
+// SetAgentCIService wires the agent CI service for evaluation triggers.
+func (svc *Service) SetAgentCIService(a *agentci.Service) {
+	svc.agentciSvc = a
 }
 
 // ---------------------------------------------------------------------------
@@ -284,12 +291,34 @@ func (svc *Service) DiffWithContent(
 // Evaluation trigger (placeholder)
 // ---------------------------------------------------------------------------
 
-// TriggerEvaluate is a protocol placeholder for triggering skill evaluation.
-// Full implementation in Phase 12 (Agent CI/CD).
-func (svc *Service) TriggerEvaluate(_ context.Context, req EvaluateRequest) *EvaluateResponse {
+// TriggerEvaluate triggers an agent CI pipeline for skill evaluation.
+// Implemented in Phase 12 (Agent CI/CD).
+func (svc *Service) TriggerEvaluate(ctx context.Context, req EvaluateRequest) *EvaluateResponse {
+	if svc.agentciSvc == nil {
+		return &EvaluateResponse{
+			Accepted: false,
+			Message:  "agent CI service is not configured",
+		}
+	}
+
+	triggeredBy := "system"
+	result, err := svc.agentciSvc.TriggerPipeline(ctx, agentci.TriggerPipelineInput{
+		SkillID:     req.SkillID,
+		VersionID:   &req.VersionID,
+		TriggerType: req.TriggerType,
+		TriggeredBy: triggeredBy,
+	})
+	if err != nil {
+		return &EvaluateResponse{
+			Accepted: false,
+			Message:  fmt.Sprintf("failed to trigger pipeline: %v", err),
+		}
+	}
+
 	return &EvaluateResponse{
-		Accepted: false,
-		Message:  "evaluation trigger is not yet implemented (Phase 12)",
+		Accepted:   result.Accepted,
+		CheckRunID: fmt.Sprintf("%d", result.PipelineRunID),
+		Message:    result.Message,
 	}
 }
 
