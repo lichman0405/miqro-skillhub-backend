@@ -8,7 +8,7 @@ import (
 	"net/http"
 
 	"miqro-skillhub/server/internal/http/middleware"
-	"miqro-skillhub/server/sdk/skillhub/packagekit"
+	"miqro-skillhub/server/internal/http/packageupload"
 	"miqro-skillhub/server/sdk/skillhub/search"
 	"miqro-skillhub/server/sdk/skillhub/skill"
 )
@@ -151,22 +151,11 @@ func (h *Handler) handleValidate(w http.ResponseWriter, r *http.Request) {
 	p := middleware.GetPrincipal(r)
 	namespaceSlug := r.PathValue("namespace")
 
-	file, _, err := r.FormFile("package")
+	entries, err := packageupload.ReadPackageFromRequest(r)
 	if err != nil {
-		middleware.WriteError(w, err)
-		return
-	}
-	defer file.Close()
-
-	body, err := io.ReadAll(file)
-	if err != nil {
-		middleware.WriteError(w, err)
-		return
-	}
-
-	entries, err := extractZipEntries(body)
-	if err != nil {
-		middleware.WriteError(w, err)
+		middleware.WriteJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "failed to read package: " + err.Error(),
+		})
 		return
 	}
 
@@ -182,22 +171,11 @@ func (h *Handler) handlePublish(w http.ResponseWriter, r *http.Request) {
 	p := middleware.GetPrincipal(r)
 	namespaceSlug := r.PathValue("namespace")
 
-	file, _, err := r.FormFile("package")
+	entries, err := packageupload.ReadPackageFromRequest(r)
 	if err != nil {
-		middleware.WriteError(w, err)
-		return
-	}
-	defer file.Close()
-
-	body, err := io.ReadAll(file)
-	if err != nil {
-		middleware.WriteError(w, err)
-		return
-	}
-
-	entries, err := extractZipEntries(body)
-	if err != nil {
-		middleware.WriteError(w, err)
+		middleware.WriteJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "failed to read package: " + err.Error(),
+		})
 		return
 	}
 
@@ -224,17 +202,4 @@ func (h *Handler) handleDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	middleware.WriteJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
-}
-
-// extractZipEntries is a shared zip-extraction helper used by CLI publish/validate.
-func extractZipEntries(src []byte) ([]packagekit.PackageEntry, error) {
-	return extractZipBytes(src)
-}
-
-// extractZipBytes wraps the portal-level helper; avoids import cycle since
-// both portal and cliapi need zip extraction.  The portal package exports
-// ExtractZipEntries for reuse.
-var extractZipBytes = func(src []byte) ([]packagekit.PackageEntry, error) {
-	// Inline implementation identical to portal.extractZipEntries.
-	return nil, nil
 }
