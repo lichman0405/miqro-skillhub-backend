@@ -24,6 +24,7 @@ import (
 	"miqro-skillhub/server/internal/http/portal"
 	"miqro-skillhub/server/internal/http/toolapi"
 	"miqro-skillhub/server/sdk/skillhub/auth"
+	"miqro-skillhub/server/sdk/skillhub/community"
 	"miqro-skillhub/server/sdk/skillhub/namespace"
 	"miqro-skillhub/server/sdk/skillhub/packagekit"
 	"miqro-skillhub/server/sdk/skillhub/release"
@@ -53,6 +54,7 @@ func main() {
 		skillSvc       *skill.Service
 		srcSvc         *search.Service
 		releaseSvc     *release.Service
+		communitySvc   *community.Service
 		limiter        *middleware.RateLimiter
 		authMW         *middleware.AuthMiddleware
 		validator      *packagekit.SkillPackageValidator
@@ -123,6 +125,23 @@ func main() {
 			releaseSvc = release.NewService(releaseRepo, releaseAssetRepo, versionRepo)
 		}
 
+		// Community service.
+		{
+			communitySvc = community.NewService(
+				postgres.NewIssueRepo(db),
+				postgres.NewIssueCommentRepo(db),
+				postgres.NewDiscussionRepo(db),
+				postgres.NewDiscCommentRepo(db),
+				postgres.NewWikiPageRepo(db),
+				postgres.NewWikiVersionRepo(db),
+				postgres.NewChangeProposalRepo(db),
+				postgres.NewProposalCommentRepo(db),
+				postgres.NewIssueLabelRepo(db),
+				postgres.NewDiscussionLabelRepo(db),
+				postgres.NewCommunityReportRepo(db),
+			)
+		}
+
 		// Auth middleware with full namespace projection.
 		authMW = middleware.NewAuthMiddleware(
 			nil,            // session store (not wired yet)
@@ -163,6 +182,12 @@ func main() {
 		handlerRelease = &portal.ReleaseHandler{ReleaseSvc: releaseSvc, SkillSvc: skillSvc}
 	}
 
+	// Community handler — always constructed when the community service is available.
+	var handlerCommunity *portal.CommunityHandler
+	if communitySvc != nil && skillSvc != nil {
+		handlerCommunity = &portal.CommunityHandler{CommunitySvc: communitySvc, SkillSvc: skillSvc}
+	}
+
 	// Tool API handler — always constructed when the skill service is available.
 	var handlerToolAPI *toolapi.Handler
 	if skillSvc != nil {
@@ -181,6 +206,7 @@ func main() {
 		PortalSkill:     handlerSkill,
 		PortalSearch:    handlerSearch,
 		PortalRelease:   handlerRelease,
+		PortalCommunity: handlerCommunity,
 		CLI:             handlerCLI,
 		ToolAPI:         handlerToolAPI,
 		MetricsRegistry: metricsReg,

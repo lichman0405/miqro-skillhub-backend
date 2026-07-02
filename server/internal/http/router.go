@@ -26,6 +26,7 @@ type RouterConfig struct {
 	PortalSkill     *portal.SkillHandler
 	PortalSearch    *portal.SearchHandler
 	PortalRelease   *portal.ReleaseHandler
+	PortalCommunity *portal.CommunityHandler
 
 	// CLI handler.
 	CLI *cliapi.Handler
@@ -91,6 +92,11 @@ func NewRouter(cfg RouterConfig) *http.ServeMux {
 	// Portal release routes.
 	if cfg.PortalRelease != nil {
 		cfg.PortalRelease.RegisterReleaseRoutes(mux, cfg.AuthMW, rl)
+	}
+
+	// Portal community routes.
+	if cfg.PortalCommunity != nil {
+		cfg.PortalCommunity.RegisterCommunityRoutes(mux, cfg.AuthMW, rl)
 	}
 
 	// CLI /api/cli/v1/* routes.
