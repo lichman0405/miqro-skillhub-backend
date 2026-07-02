@@ -127,6 +127,16 @@ func (svc *SkillQueryService) GetSkillDetail(
 	}, nil
 }
 
+// GetSkillByID returns a skill by its numeric ID without namespace/slug resolution.
+// Used by agent CI and other internal routes that reference skills by ID.
+func (svc *SkillQueryService) GetSkillByID(ctx context.Context, skillID int64) (*Skill, error) {
+	skill, err := svc.skillRepo.FindByID(ctx, skillID)
+	if err != nil {
+		return nil, fmt.Errorf("skill query: find skill by id: %w", err)
+	}
+	return skill, nil
+}
+
 // GetVersionDetail returns the metadata for a specific version.
 func (svc *SkillQueryService) GetVersionDetail(
 	ctx context.Context,
