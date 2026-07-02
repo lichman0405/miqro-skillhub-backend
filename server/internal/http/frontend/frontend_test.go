@@ -3,6 +3,7 @@ package frontend
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,8 +12,11 @@ import (
 	"miqro-skillhub/server/internal/http/middleware"
 	"miqro-skillhub/server/internal/http/portal"
 	"miqro-skillhub/server/sdk/skillhub/auth"
+	"miqro-skillhub/server/sdk/skillhub/governance"
 	"miqro-skillhub/server/sdk/skillhub/namespace"
+	"miqro-skillhub/server/sdk/skillhub/review"
 	"miqro-skillhub/server/sdk/skillhub/search"
+	"miqro-skillhub/server/sdk/skillhub/skill"
 )
 
 func TestFrontend_SearchPage_AvailableActions(t *testing.T) {
@@ -317,7 +321,7 @@ func TestFrontend_ReviewQueue_AvailableActions(t *testing.T) {
 		PlatformRoles:   map[string]bool{"SKILL_ADMIN": true},
 	})
 	w := httptest.NewRecorder()
-	handleReviewQueue(w, req)
+	handleReviewQueue(w, req, ReviewFrontendDeps{})
 
 	var resp struct {
 		Success bool                 `json:"success"`
@@ -340,7 +344,7 @@ func TestFrontend_PromotionQueue_AvailableActions(t *testing.T) {
 		PlatformRoles:   map[string]bool{"SUPER_ADMIN": true},
 	})
 	w := httptest.NewRecorder()
-	handlePromotionQueue(w, req)
+	handlePromotionQueue(w, req, PromotionFrontendDeps{})
 
 	var resp struct {
 		Success bool                    `json:"success"`
@@ -363,7 +367,7 @@ func TestFrontend_GovernanceWorkbench_AvailableActions(t *testing.T) {
 		PlatformRoles:   map[string]bool{"AUDITOR": true},
 	})
 	w := httptest.NewRecorder()
-	handleGovernanceWorkbench(w, req)
+	handleGovernanceWorkbench(w, req, GovernanceFrontendDeps{})
 
 	var resp struct {
 		Success bool                         `json:"success"`
@@ -389,7 +393,7 @@ func TestFrontend_AdminPage_AvailableActions(t *testing.T) {
 		PlatformRoles:   map[string]bool{"SUPER_ADMIN": true},
 	})
 	w := httptest.NewRecorder()
-	handleAdminPage(w, req)
+	handleAdminPage(w, req, AdminFrontendDeps{})
 
 	var resp struct {
 		Success bool               `json:"success"`
@@ -892,7 +896,7 @@ func TestFrontend_RoutesAreRegistered(t *testing.T) {
 	// 200 with optional auth when services are absent (fallback data).
 	mux := http.NewServeMux()
 	authMW := middleware.NewAuthMiddleware(nil, nil, nil, nil, nil)
-	RegisterRoutes(mux, authMW, nil, nil, nil, nil, nil, nil)
+	RegisterRoutes(mux, authMW, nil, nil, nil, nil, nil, nil, ReviewFrontendDeps{}, PromotionFrontendDeps{}, GovernanceFrontendDeps{}, AdminFrontendDeps{})
 
 	frontendRoutes := []string{
 		"/api/v1/frontend/search",
@@ -930,4 +934,862 @@ func TestFrontend_RoutesAreRegistered(t *testing.T) {
 			t.Errorf("route %s returned %d, expected 200", route, w.Code)
 		}
 	}
+}
+
+// ── Review read-model tests ──────────────────────────────────────────────
+
+func TestFrontend_ReviewQueue_UsesRealReviewTasks(t *testing.T) {
+	deps := ReviewFrontendDeps{
+		ReviewTasks: &fakeReviewTaskRepo{tasks: []review.ReviewTask{
+			{ID: 1, SkillVersionID: 101, NamespaceID: 5, Status: "PENDING", SubmittedBy: "user-1", SubmittedAt: time.Now()},
+		}},
+		Versions: &fakeSkillVersionRepo{versions: []skill.SkillVersion{
+			{ID: 101, SkillID: 201, Version: "1.0.0"},
+		}},
+		Skills: &fakeSkillRepo{skills: []skill.Skill{
+			{ID: 201, NamespaceID: 5, Slug: "my-skill", DisplayName: "My Skill"},
+		}},
+		Namespaces: &fakeNamespaceRepo{namespaces: []namespace.Namespace{
+			{ID: 5, Slug: "team-alpha"},
+		}},
+	}
+
+	req := httptest.NewRequest("GET", "/api/v1/frontend/reviews", nil)
+	req = middleware.SetPrincipal(req, middleware.Principal{
+		UserID:          "reviewer-1",
+		IsAuthenticated: true,
+		PlatformRoles:   map[string]bool{"SKILL_ADMIN": true},
+	})
+	w := httptest.NewRecorder()
+	handleReviewQueue(w, req, deps)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var resp struct {
+		Success bool                 `json:"success"`
+		Data    ReviewQueueReadModel `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(resp.Data.Tasks) != 1 {
+		t.Fatalf("expected 1 task, got %d", len(resp.Data.Tasks))
+	}
+	if resp.Data.Tasks[0].Version != "1.0.0" {
+		t.Errorf("expected version 1.0.0, got %s", resp.Data.Tasks[0].Version)
+	}
+	if resp.Data.Tasks[0].SkillName != "My Skill" {
+		t.Errorf("expected skill name My Skill, got %s", resp.Data.Tasks[0].SkillName)
+	}
+	if resp.Data.Tasks[0].NamespaceSlug != "team-alpha" {
+		t.Errorf("expected namespace slug team-alpha, got %s", resp.Data.Tasks[0].NamespaceSlug)
+	}
+	if resp.Data.PendingCount != 1 {
+		t.Errorf("expected pending count 1, got %d", resp.Data.PendingCount)
+	}
+}
+
+func TestFrontend_ReviewQueue_NonReviewerDoesNotSeeGlobalQueue(t *testing.T) {
+	deps := ReviewFrontendDeps{
+		ReviewTasks: &fakeReviewTaskRepo{tasks: []review.ReviewTask{
+			{ID: 1, SkillVersionID: 101, NamespaceID: 5, Status: "PENDING", SubmittedBy: "user-1", SubmittedAt: time.Now()},
+		}},
+	}
+
+	req := httptest.NewRequest("GET", "/api/v1/frontend/reviews", nil)
+	req = middleware.SetPrincipal(req, middleware.Principal{
+		UserID:          "user-1",
+		IsAuthenticated: true,
+		PlatformRoles:   map[string]bool{"USER": true},
+	})
+	w := httptest.NewRecorder()
+	handleReviewQueue(w, req, deps)
+
+	var resp struct {
+		Success bool                 `json:"success"`
+		Data    ReviewQueueReadModel `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(resp.Data.Tasks) != 0 {
+		t.Fatalf("non-reviewer should not see global queue, got %d tasks", len(resp.Data.Tasks))
+	}
+	if resp.Data.PendingCount != 0 {
+		t.Errorf("non-reviewer pending count should be 0, got %d", resp.Data.PendingCount)
+	}
+}
+
+func TestFrontend_ReviewDetail_UsesRealReviewTask(t *testing.T) {
+	deps := ReviewFrontendDeps{
+		ReviewTasks: &fakeReviewTaskRepo{tasks: []review.ReviewTask{
+			{ID: 1, SkillVersionID: 101, NamespaceID: 5, Status: "PENDING", SubmittedBy: "user-1", SubmittedAt: time.Now()},
+		}},
+		Versions: &fakeSkillVersionRepo{versions: []skill.SkillVersion{
+			{ID: 101, SkillID: 201, Version: "1.0.0"},
+		}},
+		Skills: &fakeSkillRepo{skills: []skill.Skill{
+			{ID: 201, NamespaceID: 5, Slug: "my-skill", DisplayName: "My Skill"},
+		}},
+		Namespaces: &fakeNamespaceRepo{namespaces: []namespace.Namespace{
+			{ID: 5, Slug: "team-alpha"},
+		}},
+	}
+
+	req := httptest.NewRequest("GET", "/api/v1/frontend/reviews/1", nil)
+	req.SetPathValue("id", "1")
+	req = middleware.SetPrincipal(req, middleware.Principal{
+		UserID:          "reviewer-1",
+		IsAuthenticated: true,
+		PlatformRoles:   map[string]bool{"SKILL_ADMIN": true},
+	})
+	w := httptest.NewRecorder()
+	handleReviewDetail(w, req, deps)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var resp struct {
+		Success bool                  `json:"success"`
+		Data    ReviewDetailReadModel `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.Data.Task.ID != 1 {
+		t.Errorf("expected task id 1, got %d", resp.Data.Task.ID)
+	}
+	if resp.Data.Version != "1.0.0" {
+		t.Errorf("expected version 1.0.0, got %s", resp.Data.Version)
+	}
+	if resp.Data.SkillName != "My Skill" {
+		t.Errorf("expected skill name My Skill, got %s", resp.Data.SkillName)
+	}
+	if !resp.Data.AvailableActions.CanApprove {
+		t.Error("reviewer should be able to approve")
+	}
+}
+
+func TestFrontend_ReviewDetail_NotFound(t *testing.T) {
+	deps := ReviewFrontendDeps{ReviewTasks: &fakeReviewTaskRepo{}}
+
+	req := httptest.NewRequest("GET", "/api/v1/frontend/reviews/99", nil)
+	req.SetPathValue("id", "99")
+	req = middleware.SetPrincipal(req, middleware.Principal{
+		UserID:          "reviewer-1",
+		IsAuthenticated: true,
+		PlatformRoles:   map[string]bool{"SKILL_ADMIN": true},
+	})
+	w := httptest.NewRecorder()
+	handleReviewDetail(w, req, deps)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", w.Code)
+	}
+}
+
+// ── Promotion read-model tests ───────────────────────────────────────────
+
+func TestFrontend_PromotionQueue_UsesRealPromotionRequests(t *testing.T) {
+	deps := PromotionFrontendDeps{
+		PromotionRequests: &fakePromotionRequestRepo{requests: []review.PromotionRequest{
+			{ID: 1, SourceSkillID: 201, SourceVersionID: 101, TargetNamespaceID: 1, Status: "PENDING", SubmittedBy: "user-1", SubmittedAt: time.Now()},
+		}},
+		Versions: &fakeSkillVersionRepo{versions: []skill.SkillVersion{
+			{ID: 101, SkillID: 201, Version: "1.0.0"},
+		}},
+		Skills: &fakeSkillRepo{skills: []skill.Skill{
+			{ID: 201, NamespaceID: 5, Slug: "my-skill", DisplayName: "My Skill"},
+		}},
+		Namespaces: &fakeNamespaceRepo{namespaces: []namespace.Namespace{
+			{ID: 1, Slug: "global"},
+		}},
+	}
+
+	req := httptest.NewRequest("GET", "/api/v1/frontend/promotions", nil)
+	req = middleware.SetPrincipal(req, middleware.Principal{
+		UserID:          "super-1",
+		IsAuthenticated: true,
+		PlatformRoles:   map[string]bool{"SUPER_ADMIN": true},
+	})
+	w := httptest.NewRecorder()
+	handlePromotionQueue(w, req, deps)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var resp struct {
+		Success bool                    `json:"success"`
+		Data    PromotionQueueReadModel `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(resp.Data.Requests) != 1 {
+		t.Fatalf("expected 1 request, got %d", len(resp.Data.Requests))
+	}
+	if resp.Data.Requests[0].SourceVersion != "1.0.0" {
+		t.Errorf("expected source version 1.0.0, got %s", resp.Data.Requests[0].SourceVersion)
+	}
+	if resp.Data.Requests[0].SourceSkillName != "My Skill" {
+		t.Errorf("expected source skill name My Skill, got %s", resp.Data.Requests[0].SourceSkillName)
+	}
+	if resp.Data.Requests[0].TargetNamespaceSlug != "global" {
+		t.Errorf("expected target namespace slug global, got %s", resp.Data.Requests[0].TargetNamespaceSlug)
+	}
+}
+
+func TestFrontend_PromotionQueue_NonSuperAdminDoesNotSeeGlobalQueue(t *testing.T) {
+	deps := PromotionFrontendDeps{
+		PromotionRequests: &fakePromotionRequestRepo{requests: []review.PromotionRequest{
+			{ID: 1, SourceSkillID: 201, SourceVersionID: 101, TargetNamespaceID: 1, Status: "PENDING", SubmittedBy: "user-1", SubmittedAt: time.Now()},
+		}},
+	}
+
+	req := httptest.NewRequest("GET", "/api/v1/frontend/promotions", nil)
+	req = middleware.SetPrincipal(req, middleware.Principal{
+		UserID:          "user-1",
+		IsAuthenticated: true,
+		PlatformRoles:   map[string]bool{"USER": true},
+	})
+	w := httptest.NewRecorder()
+	handlePromotionQueue(w, req, deps)
+
+	var resp struct {
+		Success bool                    `json:"success"`
+		Data    PromotionQueueReadModel `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(resp.Data.Requests) != 0 {
+		t.Fatalf("non-super-admin should not see global promotion queue, got %d requests", len(resp.Data.Requests))
+	}
+}
+
+func TestFrontend_PromotionDetail_UsesRealPromotionRequest(t *testing.T) {
+	deps := PromotionFrontendDeps{
+		PromotionRequests: &fakePromotionRequestRepo{requests: []review.PromotionRequest{
+			{ID: 1, SourceSkillID: 201, SourceVersionID: 101, TargetNamespaceID: 1, Status: "PENDING", SubmittedBy: "user-1", SubmittedAt: time.Now()},
+		}},
+		Versions: &fakeSkillVersionRepo{versions: []skill.SkillVersion{
+			{ID: 101, SkillID: 201, Version: "1.0.0"},
+		}},
+		Skills: &fakeSkillRepo{skills: []skill.Skill{
+			{ID: 201, NamespaceID: 5, Slug: "my-skill", DisplayName: "My Skill"},
+		}},
+		Namespaces: &fakeNamespaceRepo{namespaces: []namespace.Namespace{
+			{ID: 1, Slug: "global"},
+		}},
+	}
+
+	req := httptest.NewRequest("GET", "/api/v1/frontend/promotions/1", nil)
+	req.SetPathValue("id", "1")
+	req = middleware.SetPrincipal(req, middleware.Principal{
+		UserID:          "super-1",
+		IsAuthenticated: true,
+		PlatformRoles:   map[string]bool{"SUPER_ADMIN": true},
+	})
+	w := httptest.NewRecorder()
+	handlePromotionDetail(w, req, deps)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var resp struct {
+		Success bool                     `json:"success"`
+		Data    PromotionDetailReadModel `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.Data.Request.ID != 1 {
+		t.Errorf("expected request id 1, got %d", resp.Data.Request.ID)
+	}
+	if resp.Data.SourceSkillName != "My Skill" {
+		t.Errorf("expected source skill name My Skill, got %s", resp.Data.SourceSkillName)
+	}
+	if !resp.Data.AvailableActions.CanApprove {
+		t.Error("super admin should be able to approve promotion")
+	}
+}
+
+func TestFrontend_PromotionDetail_NotFound(t *testing.T) {
+	deps := PromotionFrontendDeps{PromotionRequests: &fakePromotionRequestRepo{}}
+
+	req := httptest.NewRequest("GET", "/api/v1/frontend/promotions/99", nil)
+	req.SetPathValue("id", "99")
+	req = middleware.SetPrincipal(req, middleware.Principal{
+		UserID:          "super-1",
+		IsAuthenticated: true,
+		PlatformRoles:   map[string]bool{"SUPER_ADMIN": true},
+	})
+	w := httptest.NewRecorder()
+	handlePromotionDetail(w, req, deps)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", w.Code)
+	}
+}
+
+// ── Governance workbench tests ───────────────────────────────────────────
+
+func TestFrontend_GovernanceWorkbench_UsesRealNotifications(t *testing.T) {
+	notifRepo := &fakeUserNotificationRepo{notifications: []governance.UserNotification{
+		{ID: 1, UserID: "user-1", Category: "REVIEW", Title: "Review submitted", Status: "UNREAD", CreatedAt: time.Now()},
+	}}
+	notifSvc := governance.NewGovernanceNotificationService(notifRepo)
+	deps := GovernanceFrontendDeps{Notifications: notifSvc}
+
+	req := httptest.NewRequest("GET", "/api/v1/frontend/governance", nil)
+	req = middleware.SetPrincipal(req, middleware.Principal{
+		UserID:          "user-1",
+		IsAuthenticated: true,
+	})
+	w := httptest.NewRecorder()
+	handleGovernanceWorkbench(w, req, deps)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var resp struct {
+		Success bool                         `json:"success"`
+		Data    GovernanceWorkbenchReadModel `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.Data.Summary.Total != 1 {
+		t.Errorf("expected total 1, got %d", resp.Data.Summary.Total)
+	}
+	if resp.Data.Summary.Unread != 1 {
+		t.Errorf("expected unread 1, got %d", resp.Data.Summary.Unread)
+	}
+	if len(resp.Data.RecentActivity) != 1 {
+		t.Errorf("expected 1 activity entry, got %d", len(resp.Data.RecentActivity))
+	}
+}
+
+func TestFrontend_GovernanceWorkbench_AnonymousGetsEmptyData(t *testing.T) {
+	notifRepo := &fakeUserNotificationRepo{notifications: []governance.UserNotification{
+		{ID: 1, UserID: "user-1", Category: "REVIEW", Title: "Review submitted", Status: "UNREAD", CreatedAt: time.Now()},
+	}}
+	notifSvc := governance.NewGovernanceNotificationService(notifRepo)
+	deps := GovernanceFrontendDeps{Notifications: notifSvc}
+
+	req := httptest.NewRequest("GET", "/api/v1/frontend/governance", nil)
+	req = middleware.SetPrincipal(req, middleware.Anonymous())
+	w := httptest.NewRecorder()
+	handleGovernanceWorkbench(w, req, deps)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var resp struct {
+		Success bool                         `json:"success"`
+		Data    GovernanceWorkbenchReadModel `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.Data.Summary.Total != 0 {
+		t.Errorf("anonymous summary total should be 0, got %d", resp.Data.Summary.Total)
+	}
+	if len(resp.Data.RecentActivity) != 0 {
+		t.Errorf("anonymous activity should be empty, got %d", len(resp.Data.RecentActivity))
+	}
+}
+
+func TestFrontend_GovernanceWorkbench_ReviewerGetsPendingReviewCount(t *testing.T) {
+	reviewRepo := &fakeReviewTaskRepo{tasks: []review.ReviewTask{
+		{ID: 1, SkillVersionID: 101, NamespaceID: 5, Status: "PENDING", SubmittedBy: "user-1", SubmittedAt: time.Now()},
+		{ID: 2, SkillVersionID: 102, NamespaceID: 6, Status: "PENDING", SubmittedBy: "user-2", SubmittedAt: time.Now()},
+	}}
+	deps := GovernanceFrontendDeps{
+		Notifications: governance.NewGovernanceNotificationService(&fakeUserNotificationRepo{}),
+		ReviewTasks:   reviewRepo,
+	}
+
+	req := httptest.NewRequest("GET", "/api/v1/frontend/governance", nil)
+	req = middleware.SetPrincipal(req, middleware.Principal{
+		UserID:          "reviewer-1",
+		IsAuthenticated: true,
+		PlatformRoles:   map[string]bool{"SKILL_ADMIN": true},
+	})
+	w := httptest.NewRecorder()
+	handleGovernanceWorkbench(w, req, deps)
+
+	var resp struct {
+		Success bool                         `json:"success"`
+		Data    GovernanceWorkbenchReadModel `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.Data.Summary.PendingReviews != 2 {
+		t.Errorf("expected pending reviews 2, got %d", resp.Data.Summary.PendingReviews)
+	}
+}
+
+func TestFrontend_GovernanceWorkbench_NonReviewerDoesNotGetPendingReviewCount(t *testing.T) {
+	reviewRepo := &fakeReviewTaskRepo{tasks: []review.ReviewTask{
+		{ID: 1, SkillVersionID: 101, NamespaceID: 5, Status: "PENDING", SubmittedBy: "user-1", SubmittedAt: time.Now()},
+	}}
+	deps := GovernanceFrontendDeps{
+		Notifications: governance.NewGovernanceNotificationService(&fakeUserNotificationRepo{}),
+		ReviewTasks:   reviewRepo,
+	}
+
+	req := httptest.NewRequest("GET", "/api/v1/frontend/governance", nil)
+	req = middleware.SetPrincipal(req, middleware.Principal{
+		UserID:          "user-1",
+		IsAuthenticated: true,
+		PlatformRoles:   map[string]bool{"USER": true},
+	})
+	w := httptest.NewRecorder()
+	handleGovernanceWorkbench(w, req, deps)
+
+	var resp struct {
+		Success bool                         `json:"success"`
+		Data    GovernanceWorkbenchReadModel `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.Data.Summary.PendingReviews != 0 {
+		t.Errorf("non-reviewer pending reviews should be 0, got %d", resp.Data.Summary.PendingReviews)
+	}
+}
+
+// ── Admin dashboard tests ────────────────────────────────────────────────
+
+func TestFrontend_AdminPage_UsesRealStatsForSuperAdmin(t *testing.T) {
+	deps := AdminFrontendDeps{Stats: &fakeAdminStatsQuery{stats: AdminStatsView{
+		TotalSkills:       10,
+		TotalNamespaces:   3,
+		TotalUsers:        25,
+		PendingReviews:    2,
+		PendingPromotions: 1,
+		OpenReports:       0,
+	}}}
+
+	req := httptest.NewRequest("GET", "/api/v1/frontend/admin", nil)
+	req = middleware.SetPrincipal(req, middleware.Principal{
+		UserID:          "super-1",
+		IsAuthenticated: true,
+		PlatformRoles:   map[string]bool{"SUPER_ADMIN": true},
+	})
+	w := httptest.NewRecorder()
+	handleAdminPage(w, req, deps)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var resp struct {
+		Success bool               `json:"success"`
+		Data    AdminPageReadModel `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.Data.Stats.TotalSkills != 10 {
+		t.Errorf("expected total skills 10, got %d", resp.Data.Stats.TotalSkills)
+	}
+	if resp.Data.Stats.TotalUsers != 25 {
+		t.Errorf("expected total users 25, got %d", resp.Data.Stats.TotalUsers)
+	}
+}
+
+func TestFrontend_AdminPage_NonAdminDoesNotSeeStats(t *testing.T) {
+	deps := AdminFrontendDeps{Stats: &fakeAdminStatsQuery{stats: AdminStatsView{
+		TotalSkills: 10,
+	}}}
+
+	req := httptest.NewRequest("GET", "/api/v1/frontend/admin", nil)
+	req = middleware.SetPrincipal(req, middleware.Principal{
+		UserID:          "user-1",
+		IsAuthenticated: true,
+		PlatformRoles:   map[string]bool{"USER": true},
+	})
+	w := httptest.NewRecorder()
+	handleAdminPage(w, req, deps)
+
+	var resp struct {
+		Success bool               `json:"success"`
+		Data    AdminPageReadModel `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.Data.Stats.TotalSkills != 0 {
+		t.Errorf("non-admin should not see stats, got total skills %d", resp.Data.Stats.TotalSkills)
+	}
+}
+
+func TestFrontend_AdminPage_StatsErrorReturnsError(t *testing.T) {
+	deps := AdminFrontendDeps{Stats: &fakeAdminStatsQuery{err: errors.New("db unavailable")}}
+
+	req := httptest.NewRequest("GET", "/api/v1/frontend/admin", nil)
+	req = middleware.SetPrincipal(req, middleware.Principal{
+		UserID:          "super-1",
+		IsAuthenticated: true,
+		PlatformRoles:   map[string]bool{"SUPER_ADMIN": true},
+	})
+	w := httptest.NewRecorder()
+	handleAdminPage(w, req, deps)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d", w.Code)
+	}
+}
+
+// ── Fake repositories for frontend read-model tests ──────────────────────
+
+type fakeReviewTaskRepo struct {
+	tasks []review.ReviewTask
+}
+
+func (r *fakeReviewTaskRepo) Save(ctx context.Context, task review.ReviewTask) (review.ReviewTask, error) {
+	return task, nil
+}
+
+func (r *fakeReviewTaskRepo) FindByID(ctx context.Context, id int64) (*review.ReviewTask, error) {
+	for i := range r.tasks {
+		if r.tasks[i].ID == id {
+			return &r.tasks[i], nil
+		}
+	}
+	return nil, nil
+}
+
+func (r *fakeReviewTaskRepo) FindByVersionIDAndStatus(ctx context.Context, versionID int64, status string) (*review.ReviewTask, error) {
+	return nil, nil
+}
+
+func (r *fakeReviewTaskRepo) FindByStatus(ctx context.Context, status string) ([]review.ReviewTask, error) {
+	out := []review.ReviewTask{}
+	for _, t := range r.tasks {
+		if t.Status == status {
+			out = append(out, t)
+		}
+	}
+	return out, nil
+}
+
+func (r *fakeReviewTaskRepo) FindByNamespaceIDAndStatus(ctx context.Context, namespaceID int64, status string) ([]review.ReviewTask, error) {
+	return nil, nil
+}
+
+func (r *fakeReviewTaskRepo) FindBySubmittedByAndStatus(ctx context.Context, submittedBy string, status string) ([]review.ReviewTask, error) {
+	return nil, nil
+}
+
+func (r *fakeReviewTaskRepo) ExistsByNamespaceID(ctx context.Context, namespaceID int64) (bool, error) {
+	return false, nil
+}
+
+func (r *fakeReviewTaskRepo) Delete(ctx context.Context, id int64) error {
+	return nil
+}
+
+func (r *fakeReviewTaskRepo) DeleteByVersionIDs(ctx context.Context, versionIDs []int64) error {
+	return nil
+}
+
+func (r *fakeReviewTaskRepo) UpdateStatusWithVersion(ctx context.Context, id int64, status string, reviewedBy string, reviewComment string, expectedVersion int) (int, error) {
+	return 0, nil
+}
+
+type fakePromotionRequestRepo struct {
+	requests []review.PromotionRequest
+}
+
+func (r *fakePromotionRequestRepo) Save(ctx context.Context, req review.PromotionRequest) (review.PromotionRequest, error) {
+	return req, nil
+}
+
+func (r *fakePromotionRequestRepo) FindByID(ctx context.Context, id int64) (*review.PromotionRequest, error) {
+	for i := range r.requests {
+		if r.requests[i].ID == id {
+			return &r.requests[i], nil
+		}
+	}
+	return nil, nil
+}
+
+func (r *fakePromotionRequestRepo) FindBySourceVersionIDAndStatus(ctx context.Context, versionID int64, status string) (*review.PromotionRequest, error) {
+	return nil, nil
+}
+
+func (r *fakePromotionRequestRepo) FindBySourceSkillIDAndStatus(ctx context.Context, skillID int64, status string) (*review.PromotionRequest, error) {
+	return nil, nil
+}
+
+func (r *fakePromotionRequestRepo) FindByStatus(ctx context.Context, status string) ([]review.PromotionRequest, error) {
+	out := []review.PromotionRequest{}
+	for _, req := range r.requests {
+		if req.Status == status {
+			out = append(out, req)
+		}
+	}
+	return out, nil
+}
+
+func (r *fakePromotionRequestRepo) ExistsByTargetNamespaceID(ctx context.Context, namespaceID int64) (bool, error) {
+	return false, nil
+}
+
+func (r *fakePromotionRequestRepo) Delete(ctx context.Context, id int64) error {
+	return nil
+}
+
+func (r *fakePromotionRequestRepo) DeleteBySourceOrTargetSkillID(ctx context.Context, skillID int64) error {
+	return nil
+}
+
+func (r *fakePromotionRequestRepo) UpdateStatusWithVersion(ctx context.Context, id int64, status string, reviewedBy string, reviewComment string, targetSkillID *int64, expectedVersion int) (int, error) {
+	return 0, nil
+}
+
+type fakeSkillVersionRepo struct {
+	versions []skill.SkillVersion
+}
+
+func (r *fakeSkillVersionRepo) FindByID(ctx context.Context, id int64) (*skill.SkillVersion, error) {
+	for i := range r.versions {
+		if r.versions[i].ID == id {
+			return &r.versions[i], nil
+		}
+	}
+	return nil, nil
+}
+
+func (r *fakeSkillVersionRepo) FindByIDs(ctx context.Context, ids []int64) ([]skill.SkillVersion, error) {
+	return nil, nil
+}
+
+func (r *fakeSkillVersionRepo) FindBySkillID(ctx context.Context, skillID int64) ([]skill.SkillVersion, error) {
+	return nil, nil
+}
+
+func (r *fakeSkillVersionRepo) FindBySkillIDAndVersion(ctx context.Context, skillID int64, version string) (*skill.SkillVersion, error) {
+	return nil, nil
+}
+
+func (r *fakeSkillVersionRepo) FindBySkillIDAndStatus(ctx context.Context, skillID int64, status string) ([]skill.SkillVersion, error) {
+	return nil, nil
+}
+
+func (r *fakeSkillVersionRepo) Save(ctx context.Context, v skill.SkillVersion) (skill.SkillVersion, error) {
+	return v, nil
+}
+
+func (r *fakeSkillVersionRepo) Delete(ctx context.Context, id int64) error {
+	return nil
+}
+
+func (r *fakeSkillVersionRepo) DeleteBySkillID(ctx context.Context, skillID int64) error {
+	return nil
+}
+
+type fakeSkillRepo struct {
+	skills []skill.Skill
+}
+
+func (r *fakeSkillRepo) FindByID(ctx context.Context, id int64) (*skill.Skill, error) {
+	for i := range r.skills {
+		if r.skills[i].ID == id {
+			return &r.skills[i], nil
+		}
+	}
+	return nil, nil
+}
+
+func (r *fakeSkillRepo) FindByIDs(ctx context.Context, ids []int64) ([]skill.Skill, error) {
+	return nil, nil
+}
+
+func (r *fakeSkillRepo) FindAll(ctx context.Context) ([]skill.Skill, error) {
+	return nil, nil
+}
+
+func (r *fakeSkillRepo) FindByNamespaceIDAndSlug(ctx context.Context, namespaceID int64, slug string) ([]skill.Skill, error) {
+	return nil, nil
+}
+
+func (r *fakeSkillRepo) FindByNamespaceSlugAndSlug(ctx context.Context, namespaceSlug string, slug string) ([]skill.Skill, error) {
+	return nil, nil
+}
+
+func (r *fakeSkillRepo) FindByNamespaceIDSlugOwner(ctx context.Context, namespaceID int64, slug string, ownerID string) (*skill.Skill, error) {
+	return nil, nil
+}
+
+func (r *fakeSkillRepo) FindByOwnerID(ctx context.Context, ownerID string) ([]skill.Skill, error) {
+	return nil, nil
+}
+
+func (r *fakeSkillRepo) FindBySlug(ctx context.Context, slug string) ([]skill.Skill, error) {
+	return nil, nil
+}
+
+func (r *fakeSkillRepo) ExistsByNamespaceID(ctx context.Context, namespaceID int64) (bool, error) {
+	return false, nil
+}
+
+func (r *fakeSkillRepo) Save(ctx context.Context, s skill.Skill) (skill.Skill, error) {
+	return s, nil
+}
+
+func (r *fakeSkillRepo) Delete(ctx context.Context, id int64) error {
+	return nil
+}
+
+func (r *fakeSkillRepo) IncrementDownloadCount(ctx context.Context, skillID int64) error {
+	return nil
+}
+
+func (r *fakeSkillRepo) IncrementSubscriptionCount(ctx context.Context, skillID int64) error {
+	return nil
+}
+
+func (r *fakeSkillRepo) DecrementSubscriptionCount(ctx context.Context, skillID int64) error {
+	return nil
+}
+
+type fakeNamespaceRepo struct {
+	namespaces []namespace.Namespace
+}
+
+func (r *fakeNamespaceRepo) FindByID(ctx context.Context, id int64) (*namespace.Namespace, error) {
+	for i := range r.namespaces {
+		if r.namespaces[i].ID == id {
+			return &r.namespaces[i], nil
+		}
+	}
+	return nil, namespace.ErrNamespaceNotFound
+}
+
+func (r *fakeNamespaceRepo) FindByIDs(ctx context.Context, ids []int64) ([]namespace.Namespace, error) {
+	return nil, nil
+}
+
+func (r *fakeNamespaceRepo) FindBySlug(ctx context.Context, slug string) (*namespace.Namespace, error) {
+	return nil, namespace.ErrNamespaceNotFound
+}
+
+func (r *fakeNamespaceRepo) FindByStatus(ctx context.Context, status string) ([]namespace.Namespace, error) {
+	return nil, nil
+}
+
+func (r *fakeNamespaceRepo) Save(ctx context.Context, ns namespace.Namespace) (namespace.Namespace, error) {
+	return ns, nil
+}
+
+func (r *fakeNamespaceRepo) Delete(ctx context.Context, id int64) error {
+	return nil
+}
+
+type fakeUserNotificationRepo struct {
+	notifications []governance.UserNotification
+}
+
+func (r *fakeUserNotificationRepo) Save(ctx context.Context, n governance.UserNotification) (governance.UserNotification, error) {
+	return n, nil
+}
+
+func (r *fakeUserNotificationRepo) FindByID(ctx context.Context, id int64) (*governance.UserNotification, error) {
+	return nil, nil
+}
+
+func (r *fakeUserNotificationRepo) FindByUserID(ctx context.Context, userID string) ([]governance.UserNotification, error) {
+	out := []governance.UserNotification{}
+	for _, n := range r.notifications {
+		if n.UserID == userID {
+			out = append(out, n)
+		}
+	}
+	return out, nil
+}
+
+func (r *fakeUserNotificationRepo) FindByUserIDPaged(ctx context.Context, userID string, page int, size int) ([]governance.UserNotification, error) {
+	all, _ := r.FindByUserID(ctx, userID)
+	start := page * size
+	if start > len(all) {
+		return []governance.UserNotification{}, nil
+	}
+	end := start + size
+	if end > len(all) {
+		end = len(all)
+	}
+	return all[start:end], nil
+}
+
+func (r *fakeUserNotificationRepo) FindByUserIDAndCategoriesPaged(ctx context.Context, userID string, categories []string, page int, size int) ([]governance.UserNotification, error) {
+	catSet := map[string]bool{}
+	for _, c := range categories {
+		catSet[c] = true
+	}
+	filtered := []governance.UserNotification{}
+	for _, n := range r.notifications {
+		if n.UserID == userID && catSet[n.Category] {
+			filtered = append(filtered, n)
+		}
+	}
+	start := page * size
+	if start > len(filtered) {
+		return []governance.UserNotification{}, nil
+	}
+	end := start + size
+	if end > len(filtered) {
+		end = len(filtered)
+	}
+	return filtered[start:end], nil
+}
+
+func (r *fakeUserNotificationRepo) CountUnreadByUserID(ctx context.Context, userID string) (int64, error) {
+	var count int64
+	for _, n := range r.notifications {
+		if n.UserID == userID && n.Status == "UNREAD" {
+			count++
+		}
+	}
+	return count, nil
+}
+
+func (r *fakeUserNotificationRepo) CountUnreadByUserIDAndCategory(ctx context.Context, userID string) (map[string]int64, error) {
+	result := map[string]int64{}
+	for _, n := range r.notifications {
+		if n.UserID == userID && n.Status == "UNREAD" {
+			result[n.Category]++
+		}
+	}
+	return result, nil
+}
+
+func (r *fakeUserNotificationRepo) CountByUserID(ctx context.Context, userID string) (int64, error) {
+	var count int64
+	for _, n := range r.notifications {
+		if n.UserID == userID {
+			count++
+		}
+	}
+	return count, nil
+}
+
+type fakeAdminStatsQuery struct {
+	stats AdminStatsView
+	err   error
+}
+
+func (q *fakeAdminStatsQuery) Stats(ctx context.Context) (AdminStatsView, error) {
+	return q.stats, q.err
 }

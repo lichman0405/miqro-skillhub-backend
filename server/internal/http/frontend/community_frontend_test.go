@@ -59,25 +59,27 @@ func (r ftSkillRepo) FindByID(_ context.Context, _ int64) (*skill.Skill, error) 
 func (r ftSkillRepo) FindByIDs(_ context.Context, _ []int64) ([]skill.Skill, error) {
 	return nil, nil
 }
-func (r ftSkillRepo) FindAll(_ context.Context) ([]skill.Skill, error)        { return nil, nil }
+func (r ftSkillRepo) FindAll(_ context.Context) ([]skill.Skill, error) { return nil, nil }
 func (r ftSkillRepo) FindByNamespaceSlugAndSlug(_ context.Context, _, _ string) ([]skill.Skill, error) {
 	return nil, nil
 }
 func (r ftSkillRepo) FindByNamespaceIDSlugOwner(_ context.Context, _ int64, _, _ string) (*skill.Skill, error) {
 	return nil, nil
 }
-func (r ftSkillRepo) FindByOwnerID(_ context.Context, _ string) ([]skill.Skill, error) { return nil, nil }
-func (r ftSkillRepo) FindBySlug(_ context.Context, _ string) ([]skill.Skill, error)     { return nil, nil }
+func (r ftSkillRepo) FindByOwnerID(_ context.Context, _ string) ([]skill.Skill, error) {
+	return nil, nil
+}
+func (r ftSkillRepo) FindBySlug(_ context.Context, _ string) ([]skill.Skill, error) { return nil, nil }
 func (r ftSkillRepo) ExistsByNamespaceID(_ context.Context, _ int64) (bool, error) {
 	return false, nil
 }
 func (r ftSkillRepo) Save(_ context.Context, _ skill.Skill) (skill.Skill, error) {
 	return skill.Skill{}, nil
 }
-func (r ftSkillRepo) Delete(_ context.Context, _ int64) error                             { return nil }
-func (r ftSkillRepo) IncrementDownloadCount(_ context.Context, _ int64) error             { return nil }
-func (r ftSkillRepo) IncrementSubscriptionCount(_ context.Context, _ int64) error         { return nil }
-func (r ftSkillRepo) DecrementSubscriptionCount(_ context.Context, _ int64) error         { return nil }
+func (r ftSkillRepo) Delete(_ context.Context, _ int64) error                     { return nil }
+func (r ftSkillRepo) IncrementDownloadCount(_ context.Context, _ int64) error     { return nil }
+func (r ftSkillRepo) IncrementSubscriptionCount(_ context.Context, _ int64) error { return nil }
+func (r ftSkillRepo) DecrementSubscriptionCount(_ context.Context, _ int64) error { return nil }
 
 type ftVersionRepo struct{}
 

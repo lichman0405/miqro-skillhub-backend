@@ -210,7 +210,10 @@ func (r *ReleaseAssetRepo) Delete(ctx context.Context, id int64) error {
 // scan helper
 // ---------------------------------------------------------------------------
 
-func scanReleases(rows interface{ Next() bool; Scan(dest ...any) error }) ([]release.Release, error) {
+func scanReleases(rows interface {
+	Next() bool
+	Scan(dest ...any) error
+}) ([]release.Release, error) {
 	var releases []release.Release
 	for rows.Next() {
 		var rel release.Release

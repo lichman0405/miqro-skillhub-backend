@@ -33,6 +33,7 @@ import (
 	"miqro-skillhub/server/sdk/skillhub/auth"
 	"miqro-skillhub/server/sdk/skillhub/community"
 	"miqro-skillhub/server/sdk/skillhub/eventbus"
+	"miqro-skillhub/server/sdk/skillhub/governance"
 	"miqro-skillhub/server/sdk/skillhub/namespace"
 	"miqro-skillhub/server/sdk/skillhub/packagekit"
 	"miqro-skillhub/server/sdk/skillhub/release"
@@ -72,6 +73,14 @@ func main() {
 		authMW         *middleware.AuthMiddleware
 		validator      *packagekit.SkillPackageValidator
 		metadataParser *packagekit.SkillMetadataParser
+
+		// Repositories exposed to frontend read-model handlers.
+		nsRepo                    namespace.NamespaceRepository
+		skillRepo                 skill.SkillRepository
+		versionRepo               skill.SkillVersionRepository
+		reviewTaskRepo            review.ReviewTaskRepository
+		promotionRequestRepo      review.PromotionRequestRepository
+		governanceNotificationSvc *governance.GovernanceNotificationService
 	)
 
 	if db != nil {
@@ -85,10 +94,10 @@ func main() {
 		identityBindingRepo := postgres.NewIdentityBindingRepo(db)
 		pwdResetRepo := postgres.NewPasswordResetRequestRepo(db)
 		mergeRepo := postgres.NewAccountMergeRequestRepo(db)
-		nsRepo := postgres.NewNamespaceRepo(db)
+		nsRepo = postgres.NewNamespaceRepo(db)
 		nsMemberRepo := postgres.NewNamespaceMemberRepo(db)
-		skillRepo := postgres.NewSkillRepo(db)
-		versionRepo := postgres.NewSkillVersionRepo(db)
+		skillRepo = postgres.NewSkillRepo(db)
+		versionRepo = postgres.NewSkillVersionRepo(db)
 		fileRepo := postgres.NewSkillFileRepo(db)
 		tagRepo := postgres.NewSkillTagRepo(db)
 		searchQueryRepo := postgres.NewSearchQueryRepo(db)
@@ -211,7 +220,11 @@ func main() {
 
 		// Review service — wired with CI gate enforcement for review approval.
 		{
-			reviewTaskRepo := postgres.NewReviewTaskRepo(db)
+			reviewTaskRepo = postgres.NewReviewTaskRepo(db)
+			promotionRequestRepo = postgres.NewPromotionRequestRepo(db)
+			userNotificationRepo := postgres.NewUserNotificationRepo(db)
+			governanceNotificationSvc = governance.NewGovernanceNotificationService(userNotificationRepo)
+
 			reviewSvc = review.NewReviewService(
 				reviewTaskRepo,
 				versionRepo,
@@ -219,7 +232,7 @@ func main() {
 				nsRepo,
 				nil, // permission checker (default)
 				eventbus.NewNoopBus(true),
-				nil, // notifier
+				governanceNotificationSvc,
 			)
 			// Wire gate enforcement — SDK-first, not just HTTP handler.
 			if agentciSvc != nil {
@@ -327,9 +340,29 @@ func main() {
 		PortalCommunity:   handlerCommunity,
 		PortalAgentCI:     handlerAgentCI,
 		FrontendCommunity: frontendCommunity,
-		CLI:               handlerCLI,
-		ToolAPI:           handlerToolAPI,
-		MetricsRegistry:   metricsReg,
+		FrontendReview: frontend.ReviewFrontendDeps{
+			ReviewTasks: reviewTaskRepo,
+			Versions:    versionRepo,
+			Skills:      skillRepo,
+			Namespaces:  nsRepo,
+		},
+		FrontendPromotion: frontend.PromotionFrontendDeps{
+			PromotionRequests: promotionRequestRepo,
+			Versions:          versionRepo,
+			Skills:            skillRepo,
+			Namespaces:        nsRepo,
+		},
+		FrontendGovernance: frontend.GovernanceFrontendDeps{
+			Notifications:     governanceNotificationSvc,
+			ReviewTasks:       reviewTaskRepo,
+			PromotionRequests: promotionRequestRepo,
+		},
+		FrontendAdmin: frontend.AdminFrontendDeps{
+			Stats: postgres.NewFrontendAdminStatsRepo(db),
+		},
+		CLI:             handlerCLI,
+		ToolAPI:         handlerToolAPI,
+		MetricsRegistry: metricsReg,
 	})
 
 	// Wrap with structured request logging, metrics instrumentation, and optional browser CORS.

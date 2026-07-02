@@ -183,10 +183,18 @@ export interface NamespaceDetailReadModel {
 export interface ReviewTaskView {
   id: number;
   skillVersionId: number;
+  skillId?: number;
   namespaceId: number;
+  namespaceSlug?: string;
+  skillSlug?: string;
+  skillName?: string;
+  version?: string;
   submittedBy: string;
   status: string;
   submittedAt: string;
+  canApprove?: boolean;
+  canReject?: boolean;
+  canWithdraw?: boolean;
 }
 
 /** Available actions for the review queue. */
@@ -222,11 +230,19 @@ export interface ReviewDetailReadModel {
 export interface PromotionRequestView {
   id: number;
   sourceSkillId: number;
+  sourceSkillSlug?: string;
+  sourceSkillName?: string;
   sourceVersionId: number;
+  sourceVersion?: string;
   targetNamespaceId: number;
+  targetNamespaceSlug?: string;
+  targetSkillId?: number | null;
   submittedBy: string;
   status: string;
   submittedAt: string;
+  canApprove?: boolean;
+  canReject?: boolean;
+  canWithdraw?: boolean;
 }
 
 /** Available actions for the promotion queue. */

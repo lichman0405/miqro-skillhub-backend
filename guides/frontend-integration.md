@@ -23,7 +23,10 @@ Use explicit origins for authenticated browser requests. Do not rely on wildcard
 | Namespace list/detail | Real ACTIVE namespace list and authorized member list |
 | Release list/detail | Real release and asset data scoped to the requested skill |
 | Community | Real issue/discussion/wiki/proposal read models |
-| Review, promotion, governance, admin | Lightweight read models; use `availableActions`, but do not expect full queue/dashboard aggregates yet |
+| Review queue/detail | Real review task rows with skill/version/namespace enrichment |
+| Promotion queue/detail | Real promotion request rows with source skill/version and target namespace enrichment |
+| Governance workbench | Real notification summary/activity plus pending review/promotion counts for authorized roles |
+| Admin dashboard | Real aggregate stats for SUPER_ADMIN; zero stats for unauthorized viewers |
 
 ### Loading flow for every page
 

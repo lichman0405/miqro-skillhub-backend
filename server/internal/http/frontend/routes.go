@@ -18,7 +18,9 @@ import (
 //
 // searchH, skillH, nsH, releaseH, and communityH provide access to the
 // respective SDK services. Passing nil for any handler causes the route
-// to fall back to placeholder data.
+// to fall back to placeholder data. The frontend dependency structs carry
+// repository/service references for review, promotion, governance, and admin
+// read models; zero-value deps keep the route-registration fallback behavior.
 func RegisterRoutes(
 	mux *http.ServeMux,
 	authMW *middleware.AuthMiddleware,
@@ -28,6 +30,10 @@ func RegisterRoutes(
 	nsH *portal.NamespaceHandler,
 	releaseH *portal.ReleaseHandler,
 	communityH *CommunityFrontendHandler,
+	reviewDeps ReviewFrontendDeps,
+	promotionDeps PromotionFrontendDeps,
+	governanceDeps GovernanceFrontendDeps,
+	adminDeps AdminFrontendDeps,
 ) {
 	// wrap applies optional auth and rate limiting to a frontend handler.
 	wrap := func(h http.HandlerFunc) http.HandlerFunc {
@@ -76,23 +82,35 @@ func RegisterRoutes(
 			handleNamespaceDetail(w, r, nsH)
 		}))
 
-	// Review queue page — placeholder (data not yet wired; actions are role-based).
-	mux.HandleFunc("GET /api/v1/frontend/reviews", wrap(handleReviewQueue))
+	// Review queue page — real review task data when deps are wired.
+	mux.HandleFunc("GET /api/v1/frontend/reviews", wrap(func(w http.ResponseWriter, r *http.Request) {
+		handleReviewQueue(w, r, reviewDeps)
+	}))
 
-	// Review detail page — placeholder (data not yet wired; actions are role-based).
-	mux.HandleFunc("GET /api/v1/frontend/reviews/{id}", wrap(handleReviewDetail))
+	// Review detail page — real review task data when deps are wired.
+	mux.HandleFunc("GET /api/v1/frontend/reviews/{id}", wrap(func(w http.ResponseWriter, r *http.Request) {
+		handleReviewDetail(w, r, reviewDeps)
+	}))
 
-	// Promotion queue page — placeholder (data not yet wired; actions are role-based).
-	mux.HandleFunc("GET /api/v1/frontend/promotions", wrap(handlePromotionQueue))
+	// Promotion queue page — real promotion request data when deps are wired.
+	mux.HandleFunc("GET /api/v1/frontend/promotions", wrap(func(w http.ResponseWriter, r *http.Request) {
+		handlePromotionQueue(w, r, promotionDeps)
+	}))
 
-	// Promotion detail page — placeholder (data not yet wired; actions are role-based).
-	mux.HandleFunc("GET /api/v1/frontend/promotions/{id}", wrap(handlePromotionDetail))
+	// Promotion detail page — real promotion request data when deps are wired.
+	mux.HandleFunc("GET /api/v1/frontend/promotions/{id}", wrap(func(w http.ResponseWriter, r *http.Request) {
+		handlePromotionDetail(w, r, promotionDeps)
+	}))
 
-	// Governance workbench page — placeholder (data not yet wired; actions are role-based).
-	mux.HandleFunc("GET /api/v1/frontend/governance", wrap(handleGovernanceWorkbench))
+	// Governance workbench page — real notification summary/activity when deps are wired.
+	mux.HandleFunc("GET /api/v1/frontend/governance", wrap(func(w http.ResponseWriter, r *http.Request) {
+		handleGovernanceWorkbench(w, r, governanceDeps)
+	}))
 
-	// Admin page — placeholder (stats are zero-value; actions are role-based).
-	mux.HandleFunc("GET /api/v1/frontend/admin", wrap(handleAdminPage))
+	// Admin page — real stats for authorized admin roles when deps are wired.
+	mux.HandleFunc("GET /api/v1/frontend/admin", wrap(func(w http.ResponseWriter, r *http.Request) {
+		handleAdminPage(w, r, adminDeps)
+	}))
 
 	// Release list page — uses real release service when available.
 	mux.HandleFunc("GET /api/v1/frontend/skills/{namespace}/{slug}/releases",

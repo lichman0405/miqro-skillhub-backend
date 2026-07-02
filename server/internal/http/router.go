@@ -32,6 +32,12 @@ type RouterConfig struct {
 	// Frontend community handler.
 	FrontendCommunity *frontend.CommunityFrontendHandler
 
+	// Frontend read-model dependencies.
+	FrontendReview     frontend.ReviewFrontendDeps
+	FrontendPromotion  frontend.PromotionFrontendDeps
+	FrontendGovernance frontend.GovernanceFrontendDeps
+	FrontendAdmin      frontend.AdminFrontendDeps
+
 	// CLI handler.
 	CLI *cliapi.Handler
 
@@ -122,7 +128,7 @@ func NewRouter(cfg RouterConfig) *http.ServeMux {
 
 	// Frontend page-oriented read models — all routes go through optional auth
 	// and are rate-limited under the "frontend" category.
-	frontend.RegisterRoutes(mux, cfg.AuthMW, rl, cfg.PortalSearch, cfg.PortalSkill, cfg.PortalNamespace, cfg.PortalRelease, cfg.FrontendCommunity)
+	frontend.RegisterRoutes(mux, cfg.AuthMW, rl, cfg.PortalSearch, cfg.PortalSkill, cfg.PortalNamespace, cfg.PortalRelease, cfg.FrontendCommunity, cfg.FrontendReview, cfg.FrontendPromotion, cfg.FrontendGovernance, cfg.FrontendAdmin)
 
 	// Metrics endpoint — no auth, no rate limit.
 	if cfg.MetricsRegistry != nil {

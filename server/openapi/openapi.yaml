@@ -1514,10 +1514,18 @@ components:
       properties:
         id: { type: integer, format: int64 }
         skillVersionId: { type: integer, format: int64 }
+        skillId: { type: integer, format: int64 }
         namespaceId: { type: integer, format: int64 }
+        namespaceSlug: { type: string }
+        skillSlug: { type: string }
+        skillName: { type: string }
+        version: { type: string }
         submittedBy: { type: string }
         status: { type: string }
         submittedAt: { type: string }
+        canApprove: { type: boolean }
+        canReject: { type: boolean }
+        canWithdraw: { type: boolean }
 
     ReviewQueueActions:
       type: object
@@ -1567,11 +1575,19 @@ components:
       properties:
         id: { type: integer, format: int64 }
         sourceSkillId: { type: integer, format: int64 }
+        sourceSkillSlug: { type: string }
+        sourceSkillName: { type: string }
         sourceVersionId: { type: integer, format: int64 }
+        sourceVersion: { type: string }
         targetNamespaceId: { type: integer, format: int64 }
+        targetNamespaceSlug: { type: string }
+        targetSkillId: { type: integer, format: int64, nullable: true }
         submittedBy: { type: string }
         status: { type: string }
         submittedAt: { type: string }
+        canApprove: { type: boolean }
+        canReject: { type: boolean }
+        canWithdraw: { type: boolean }
 
     PromotionQueueActions:
       type: object

@@ -178,11 +178,34 @@ const { data: ns } = await client.frontendNamespaceDetail("my-ns");
 
 // Review queue
 const { data: reviews } = await client.frontendReviews();
-// reviews.tasks, reviews.pendingCount, reviews.availableActions.canReview
+// reviews.tasks (with skill/version/namespace enrichment), reviews.pendingCount
+// reviews.availableActions.canReview
+
+// Review detail
+const { data: reviewDetail } = await client.frontendReviewDetail(1);
+// reviewDetail.task, reviewDetail.skillName, reviewDetail.version
+// reviewDetail.availableActions.canApprove, canReject, canWithdraw
+
+// Promotion queue
+const { data: promotions } = await client.frontendPromotions();
+// promotions.requests (with source/target enrichment), promotions.pendingCount
+// promotions.availableActions.canReview
+
+// Promotion detail
+const { data: promotionDetail } = await client.frontendPromotionDetail(1);
+// promotionDetail.request, promotionDetail.sourceSkillName
+// promotionDetail.availableActions.canApprove, canReject, canWithdraw
+
+// Governance workbench
+const { data: governance } = await client.frontendGovernance();
+// governance.summary.total, governance.summary.unread
+// governance.summary.pendingReviews, governance.summary.pendingPromotions
+// governance.recentActivity, governance.availableActions.canReview
 
 // Admin page
 const { data: admin } = await client.frontendAdmin();
-// admin.stats.totalSkills, admin.availableActions.canManageSkills
+// admin.stats.totalSkills, admin.stats.totalUsers, admin.stats.pendingReviews
+// admin.availableActions.canManageSkills
 
 // Community pages
 const { data: issues } = await client.frontendIssueList("ns", "my-skill");

@@ -196,9 +196,9 @@ type ProposalDetailView struct {
 }
 
 type ProposalDetailActions struct {
-	CanAccept    bool `json:"canAccept"`
-	CanReject    bool `json:"canReject"`
-	CanWithdraw  bool `json:"canWithdraw"`
+	CanAccept   bool `json:"canAccept"`
+	CanReject   bool `json:"canReject"`
+	CanWithdraw bool `json:"canWithdraw"`
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -333,7 +333,7 @@ func (h *CommunityFrontendHandler) HandleIssueDetail(w http.ResponseWriter, r *h
 	middleware.WriteJSON(w, http.StatusOK, IssueDetailReadModel{
 		Issue: IssueDetailView{
 			ID: issue.ID, Title: issue.Title, Body: issue.Body, Status: issue.Status,
-			AssigneeID: ptrToStr(issue.AssigneeID),
+			AssigneeID:      ptrToStr(issue.AssigneeID),
 			LinkedVersionID: issue.LinkedVersionID, LinkedReleaseID: issue.LinkedReleaseID,
 			AuthorID: issue.AuthorID, Locked: issue.Locked, CommentCount: issue.CommentCount,
 		},

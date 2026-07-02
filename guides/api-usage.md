@@ -536,7 +536,9 @@ Implementation status:
 | Namespace list/detail | Real ACTIVE namespace list and authorized member list |
 | Release list/detail | Real release and asset data scoped to the requested skill |
 | Issues/discussions/wiki/proposals | Real community read models from Phase 11 |
-| Reviews/promotions/governance/admin | Lightweight read models focused on `availableActions`; aggregate data is still intentionally minimal |
+| Reviews/promotions | Real queue and detail read models with skill/version/namespace enrichment; row-level action flags |
+| Governance | Real notification summary/activity plus pending review/promotion counts scoped to viewer permissions |
+| Admin | Real aggregate stats for SUPER_ADMIN; unauthorized viewers receive zero stats |
 
 ```
 GET /api/v1/frontend/search?q=agent&page=0&size=20&sort=downloads&labels=go,agent&installable=true
