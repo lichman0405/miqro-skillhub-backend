@@ -4,6 +4,27 @@ How to call the SkillHub backend from each frontend page. Every page uses a **fr
 
 ## General patterns
 
+### Local browser setup
+
+When the frontend runs on a different origin, configure the backend before starting `skillhub-server`:
+
+```bash
+SKILLHUB_CORS_ALLOWED_ORIGINS=http://localhost:5173
+```
+
+Use explicit origins for authenticated browser requests. Do not rely on wildcard CORS for session cookies or bearer-token based UI traffic.
+
+### Read-model implementation status
+
+| Area | Current status |
+|---|---|
+| Search/home | Real backend search IDs and pagination, scoped by viewer visibility |
+| Skill detail/version detail | Real SDK data when the backend services are wired |
+| Namespace list/detail | Real ACTIVE namespace list and authorized member list |
+| Release list/detail | Real release and asset data scoped to the requested skill |
+| Community | Real issue/discussion/wiki/proposal read models |
+| Review, promotion, governance, admin | Lightweight read models; use `availableActions`, but do not expect full queue/dashboard aggregates yet |
+
 ### Loading flow for every page
 
 1. **Check auth** — call `GET /api/v1/auth/me`. If 401, show login.
@@ -55,8 +76,8 @@ if (data.availableActions.canEdit) {
 
 **Recommended loading order:**
 1. Call `GET /api/v1/auth/me` to check auth
-2. Call `GET /api/v1/frontend/search` for initial page data
-3. On search input: call `GET /api/v1/search?keyword=...` for search results
+2. Call `GET /api/v1/frontend/search?q=...&page=0&size=20&sort=relevance`
+3. For installable-only discovery, add `installable=true`; for labels, pass `labels=go,agent`
 
 **Permission buttons:**
 - "Create Skill" button — show if `availableActions.canCreateSkill`

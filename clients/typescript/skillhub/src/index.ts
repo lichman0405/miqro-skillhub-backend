@@ -893,6 +893,11 @@ export class SkillHubClient {
     const params = new URLSearchParams();
     if (query.keyword) params.set("keyword", query.keyword);
     if (query.sortBy) params.set("sortBy", query.sortBy);
+    if (query.page !== undefined) params.set("page", String(query.page));
+    if (query.size !== undefined) params.set("size", String(query.size));
+    if (query.labelSlugs?.length) {
+      params.set("labelSlugs", query.labelSlugs.join(","));
+    }
     if (query.installableOnly) params.set("installableOnly", "true");
     return this.fetch(`/api/v1/search?${params.toString()}`);
   }
@@ -910,8 +915,20 @@ export class SkillHubClient {
   // ── Frontend page methods ────────────────────────────────────────────
 
   /** Get registry search/home page read model. */
-  async frontendSearch(): Promise<Envelope<RegistrySearchReadModel>> {
-    return this.fetch("/api/v1/frontend/search");
+  async frontendSearch(
+    query: SearchQuery = {}
+  ): Promise<Envelope<RegistrySearchReadModel>> {
+    const params = new URLSearchParams();
+    if (query.keyword) params.set("q", query.keyword);
+    if (query.sortBy) params.set("sort", query.sortBy);
+    if (query.page !== undefined) params.set("page", String(query.page));
+    if (query.size !== undefined) params.set("size", String(query.size));
+    if (query.labelSlugs?.length) {
+      params.set("labels", query.labelSlugs.join(","));
+    }
+    if (query.installableOnly) params.set("installable", "true");
+    const qs = params.toString();
+    return this.fetch(`/api/v1/frontend/search${qs ? `?${qs}` : ""}`);
   }
 
   /** Get skill detail page read model (viewer-scoped). */

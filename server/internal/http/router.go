@@ -122,7 +122,7 @@ func NewRouter(cfg RouterConfig) *http.ServeMux {
 
 	// Frontend page-oriented read models — all routes go through optional auth
 	// and are rate-limited under the "frontend" category.
-	frontend.RegisterRoutes(mux, cfg.AuthMW, rl, cfg.PortalSearch, cfg.PortalSkill, cfg.PortalNamespace, cfg.FrontendCommunity)
+	frontend.RegisterRoutes(mux, cfg.AuthMW, rl, cfg.PortalSearch, cfg.PortalSkill, cfg.PortalNamespace, cfg.PortalRelease, cfg.FrontendCommunity)
 
 	// Metrics endpoint — no auth, no rate limit.
 	if cfg.MetricsRegistry != nil {

@@ -149,7 +149,14 @@ Each frontend route returns a read model with `availableActions`:
 
 ```typescript
 // Home/search page
-const { data: home } = await client.frontendSearch();
+const { data: home } = await client.frontendSearch({
+  keyword: "agent",
+  sortBy: "downloads",
+  page: 0,
+  size: 20,
+  labelSlugs: ["go"],
+  installableOnly: true,
+});
 // home.searchResult.skillIds
 // home.availableActions.canCreateSkill
 

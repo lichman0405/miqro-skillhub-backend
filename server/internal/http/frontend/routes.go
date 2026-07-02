@@ -15,6 +15,10 @@ import (
 // handler sees the authenticated principal when a session/token is present,
 // or an anonymous principal when there is none.  They are also rate-limited
 // under the "frontend" category.
+//
+// searchH, skillH, nsH, releaseH, and communityH provide access to the
+// respective SDK services. Passing nil for any handler causes the route
+// to fall back to placeholder data.
 func RegisterRoutes(
 	mux *http.ServeMux,
 	authMW *middleware.AuthMiddleware,
@@ -22,6 +26,7 @@ func RegisterRoutes(
 	searchH *portal.SearchHandler,
 	skillH *portal.SkillHandler,
 	nsH *portal.NamespaceHandler,
+	releaseH *portal.ReleaseHandler,
 	communityH *CommunityFrontendHandler,
 ) {
 	// wrap applies optional auth and rate limiting to a frontend handler.
@@ -35,19 +40,22 @@ func RegisterRoutes(
 		return h
 	}
 
-	// Public-facing registry search/home page.
-	mux.HandleFunc("GET /api/v1/frontend/search", wrap(handleRegistrySearch))
-
-	// Skill detail page — closure captures nsH for namespace-scoped auth.
-	mux.HandleFunc("GET /api/v1/frontend/skills/{namespace}/{slug}",
+	// Public-facing registry search/home page — uses real search service.
+	mux.HandleFunc("GET /api/v1/frontend/search",
 		wrap(func(w http.ResponseWriter, r *http.Request) {
-			handleSkillDetail(w, r, nsH)
+			handleRegistrySearch(w, r, searchH)
 		}))
 
-	// Version detail/compare page.
+	// Skill detail page — uses real skill service.
+	mux.HandleFunc("GET /api/v1/frontend/skills/{namespace}/{slug}",
+		wrap(func(w http.ResponseWriter, r *http.Request) {
+			handleSkillDetail(w, r, nsH, skillH)
+		}))
+
+	// Version detail/compare page — uses real skill service.
 	mux.HandleFunc("GET /api/v1/frontend/skills/{namespace}/{slug}/versions/{version}",
 		wrap(func(w http.ResponseWriter, r *http.Request) {
-			handleVersionDetail(w, r, nsH)
+			handleVersionDetail(w, r, nsH, skillH)
 		}))
 
 	// Publish validate page.
@@ -56,46 +64,49 @@ func RegisterRoutes(
 			handlePublishValidate(w, r, nsH)
 		}))
 
-	// Namespace list page.
-	mux.HandleFunc("GET /api/v1/frontend/namespaces", wrap(handleNamespaceList))
+	// Namespace list page — uses real namespace service.
+	mux.HandleFunc("GET /api/v1/frontend/namespaces",
+		wrap(func(w http.ResponseWriter, r *http.Request) {
+			handleNamespaceList(w, r, nsH)
+		}))
 
-	// Namespace detail + member management page — closure captures nsH.
+	// Namespace detail + member management page — uses real namespace service.
 	mux.HandleFunc("GET /api/v1/frontend/namespaces/{slug}",
 		wrap(func(w http.ResponseWriter, r *http.Request) {
 			handleNamespaceDetail(w, r, nsH)
 		}))
 
-	// Review queue page.
+	// Review queue page — placeholder (data not yet wired; actions are role-based).
 	mux.HandleFunc("GET /api/v1/frontend/reviews", wrap(handleReviewQueue))
 
-	// Review detail page.
+	// Review detail page — placeholder (data not yet wired; actions are role-based).
 	mux.HandleFunc("GET /api/v1/frontend/reviews/{id}", wrap(handleReviewDetail))
 
-	// Promotion queue page.
+	// Promotion queue page — placeholder (data not yet wired; actions are role-based).
 	mux.HandleFunc("GET /api/v1/frontend/promotions", wrap(handlePromotionQueue))
 
-	// Promotion detail page.
+	// Promotion detail page — placeholder (data not yet wired; actions are role-based).
 	mux.HandleFunc("GET /api/v1/frontend/promotions/{id}", wrap(handlePromotionDetail))
 
-	// Governance workbench page.
+	// Governance workbench page — placeholder (data not yet wired; actions are role-based).
 	mux.HandleFunc("GET /api/v1/frontend/governance", wrap(handleGovernanceWorkbench))
 
-	// Admin page.
+	// Admin page — placeholder (stats are zero-value; actions are role-based).
 	mux.HandleFunc("GET /api/v1/frontend/admin", wrap(handleAdminPage))
 
-	// Release list page — closure captures skillH for namespace scoping.
+	// Release list page — uses real release service when available.
 	mux.HandleFunc("GET /api/v1/frontend/skills/{namespace}/{slug}/releases",
 		wrap(func(w http.ResponseWriter, r *http.Request) {
-			handleReleaseList(w, r)
+			handleReleaseList(w, r, skillH, releaseH)
 		}))
 
-	// Release detail page.
+	// Release detail page — uses real release service when available.
 	mux.HandleFunc("GET /api/v1/frontend/skills/{namespace}/{slug}/releases/{releaseID}",
 		wrap(func(w http.ResponseWriter, r *http.Request) {
-			handleReleaseDetail(w, r)
+			handleReleaseDetail(w, r, skillH, releaseH)
 		}))
 
-	// Community — issue list/detail pages (closure captures communityH).
+	// Community — issue list/detail pages (uses real community service).
 	mux.HandleFunc("GET /api/v1/frontend/skills/{namespace}/{slug}/issues",
 		wrap(func(w http.ResponseWriter, r *http.Request) {
 			if communityH != nil {
@@ -150,7 +161,4 @@ func RegisterRoutes(
 				communityH.HandleProposalDetail(w, r)
 			}
 		}))
-
-	_ = searchH
-	_ = skillH
 }

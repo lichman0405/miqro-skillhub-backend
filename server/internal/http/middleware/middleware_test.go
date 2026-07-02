@@ -9,8 +9,8 @@ import (
 	"testing"
 
 	"miqro-skillhub/server/sdk/skillhub/auth"
-	"miqro-skillhub/server/sdk/skillhub/namespace"
 	sdkerror "miqro-skillhub/server/sdk/skillhub/errors"
+	"miqro-skillhub/server/sdk/skillhub/namespace"
 )
 
 func TestPrincipal_Anonymous(t *testing.T) {
@@ -200,6 +200,68 @@ func TestRateLimiter_DifferentKeys(t *testing.T) {
 	}
 	if !rl.allow("test:B") {
 		t.Error("B should be allowed (different key)")
+	}
+}
+
+func TestCORSMiddleware_NoConfigSameOriginOnly(t *testing.T) {
+	nextCalled := false
+	handler := NewCORSMiddleware("").Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		nextCalled = true
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Origin", "http://localhost:5173")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if !nextCalled {
+		t.Fatal("expected wrapped handler to be called")
+	}
+	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Fatalf("expected no allow-origin header, got %q", got)
+	}
+}
+
+func TestCORSMiddleware_ExplicitOriginAllowsCredentials(t *testing.T) {
+	handler := NewCORSMiddleware("http://localhost:5173, https://app.example.com").Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodOptions, "/", nil)
+	req.Header.Set("Origin", "https://app.example.com")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("expected 204 preflight, got %d", w.Code)
+	}
+	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "https://app.example.com" {
+		t.Fatalf("expected explicit allow-origin, got %q", got)
+	}
+	if got := w.Header().Get("Access-Control-Allow-Credentials"); got != "true" {
+		t.Fatalf("expected credentialed explicit origin, got %q", got)
+	}
+	if got := w.Header().Get("Vary"); got != "Origin" {
+		t.Fatalf("expected Vary: Origin, got %q", got)
+	}
+}
+
+func TestCORSMiddleware_WildcardDoesNotAllowCredentials(t *testing.T) {
+	handler := NewCORSMiddleware("*").Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodOptions, "/", nil)
+	req.Header.Set("Origin", "http://localhost:5173")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "*" {
+		t.Fatalf("expected wildcard allow-origin, got %q", got)
+	}
+	if got := w.Header().Get("Access-Control-Allow-Credentials"); got != "" {
+		t.Fatalf("wildcard CORS must not allow credentials, got %q", got)
 	}
 }
 

@@ -2,6 +2,7 @@ package frontend
 
 import (
 	"context"
+	"strings"
 
 	"miqro-skillhub/server/internal/http/middleware"
 	"miqro-skillhub/server/internal/http/portal"
@@ -24,4 +25,16 @@ func namespaceRoleForSlug(ctx context.Context, nsH *portal.NamespaceHandler, p m
 		return ""
 	}
 	return p.NamespaceRole(ns.ID)
+}
+
+func pathValueOrSegment(rPath, value string, indexFromEnd int) string {
+	if value != "" {
+		return value
+	}
+	parts := strings.Split(strings.Trim(rPath, "/"), "/")
+	idx := len(parts) - indexFromEnd
+	if idx < 0 || idx >= len(parts) {
+		return ""
+	}
+	return parts[idx]
 }

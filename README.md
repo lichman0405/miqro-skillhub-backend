@@ -85,7 +85,7 @@ miqro-skillhub/
 | Release lifecycle (draft → publish) | ✅ |
 | Review workflow (submit, approve, reject) | ✅ SDK; HTTP handler partial |
 | Community (issues, discussions, wiki, proposals) | ✅ |
-| Frontend read-model routes (22 routes) | ✅ |
+| Frontend read-model routes | ✅ core pages wired; review/promotion/governance/admin read models remain lightweight |
 | Tool API (miqro CLI protocol) | ✅ |
 | OpenAPI 3.0.3 spec | ✅ |
 | TypeScript SDK | ✅ |
@@ -101,8 +101,8 @@ See **[guides/backend-quickstart.md](guides/backend-quickstart.md)** for step-by
 ```bash
 docker compose up -d postgres
 cd server
-DATABASE_URL="postgres://skillhub:skillhub@localhost:5432/skillhub?sslmode=disable" go run ./cmd/skillhub-migrate
-DATABASE_URL="postgres://skillhub:skillhub@localhost:5432/skillhub?sslmode=disable" STORAGE_ROOT=./data/storage go run ./cmd/skillhub-server
+SKILLHUB_DATABASE_URL="postgres://skillhub:skillhub@localhost:5432/skillhub?sslmode=disable" go run ./cmd/skillhub-migrate
+SKILLHUB_DATABASE_URL="postgres://skillhub:skillhub@localhost:5432/skillhub?sslmode=disable" SKILLHUB_CORS_ALLOWED_ORIGINS="http://localhost:5173" STORAGE_ROOT=./data/storage go run ./cmd/skillhub-server
 ```
 
 ### Quick start (Windows, no Docker)
@@ -110,7 +110,8 @@ DATABASE_URL="postgres://skillhub:skillhub@localhost:5432/skillhub?sslmode=disab
 Install PostgreSQL 16, create the `skillhub` database, then:
 
 ```powershell
-$env:DATABASE_URL = "postgres://skillhub:skillhub@localhost:5432/skillhub?sslmode=disable"
+$env:SKILLHUB_DATABASE_URL = "postgres://skillhub:skillhub@localhost:5432/skillhub?sslmode=disable"
+$env:SKILLHUB_CORS_ALLOWED_ORIGINS = "http://localhost:5173"
 $env:STORAGE_ROOT = "./data/storage"
 cd server
 go run ./cmd/skillhub-migrate

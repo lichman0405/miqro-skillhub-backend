@@ -8,6 +8,16 @@ http://localhost:8080
 
 All API routes are under `/api/v1/` (portal), `/api/tool/v1/` (CLI tooling), or `/api/cli/v1/` (CLI search).
 
+## Browser CORS
+
+Browser clients running on a different origin must be explicitly allowlisted:
+
+```bash
+SKILLHUB_CORS_ALLOWED_ORIGINS=http://localhost:5173,https://app.example.com
+```
+
+Leave the value empty for same-origin only. `*` is allowed only for non-credentialed local experiments; credentialed requests require explicit origins.
+
 ## Authentication
 
 SkillHub supports two auth methods:
@@ -517,8 +527,19 @@ Frontend routes provide viewer-scoped read models with `availableActions` comput
 
 Each route returns a data object containing the page data plus an `availableActions` object with boolean flags the frontend uses to show/hide UI elements.
 
+Implementation status:
+
+| Route group | Data status |
+|---|---|
+| Search/home | Real SDK search result IDs, pagination, labels/installable filters, viewer visibility scope |
+| Skill detail/version detail | Real SDK skill and version detail when the skill service is wired |
+| Namespace list/detail | Real ACTIVE namespace list and authorized member list |
+| Release list/detail | Real release and asset data scoped to the requested skill |
+| Issues/discussions/wiki/proposals | Real community read models from Phase 11 |
+| Reviews/promotions/governance/admin | Lightweight read models focused on `availableActions`; aggregate data is still intentionally minimal |
+
 ```
-GET /api/v1/frontend/search                              # home/search
+GET /api/v1/frontend/search?q=agent&page=0&size=20&sort=downloads&labels=go,agent&installable=true
 GET /api/v1/frontend/skills/{namespace}/{slug}            # skill detail
 GET /api/v1/frontend/skills/{namespace}/{slug}/versions/{version}  # version detail
 GET /api/v1/frontend/skills/{namespace}/publish/validate  # publish page

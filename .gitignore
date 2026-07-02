@@ -6,6 +6,7 @@
 # Go/Windows build artifacts
 *.exe
 *.test
+/.gocache/
 
 # TypeScript build artifacts
 clients/typescript/skillhub/dist/

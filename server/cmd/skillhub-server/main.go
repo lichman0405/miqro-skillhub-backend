@@ -17,6 +17,8 @@ import (
 	"syscall"
 	"time"
 
+	"miqro-skillhub/server/internal/adapters/agentrunner"
+	"miqro-skillhub/server/internal/adapters/localstorage"
 	"miqro-skillhub/server/internal/adapters/postgres"
 	"miqro-skillhub/server/internal/config"
 	httpx "miqro-skillhub/server/internal/http"
@@ -26,8 +28,6 @@ import (
 	"miqro-skillhub/server/internal/http/observability"
 	"miqro-skillhub/server/internal/http/portal"
 	"miqro-skillhub/server/internal/http/toolapi"
-	"miqro-skillhub/server/internal/adapters/agentrunner"
-	"miqro-skillhub/server/internal/adapters/localstorage"
 	"miqro-skillhub/server/sdk/skillhub/agentci"
 	"miqro-skillhub/server/sdk/skillhub/audit"
 	"miqro-skillhub/server/sdk/skillhub/auth"
@@ -235,11 +235,11 @@ func main() {
 
 		// Auth middleware with full namespace projection.
 		authMW = middleware.NewAuthMiddleware(
-			nil,            // session store (not wired yet)
-			authSvc.Token,  // bearer token validation
-			authSvc.RBAC,   // platform role lookup
-			userRepo,       // user profile lookup
-			nsMemberRepo,   // namespace membership projection
+			nil,           // session store (not wired yet)
+			authSvc.Token, // bearer token validation
+			authSvc.RBAC,  // platform role lookup
+			userRepo,      // user profile lookup
+			nsMemberRepo,  // namespace membership projection
 		)
 	}
 
@@ -316,28 +316,29 @@ func main() {
 	// ── Router ────────────────────────────────────────────────────────────
 	metricsReg := observability.NewMetricsRegistry()
 	router := httpx.NewRouter(httpx.RouterConfig{
-		Health:          &httpx.HealthHandler{},
-		AuthMW:          authMW,
-		RateLimiter:     limiter,
-		PortalAuth:      handlerAuth,
-		PortalNamespace: handlerNamespace,
-		PortalSkill:     handlerSkill,
-		PortalSearch:    handlerSearch,
-		PortalRelease:    handlerRelease,
-		PortalCommunity:  handlerCommunity,
-		PortalAgentCI:    handlerAgentCI,
+		Health:            &httpx.HealthHandler{},
+		AuthMW:            authMW,
+		RateLimiter:       limiter,
+		PortalAuth:        handlerAuth,
+		PortalNamespace:   handlerNamespace,
+		PortalSkill:       handlerSkill,
+		PortalSearch:      handlerSearch,
+		PortalRelease:     handlerRelease,
+		PortalCommunity:   handlerCommunity,
+		PortalAgentCI:     handlerAgentCI,
 		FrontendCommunity: frontendCommunity,
-		CLI:              handlerCLI,
-		ToolAPI:         handlerToolAPI,
-		MetricsRegistry: metricsReg,
+		CLI:               handlerCLI,
+		ToolAPI:           handlerToolAPI,
+		MetricsRegistry:   metricsReg,
 	})
 
-	// Wrap with structured request logging + metrics instrumentation.
-	rl := observability.NewRequestLogger(router, log.Default(), metricsReg)
+	// Wrap with structured request logging, metrics instrumentation, and optional browser CORS.
+	var handler http.Handler = observability.NewRequestLogger(router, log.Default(), metricsReg)
+	handler = middleware.NewCORSMiddleware(cfg.CORSAllowedOrigins).Wrap(handler)
 
 	srv := &http.Server{
 		Addr:         cfg.APIAddr,
-		Handler:      rl,
+		Handler:      handler,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,

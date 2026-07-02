@@ -394,7 +394,37 @@ paths:
   /api/v1/frontend/search:
     get:
       summary: Skill registry search/home read model
-      description: Returns viewer-scoped availableActions computed from auth principal.
+      description: Returns viewer-scoped search results and availableActions computed from auth principal.
+      parameters:
+        - name: q
+          in: query
+          schema: { type: string }
+          description: Free-text search query. Alias of keyword.
+        - name: keyword
+          in: query
+          schema: { type: string }
+          description: Free-text search query.
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 0, default: 0 }
+        - name: size
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - name: sort
+          in: query
+          schema: { type: string, enum: [relevance, downloads, rating, newest], default: relevance }
+          description: Sort field. Alias of sortBy.
+        - name: sortBy
+          in: query
+          schema: { type: string, enum: [relevance, downloads, rating, newest], default: relevance }
+        - name: labels
+          in: query
+          schema: { type: string }
+          description: Comma-separated label slugs.
+        - name: installable
+          in: query
+          schema: { type: boolean, default: false }
+          description: Require the latest version to be installable.
       responses:
         "200":
           description: Registry search page data

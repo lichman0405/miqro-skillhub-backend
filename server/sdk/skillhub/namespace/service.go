@@ -193,8 +193,27 @@ func (s *NamespaceService) Update(ctx context.Context, namespaceID int64, userID
 	return &saved, nil
 }
 
+// ListActive returns all ACTIVE namespaces. Used by frontend read models
+// to populate namespace listing pages without exposing ARCHIVED namespaces.
+func (s *NamespaceService) ListActive(ctx context.Context) ([]Namespace, error) {
+	if s == nil || s.repo == nil {
+		return []Namespace{}, nil
+	}
+	ns, err := s.repo.FindByStatus(ctx, "ACTIVE")
+	if err != nil {
+		return nil, fmt.Errorf("list namespaces: %w", err)
+	}
+	if ns == nil {
+		ns = make([]Namespace, 0)
+	}
+	return ns, nil
+}
+
 // GetBySlug returns a namespace by its slug.
 func (s *NamespaceService) GetBySlug(ctx context.Context, slug string) (*Namespace, error) {
+	if s == nil || s.repo == nil {
+		return nil, ErrNamespaceNotFound
+	}
 	ns, err := s.repo.FindBySlug(ctx, slug)
 	if err != nil || ns == nil {
 		return nil, ErrNamespaceNotFound
@@ -205,6 +224,9 @@ func (s *NamespaceService) GetBySlug(ctx context.Context, slug string) (*Namespa
 // GetBySlugForRead returns a namespace by slug. Archived namespaces are only
 // visible to members; everyone can see ACTIVE and FROZEN namespaces.
 func (s *NamespaceService) GetBySlugForRead(ctx context.Context, slug string, userID string) (*Namespace, error) {
+	if s == nil || s.repo == nil {
+		return nil, ErrNamespaceNotFound
+	}
 	ns, err := s.repo.FindBySlug(ctx, slug)
 	if err != nil || ns == nil {
 		return nil, ErrNamespaceNotFound
@@ -212,6 +234,9 @@ func (s *NamespaceService) GetBySlugForRead(ctx context.Context, slug string, us
 
 	if ns.Status == "ARCHIVED" {
 		// Only members can see archived namespaces.
+		if s.memberRepo == nil {
+			return nil, ErrNamespaceNotFound
+		}
 		member, err := s.memberRepo.FindByNamespaceAndUser(ctx, ns.ID, userID)
 		if err != nil || member == nil {
 			return nil, ErrNamespaceNotFound
@@ -331,8 +356,8 @@ type ServiceConfig struct {
 	ReviewChecker    ReviewDependencyChecker
 	PromotionChecker PromotionDependencyChecker
 	AuditRecorder    AuditLogRecorder
-	Transactor       uow.Transactor   // optional — enables transactional TransferOwnership
-	UserSearch       UserSearch       // optional — enables member candidate search
+	Transactor       uow.Transactor // optional — enables transactional TransferOwnership
+	UserSearch       UserSearch     // optional — enables member candidate search
 }
 
 // NewService creates a fully wired namespace Service.

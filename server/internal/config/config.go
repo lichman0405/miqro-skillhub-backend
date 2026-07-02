@@ -33,19 +33,23 @@ type Config struct {
 
 	// LocalMode disables external dependency checks for local development.
 	LocalMode bool
+
+	// CORSAllowedOrigins is a comma-separated allowlist for browser clients.
+	CORSAllowedOrigins string
 }
 
 // Load reads configuration from the environment with sensible defaults.
 func Load() (*Config, error) {
 	cfg := &Config{
-		APIAddr:          envOrDefault("SKILLHUB_API_ADDR", ":8080"),
-		DatabaseURL:      envOrDefault("SKILLHUB_DATABASE_URL", "postgres://skillhub:skillhub@localhost:5432/skillhub?sslmode=disable"),
-		RedisURL:         envOrDefault("SKILLHUB_REDIS_URL", "redis://localhost:6379/0"),
-		StorageEndpoint:  envOrDefault("SKILLHUB_STORAGE_ENDPOINT", "localhost:9000"),
-		StorageBucket:    envOrDefault("SKILLHUB_STORAGE_BUCKET", "skillhub"),
-		StorageAccessKey: envOrDefault("SKILLHUB_STORAGE_ACCESS_KEY", "minioadmin"),
-		StorageSecretKey: envOrDefault("SKILLHUB_STORAGE_SECRET_KEY", "minioadmin"),
-		LocalMode:        parseBoolEnv("SKILLHUB_LOCAL_MODE", true),
+		APIAddr:            envOrDefault("SKILLHUB_API_ADDR", ":8080"),
+		DatabaseURL:        envOrDefault("SKILLHUB_DATABASE_URL", "postgres://skillhub:skillhub@localhost:5432/skillhub?sslmode=disable"),
+		RedisURL:           envOrDefault("SKILLHUB_REDIS_URL", "redis://localhost:6379/0"),
+		StorageEndpoint:    envOrDefault("SKILLHUB_STORAGE_ENDPOINT", "localhost:9000"),
+		StorageBucket:      envOrDefault("SKILLHUB_STORAGE_BUCKET", "skillhub"),
+		StorageAccessKey:   envOrDefault("SKILLHUB_STORAGE_ACCESS_KEY", "minioadmin"),
+		StorageSecretKey:   envOrDefault("SKILLHUB_STORAGE_SECRET_KEY", "minioadmin"),
+		LocalMode:          parseBoolEnv("SKILLHUB_LOCAL_MODE", true),
+		CORSAllowedOrigins: os.Getenv("SKILLHUB_CORS_ALLOWED_ORIGINS"),
 	}
 
 	if err := cfg.validate(); err != nil {

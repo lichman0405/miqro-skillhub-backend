@@ -17,16 +17,17 @@ docker compose up -d postgres redis minio
 
 # Run database migrations
 cd server
-DATABASE_URL="postgres://skillhub:skillhub@localhost:5432/skillhub?sslmode=disable" \
+SKILLHUB_DATABASE_URL="postgres://skillhub:skillhub@localhost:5432/skillhub?sslmode=disable" \
   go run ./cmd/skillhub-migrate
 
 # Start the server
-DATABASE_URL="postgres://skillhub:skillhub@localhost:5432/skillhub?sslmode=disable" \
+SKILLHUB_DATABASE_URL="postgres://skillhub:skillhub@localhost:5432/skillhub?sslmode=disable" \
+  SKILLHUB_CORS_ALLOWED_ORIGINS="http://localhost:5173" \
   STORAGE_ROOT=./data/storage \
   go run ./cmd/skillhub-server
 
 # Start the worker (in another terminal)
-DATABASE_URL="postgres://skillhub:skillhub@localhost:5432/skillhub?sslmode=disable" \
+SKILLHUB_DATABASE_URL="postgres://skillhub:skillhub@localhost:5432/skillhub?sslmode=disable" \
   STORAGE_ROOT=./data/storage \
   go run ./cmd/skillhub-worker
 ```
@@ -47,7 +48,8 @@ CREATE DATABASE skillhub OWNER skillhub;
 ### 2. Set environment variables
 
 ```powershell
-$env:DATABASE_URL = "postgres://skillhub:skillhub@localhost:5432/skillhub?sslmode=disable"
+$env:SKILLHUB_DATABASE_URL = "postgres://skillhub:skillhub@localhost:5432/skillhub?sslmode=disable"
+$env:SKILLHUB_CORS_ALLOWED_ORIGINS = "http://localhost:5173"
 $env:STORAGE_ROOT = "./data/storage"
 ```
 
@@ -77,8 +79,9 @@ go run ./cmd/skillhub-worker
 
 | Variable | Default | Description |
 |---|---|---|
-| `DATABASE_URL` | `postgres://skillhub:skillhub@localhost:5432/skillhub?sslmode=disable` | PostgreSQL connection string |
+| `SKILLHUB_DATABASE_URL` | `postgres://skillhub:skillhub@localhost:5432/skillhub?sslmode=disable` | PostgreSQL connection string |
 | `SKILLHUB_API_ADDR` | `:8080` | HTTP listen address |
+| `SKILLHUB_CORS_ALLOWED_ORIGINS` | empty | Comma-separated browser origins allowed to call the API |
 | `REDIS_URL` | (optional) | Redis URL for sessions and rate limiting |
 | `STORAGE_ROOT` | `./data/storage` | Local filesystem storage root for package files |
 | `SKILLHUB_LOCAL_MODE` | `true` | When `true`, the server auto-creates a local admin user and uses permissive auth |
@@ -93,7 +96,7 @@ go run ./cmd/skillhub-worker
 - PostgreSQL 16 or later
 - The database must exist before running migrations
 - Migration SQL files are in `server/migrations/`
-- The migrate command auto-creates all tables (35+ tables across 12 migration groups)
+- The migrate command auto-creates all tables (50+ tables across 8 migration groups)
 - Seed data includes default platform roles and the global namespace
 
 ## Running without Redis
@@ -113,7 +116,7 @@ By default, the server uses **local filesystem storage** at the path specified b
 
 The server starts even without a database connection, but all API routes return `503 Service Unavailable`. Make sure:
 - PostgreSQL is running
-- The `DATABASE_URL` environment variable is set correctly
+- The `SKILLHUB_DATABASE_URL` environment variable is set correctly
 - The `skillhub` database exists
 
 ### "Docker is not available"

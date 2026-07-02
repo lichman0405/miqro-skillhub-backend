@@ -10,8 +10,8 @@ import (
 
 // NamespaceListReadModel is the page-level namespace listing response.
 type NamespaceListReadModel struct {
-	Namespaces       []namespace.Namespace    `json:"namespaces"`
-	AvailableActions NamespaceListActions     `json:"availableActions"`
+	Namespaces       []namespace.Namespace `json:"namespaces"`
+	AvailableActions NamespaceListActions  `json:"availableActions"`
 }
 
 // NamespaceListActions lists viewer-specific actions for namespace listing.
@@ -37,23 +37,37 @@ type NamespaceDetailActions struct {
 }
 
 // handleNamespaceList returns the namespace list read model.
-func handleNamespaceList(w http.ResponseWriter, r *http.Request) {
+// Uses the portal NamespaceHandler to list ACTIVE namespaces from the real repository.
+func handleNamespaceList(w http.ResponseWriter, r *http.Request, nsH *portal.NamespaceHandler) {
 	p := middleware.GetPrincipal(r)
 	actions := NamespaceListActions{
 		CanCreateNamespace: p.IsAuthenticated,
 	}
+
+	nsList := make([]namespace.Namespace, 0)
+	if nsH != nil && nsH.NsSvc != nil {
+		list, err := nsH.NsSvc.Namespaces.ListActive(r.Context())
+		if err != nil {
+			middleware.WriteError(w, err)
+			return
+		}
+		if list != nil {
+			nsList = list
+		}
+	}
+
 	middleware.WriteJSON(w, http.StatusOK, NamespaceListReadModel{
-		Namespaces:       []namespace.Namespace{},
+		Namespaces:       nsList,
 		AvailableActions: actions,
 	})
 }
 
 // handleNamespaceDetail returns the namespace detail + member management read model.
-// nsH is used to resolve the namespace slug → ID, ensuring authorization is
-// scoped to the specific requested namespace (not an arbitrary namespace).
+// Uses the portal NamespaceHandler to fetch real namespace data and members
+// (members only when the viewer is authorized to see them).
 func handleNamespaceDetail(w http.ResponseWriter, r *http.Request, nsH *portal.NamespaceHandler) {
 	p := middleware.GetPrincipal(r)
-	nsSlug := r.PathValue("slug")
+	nsSlug := pathValueOrSegment(r.URL.Path, r.PathValue("slug"), 1)
 
 	// Scope authorization to the specific namespace being accessed.
 	viewerRole := namespaceRoleForSlug(r.Context(), nsH, p, nsSlug)
@@ -69,8 +83,38 @@ func handleNamespaceDetail(w http.ResponseWriter, r *http.Request, nsH *portal.N
 		CanJoin:          !isMember && p.IsAuthenticated,
 	}
 
+	// Fetch real namespace data when the service is available.
+	nsObj := namespace.Namespace{Slug: nsSlug}
+	if nsH != nil && nsH.NsSvc != nil {
+		ns, err := nsH.NsSvc.Namespaces.GetBySlugForRead(r.Context(), nsSlug, p.UserID)
+		if err != nil {
+			middleware.WriteError(w, err)
+			return
+		}
+		if ns != nil {
+			nsObj = *ns
+		}
+	}
+
+	// Include members only when the viewer is authorized.
+	var members []namespace.NamespaceMember
+	canViewMembers := isMember || nsObj.Type == "GLOBAL" || nsObj.Slug == "global"
+	if canViewMembers && nsObj.ID > 0 {
+		if nsH != nil && nsH.NsSvc != nil {
+			m, err := nsH.NsSvc.Members.ListMembers(r.Context(), nsObj.ID, p.UserID)
+			if err != nil {
+				middleware.WriteError(w, err)
+				return
+			}
+			if m != nil {
+				members = m
+			}
+		}
+	}
+
 	middleware.WriteJSON(w, http.StatusOK, NamespaceDetailReadModel{
-		Namespace:        namespace.Namespace{Slug: nsSlug},
+		Namespace:        nsObj,
+		Members:          members,
 		AvailableActions: actions,
 	})
 }
