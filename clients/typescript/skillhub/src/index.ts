@@ -773,6 +773,15 @@ export interface ProposalDetailReadModel {
   proposal: ProposalDetailView; availableActions: ProposalDetailActions;
 }
 
+// ── Community Search ───────────────────────────────────────────────────
+
+export interface CommunitySearchResultItem {
+  type: string; id: number; skillId: number; title: string; snippet?: string;
+}
+export interface CommunitySearchResult {
+  items: CommunitySearchResultItem[]; totalCount: number; page: number; size: number;
+}
+
 // ── Client ─────────────────────────────────────────────────────────────
 
 /** SkillHub API client — thin HTTP wrapper over the backend. */
@@ -1236,6 +1245,18 @@ export class SkillHubClient {
     return this.fetch(`/api/v1/skills/${namespace}/${slug}/proposals/${proposalId}`, {
       method: "PATCH", body: JSON.stringify(body),
     });
+  }
+
+  // ── Community search ─────────────────────────────────────────────
+
+  async communitySearch(namespace: string, slug: string, params?: { query?: string; types?: string; page?: number; size?: number }): Promise<Envelope<CommunitySearchResult>> {
+    const qs = new URLSearchParams();
+    if (params?.query) qs.set("query", params.query);
+    if (params?.types) qs.set("types", params.types);
+    if (params?.page !== undefined) qs.set("page", String(params.page));
+    if (params?.size !== undefined) qs.set("size", String(params.size));
+    const q = qs.toString();
+    return this.fetch(`/api/v1/skills/${namespace}/${slug}/community/search${q ? `?${q}` : ""}`);
   }
 
   // ── Community frontend methods ────────────────────────────────────

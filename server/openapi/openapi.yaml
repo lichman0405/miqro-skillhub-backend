@@ -1080,6 +1080,21 @@ paths:
       responses:
         "200": { description: Updated proposal }
 
+  # ── Community Search ──────────────────────────────────────────────────
+  /api/v1/skills/{namespace}/{slug}/community/search:
+    get:
+      tags: [Community]
+      summary: Search community objects for a skill
+      parameters:
+        - { name: namespace, in: path, required: true, schema: { type: string } }
+        - { name: slug, in: path, required: true, schema: { type: string } }
+        - { name: query, in: query, schema: { type: string } }
+        - { name: types, in: query, schema: { type: string } }
+        - { name: page, in: query, schema: { type: integer } }
+        - { name: size, in: query, schema: { type: integer } }
+      responses:
+        "200": { description: Search results }
+
   # ── Community Frontend Read Models ──────────────────────────────────
   /api/v1/frontend/skills/{namespace}/{slug}/issues:
     get:

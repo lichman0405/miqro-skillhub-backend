@@ -273,15 +273,16 @@ func (h *CommunityFrontendHandler) HandleIssueList(w http.ResponseWriter, r *htt
 	result, err := h.CommunitySvc.ListIssues(r.Context(), community.ListIssuesInput{
 		SkillID: sk.ID, Status: status, Page: page, Size: size,
 	})
-	var issues []IssueListView
-	if err == nil && result != nil {
-		issues = make([]IssueListView, 0, len(result.Issues))
-		for _, i := range result.Issues {
-			issues = append(issues, IssueListView{
-				ID: i.ID, Title: i.Title, Status: i.Status,
-				AuthorID: i.AuthorID, Locked: i.Locked, CommentCount: i.CommentCount,
-			})
-		}
+	if err != nil {
+		middleware.WriteError(w, err)
+		return
+	}
+	issues := make([]IssueListView, 0, len(result.Issues))
+	for _, i := range result.Issues {
+		issues = append(issues, IssueListView{
+			ID: i.ID, Title: i.Title, Status: i.Status,
+			AuthorID: i.AuthorID, Locked: i.Locked, CommentCount: i.CommentCount,
+		})
 	}
 
 	actions := IssueListActions{CanCreateIssue: p.IsAuthenticated}
@@ -307,10 +308,8 @@ func (h *CommunityFrontendHandler) HandleIssueDetail(w http.ResponseWriter, r *h
 	}
 
 	issue, err := h.CommunitySvc.GetIssue(r.Context(), issueID)
-	if err != nil || issue.SkillID != sk.ID {
-		middleware.WriteJSON(w, http.StatusOK, IssueDetailReadModel{
-			AvailableActions: IssueDetailActions{},
-		})
+	if err != nil || issue == nil || issue.SkillID != sk.ID {
+		middleware.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "issue not found"})
 		return
 	}
 	comments, _ := h.CommunitySvc.ListIssueComments(r.Context(), issueID)
@@ -359,15 +358,16 @@ func (h *CommunityFrontendHandler) HandleDiscussionList(w http.ResponseWriter, r
 	result, err := h.CommunitySvc.ListDiscussions(r.Context(), community.ListDiscussionsInput{
 		SkillID: sk.ID, Category: category, Page: page, Size: size,
 	})
-	var discs []DiscussionListView
-	if err == nil && result != nil {
-		discs = make([]DiscussionListView, 0, len(result.Discussions))
-		for _, d := range result.Discussions {
-			discs = append(discs, DiscussionListView{
-				ID: d.ID, Title: d.Title, Category: d.Category,
-				AuthorID: d.AuthorID, Pinned: d.Pinned, Locked: d.Locked, CommentCount: d.CommentCount,
-			})
-		}
+	if err != nil {
+		middleware.WriteError(w, err)
+		return
+	}
+	discs := make([]DiscussionListView, 0, len(result.Discussions))
+	for _, d := range result.Discussions {
+		discs = append(discs, DiscussionListView{
+			ID: d.ID, Title: d.Title, Category: d.Category,
+			AuthorID: d.AuthorID, Pinned: d.Pinned, Locked: d.Locked, CommentCount: d.CommentCount,
+		})
 	}
 
 	actions := DiscussionListActions{CanCreateDiscussion: p.IsAuthenticated}
@@ -393,10 +393,8 @@ func (h *CommunityFrontendHandler) HandleDiscussionDetail(w http.ResponseWriter,
 	}
 
 	d, err := h.CommunitySvc.GetDiscussion(r.Context(), discID)
-	if err != nil || d.SkillID != sk.ID {
-		middleware.WriteJSON(w, http.StatusOK, DiscussionDetailReadModel{
-			AvailableActions: DiscussionDetailActions{},
-		})
+	if err != nil || d == nil || d.SkillID != sk.ID {
+		middleware.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "discussion not found"})
 		return
 	}
 	comments, _ := h.CommunitySvc.ListDiscussionComments(r.Context(), discID)
@@ -440,14 +438,15 @@ func (h *CommunityFrontendHandler) HandleWikiList(w http.ResponseWriter, r *http
 	p := middleware.GetPrincipal(r)
 
 	pages, err := h.CommunitySvc.ListWikiPages(r.Context(), sk.ID)
-	var pageViews []WikiPageListView
-	if err == nil && pages != nil {
-		pageViews = make([]WikiPageListView, 0, len(pages))
-		for _, pg := range pages {
-			pageViews = append(pageViews, WikiPageListView{
-				ID: pg.ID, Title: pg.Title, Slug: pg.Slug, OrderIndex: pg.OrderIndex,
-			})
-		}
+	if err != nil {
+		middleware.WriteError(w, err)
+		return
+	}
+	pageViews := make([]WikiPageListView, 0, len(pages))
+	for _, pg := range pages {
+		pageViews = append(pageViews, WikiPageListView{
+			ID: pg.ID, Title: pg.Title, Slug: pg.Slug, OrderIndex: pg.OrderIndex,
+		})
 	}
 
 	actions := WikiPageListActions{
@@ -469,9 +468,7 @@ func (h *CommunityFrontendHandler) HandleWikiDetail(w http.ResponseWriter, r *ht
 
 	page, err := h.CommunitySvc.GetWikiPage(r.Context(), sk.ID, slug)
 	if err != nil || page == nil {
-		middleware.WriteJSON(w, http.StatusOK, WikiPageDetailReadModel{
-			AvailableActions: WikiPageDetailActions{},
-		})
+		middleware.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "wiki page not found"})
 		return
 	}
 	versions, _ := h.CommunitySvc.ListWikiPageVersions(r.Context(), page.ID)
@@ -522,14 +519,15 @@ func (h *CommunityFrontendHandler) HandleProposalList(w http.ResponseWriter, r *
 	result, err := h.CommunitySvc.ListChangeProposals(r.Context(), community.ListChangeProposalsInput{
 		SkillID: sk.ID, Status: status, Page: page, Size: size,
 	})
-	var proposals []ProposalListView
-	if err == nil && result != nil {
-		proposals = make([]ProposalListView, 0, len(result.Proposals))
-		for _, pr := range result.Proposals {
-			proposals = append(proposals, ProposalListView{
-				ID: pr.ID, Title: pr.Title, Status: pr.Status, AuthorID: pr.AuthorID,
-			})
-		}
+	if err != nil {
+		middleware.WriteError(w, err)
+		return
+	}
+	proposals := make([]ProposalListView, 0, len(result.Proposals))
+	for _, pr := range result.Proposals {
+		proposals = append(proposals, ProposalListView{
+			ID: pr.ID, Title: pr.Title, Status: pr.Status, AuthorID: pr.AuthorID,
+		})
 	}
 
 	actions := ProposalListActions{CanCreateProposal: p.IsAuthenticated}
@@ -555,10 +553,8 @@ func (h *CommunityFrontendHandler) HandleProposalDetail(w http.ResponseWriter, r
 	}
 
 	pr, err := h.CommunitySvc.GetChangeProposal(r.Context(), proposalID)
-	if err != nil || pr.SkillID != sk.ID {
-		middleware.WriteJSON(w, http.StatusOK, ProposalDetailReadModel{
-			AvailableActions: ProposalDetailActions{},
-		})
+	if err != nil || pr == nil || pr.SkillID != sk.ID {
+		middleware.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "proposal not found"})
 		return
 	}
 

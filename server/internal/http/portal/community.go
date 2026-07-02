@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"miqro-skillhub/server/internal/http/middleware"
 	"miqro-skillhub/server/sdk/skillhub/community"
@@ -85,6 +86,9 @@ func (h *CommunityHandler) RegisterCommunityRoutes(mux *http.ServeMux, authMW *m
 		authMW.Authenticate(middleware.RequireAuth(withLimit("publish", h.handleCreateProposal))))
 	mux.HandleFunc("PATCH /api/v1/skills/{namespace}/{slug}/proposals/{proposalID}",
 		authMW.Authenticate(middleware.RequireAuth(h.handleUpdateProposal)))
+
+	// Community search — read route (optional auth).
+	mux.HandleFunc("GET /api/v1/skills/{namespace}/{slug}/community/search", optAuth(h.handleCommunitySearch))
 }
 
 // resolveSkill resolves namespace+slug to a skill. Returns the skill or writes an error.
@@ -798,4 +802,31 @@ func (h *CommunityHandler) handleUpdateProposal(w http.ResponseWriter, r *http.R
 		return
 	}
 	middleware.WriteJSON(w, http.StatusOK, updated)
+}
+
+// ── Community Search ─────────────────────────────────────────────────────────
+
+func (h *CommunityHandler) handleCommunitySearch(w http.ResponseWriter, r *http.Request) {
+	sk, ok := h.resolveSkill(w, r)
+	if !ok {
+		return
+	}
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	size, _ := strconv.Atoi(r.URL.Query().Get("size"))
+	query := r.URL.Query().Get("query")
+	typesStr := r.URL.Query().Get("types") // comma-separated
+
+	var types []string
+	if typesStr != "" {
+		types = strings.Split(typesStr, ",")
+	}
+
+	result, err := h.CommunitySvc.Search(r.Context(), community.SearchQuery{
+		SkillID: sk.ID, Query: query, Types: types, Page: page, Size: size,
+	})
+	if err != nil {
+		middleware.WriteError(w, err)
+		return
+	}
+	middleware.WriteJSON(w, http.StatusOK, result)
 }

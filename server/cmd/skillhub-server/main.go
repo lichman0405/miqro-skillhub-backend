@@ -24,8 +24,10 @@ import (
 	"miqro-skillhub/server/internal/http/observability"
 	"miqro-skillhub/server/internal/http/portal"
 	"miqro-skillhub/server/internal/http/toolapi"
+	"miqro-skillhub/server/sdk/skillhub/audit"
 	"miqro-skillhub/server/sdk/skillhub/auth"
 	"miqro-skillhub/server/sdk/skillhub/community"
+	"miqro-skillhub/server/sdk/skillhub/eventbus"
 	"miqro-skillhub/server/sdk/skillhub/namespace"
 	"miqro-skillhub/server/sdk/skillhub/packagekit"
 	"miqro-skillhub/server/sdk/skillhub/release"
@@ -186,10 +188,22 @@ func main() {
 	// Community handler — always constructed when the community service is available.
 	var handlerCommunity *portal.CommunityHandler
 	var frontendCommunity *frontend.CommunityFrontendHandler
-	if communitySvc != nil && skillSvc != nil {
+	if communitySvc != nil && skillSvc != nil && db != nil {
 		// Wire version/release lookups for cross-skill validation.
 		communitySvc.SetVersionLookup(postgres.NewCommunityVersionLookup(db))
 		communitySvc.SetReleaseLookup(postgres.NewCommunityReleaseLookup(db))
+
+		// Wire event publisher via event bus.
+		bus := eventbus.NewNoopBus(true)
+		communitySvc.SetEventPublisher(postgres.NewCommunityEventPublisher(bus))
+
+		// Wire audit recorder.
+		auditRepo := postgres.NewAuditLogRepo(db)
+		auditSvc := audit.NewAuditLogService(auditRepo)
+		communitySvc.SetAuditRecorder(postgres.NewCommunityAuditRecorder(auditSvc))
+
+		// Wire community search repository.
+		communitySvc.SetSearchRepo(postgres.NewCommunitySearchRepo(db))
 
 		handlerCommunity = &portal.CommunityHandler{CommunitySvc: communitySvc, SkillSvc: skillSvc}
 		frontendCommunity = &frontend.CommunityFrontendHandler{CommunitySvc: communitySvc, SkillH: handlerSkill}

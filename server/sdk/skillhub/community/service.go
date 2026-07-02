@@ -67,11 +67,12 @@ type Service struct {
 	discLabelRepo        DiscussionLabelRepository
 	reportRepo           CommunityReportRepository
 
-	// Optional dependencies for linked-resource validation, events, and audit.
+	// Optional dependencies for linked-resource validation, events, audit, and search.
 	versionRepo   SkillVersionLookup
 	releaseRepo   SkillReleaseLookup
 	eventPub      EventPublisher
 	auditRecorder AuditRecorder
+	searchRepo    CommunitySearchRepo
 }
 
 // NewService creates a community Service.
@@ -114,6 +115,9 @@ func (svc *Service) SetEventPublisher(p EventPublisher)      { svc.eventPub = p 
 
 // SetAuditRecorder sets the optional audit recorder.
 func (svc *Service) SetAuditRecorder(a AuditRecorder)         { svc.auditRecorder = a }
+
+// SetSearchRepo sets the community search repository.
+func (svc *Service) SetSearchRepo(r CommunitySearchRepo)      { svc.searchRepo = r }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -1184,8 +1188,11 @@ type CommunitySearchRepo interface {
 	Count(ctx context.Context, skillID int64, query string, types []string) (int64, error)
 }
 
-// Search searches community objects for a skill.
-func (svc *Service) Search(ctx context.Context, repo CommunitySearchRepo, q SearchQuery) (*SearchResult, error) {
+// Search searches community objects for a skill. Requires SetSearchRepo to have been called.
+func (svc *Service) Search(ctx context.Context, q SearchQuery) (*SearchResult, error) {
+	if svc.searchRepo == nil {
+		return nil, fmt.Errorf("community: search repository not configured")
+	}
 	if q.Size <= 0 {
 		q.Size = 20
 	}
@@ -1193,14 +1200,14 @@ func (svc *Service) Search(ctx context.Context, repo CommunitySearchRepo, q Sear
 		q.Size = 100
 	}
 	offset := q.Page * q.Size
-	items, err := repo.Search(ctx, q.SkillID, q.Query, q.Types, offset, q.Size)
+	items, err := svc.searchRepo.Search(ctx, q.SkillID, q.Query, q.Types, offset, q.Size)
 	if err != nil {
 		return nil, fmt.Errorf("community: search: %w", err)
 	}
 	if items == nil {
 		items = make([]SearchResultItem, 0)
 	}
-	total, err := repo.Count(ctx, q.SkillID, q.Query, q.Types)
+	total, err := svc.searchRepo.Count(ctx, q.SkillID, q.Query, q.Types)
 	if err != nil {
 		return nil, fmt.Errorf("community: search count: %w", err)
 	}

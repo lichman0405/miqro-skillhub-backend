@@ -444,6 +444,52 @@ func superAdmin(userID string) Viewer {
 	return Viewer{UserID: userID, PlatformRoles: map[string]bool{"SUPER_ADMIN": true}, NamespaceRoles: map[int64]string{}}
 }
 
+// ── Event & audit stubs for testing ─────────────────────────────────────
+
+type stubEventPublisher struct {
+	events []struct {
+		eventType string
+		payload   map[string]any
+	}
+}
+
+func (p *stubEventPublisher) PublishCommunityEvent(_ context.Context, eventType string, payload map[string]any) {
+	p.events = append(p.events, struct {
+		eventType string
+		payload   map[string]any
+	}{eventType, payload})
+}
+
+type stubAuditRecorder struct {
+	records []struct {
+		actorID      string
+		action       string
+		resourceType string
+		resourceID   int64
+		detail       string
+	}
+}
+
+func (r *stubAuditRecorder) RecordCommunityAudit(_ context.Context, actorID, action, resourceType string, resourceID int64, detail string) {
+	r.records = append(r.records, struct {
+		actorID      string
+		action       string
+		resourceType string
+		resourceID   int64
+		detail       string
+	}{actorID, action, resourceType, resourceID, detail})
+}
+
+// testSvcWithEvents creates a Service with event/audit stubs wired.
+func testSvcWithEvents() (*Service, *stubEventPublisher, *stubAuditRecorder) {
+	svc := newTestService()
+	ep := &stubEventPublisher{}
+	ar := &stubAuditRecorder{}
+	svc.SetEventPublisher(ep)
+	svc.SetAuditRecorder(ar)
+	return svc, ep, ar
+}
+
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 var ctx = context.Background()
@@ -1035,3 +1081,146 @@ func TestProposalAccept_MaintainerCanAccept(t *testing.T) {
 	}
 }
 
+// ── Event/audit tests ───────────────────────────────────────────────────
+
+func TestEvent_IssueCreated(t *testing.T) {
+	svc, ep, _ := testSvcWithEvents()
+	_, err := svc.CreateIssue(ctx, viewer("u1"), CreateIssueInput{
+		SkillID: 1, Title: "Event Test",
+	})
+	if err != nil {
+		t.Fatalf("CreateIssue: %v", err)
+	}
+	if len(ep.events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(ep.events))
+	}
+	if ep.events[0].eventType != "community.issue.created" {
+		t.Errorf("expected community.issue.created, got %s", ep.events[0].eventType)
+	}
+}
+
+func TestEvent_DiscussionAnswerAccepted(t *testing.T) {
+	svc, ep, _ := testSvcWithEvents()
+	d, _ := svc.CreateDiscussion(ctx, viewer("u1"), CreateDiscussionInput{
+		SkillID: 1, Title: "Q", Category: "QA",
+	})
+	c, _ := svc.AddDiscussionComment(ctx, viewer("u2"), AddDiscussionCommentInput{
+		DiscussionID: d.ID, Body: "Answer",
+	})
+	_, err := svc.AcceptAnswer(ctx, viewer("u1"), d.ID, c.ID)
+	if err != nil {
+		t.Fatalf("AcceptAnswer: %v", err)
+	}
+	// Should have: discussion.created, discussion.commented, discussion.answer_accepted
+	if len(ep.events) < 3 {
+		t.Fatalf("expected at least 3 events, got %d", len(ep.events))
+	}
+	found := false
+	for _, ev := range ep.events {
+		if ev.eventType == "community.discussion.answer_accepted" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected community.discussion.answer_accepted event")
+	}
+}
+
+func TestEvent_ProposalAccepted(t *testing.T) {
+	svc, ep, ar := testSvcWithEvents()
+	p, _ := svc.CreateChangeProposal(ctx, viewer("u1"), CreateChangeProposalInput{
+		SkillID: 1, Title: "Improve",
+	})
+	accepted := "ACCEPTED"
+	_, err := svc.UpdateChangeProposalStatus(ctx, viewer("owner1"), "owner1", 10, UpdateChangeProposalInput{
+		ID: p.ID, Status: &accepted, Comment: "Looks good",
+	})
+	if err != nil {
+		t.Fatalf("accept proposal: %v", err)
+	}
+	// Should have: proposal.created, proposal.status_changed
+	if len(ep.events) < 2 {
+		t.Fatalf("expected at least 2 events, got %d", len(ep.events))
+	}
+	found := false
+	for _, ev := range ep.events {
+		if ev.eventType == "community.proposal.status_changed" {
+			found = true
+			if ev.payload["status"] != "ACCEPTED" {
+				t.Errorf("expected ACCEPTED status in payload, got %v", ev.payload["status"])
+			}
+			break
+		}
+	}
+	if !found {
+		t.Error("expected community.proposal.status_changed event")
+	}
+	// Check audit record.
+	if len(ar.records) < 1 {
+		t.Fatalf("expected at least 1 audit record, got %d", len(ar.records))
+	}
+	if ar.records[0].action != "PROPOSAL_ACCEPTED" {
+		t.Errorf("expected PROPOSAL_ACCEPTED audit, got %s", ar.records[0].action)
+	}
+}
+
+func TestEvent_ProposalRejected(t *testing.T) {
+	svc, ep, ar := testSvcWithEvents()
+	p, _ := svc.CreateChangeProposal(ctx, viewer("u1"), CreateChangeProposalInput{
+		SkillID: 1, Title: "Reject me",
+	})
+	rejected := "REJECTED"
+	_, err := svc.UpdateChangeProposalStatus(ctx, viewer("owner1"), "owner1", 10, UpdateChangeProposalInput{
+		ID: p.ID, Status: &rejected, Comment: "Not needed",
+	})
+	if err != nil {
+		t.Fatalf("reject proposal: %v", err)
+	}
+	found := false
+	for _, ev := range ep.events {
+		if ev.eventType == "community.proposal.status_changed" && ev.payload["status"] == "REJECTED" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected community.proposal.status_changed event with REJECTED status")
+	}
+	if len(ar.records) > 0 && ar.records[0].action != "PROPOSAL_REJECTED" {
+		t.Errorf("expected PROPOSAL_REJECTED audit, got %s", ar.records[0].action)
+	}
+}
+
+func TestEvent_ReportHandled(t *testing.T) {
+	svc, ep, ar := testSvcWithEvents()
+	issue, _ := svc.CreateIssue(ctx, viewer("u1"), CreateIssueInput{SkillID: 1, Title: "Spam"})
+	report, _ := svc.ReportCommunityObject(ctx, viewer("u2"), ReportCommunityObjectInput{
+		SkillID: 1, ObjectType: "ISSUE", ObjectID: issue.ID, Reason: "Spam",
+	})
+	_, err := svc.HandleReport(ctx, superAdmin("admin1"), HandleReportInput{
+		ReportID: report.ID, Status: "RESOLVED", HandleComment: "Removed",
+	})
+	if err != nil {
+		t.Fatalf("HandleReport: %v", err)
+	}
+	// Should have: report.submitted, report.handled
+	found := false
+	for _, ev := range ep.events {
+		if ev.eventType == "community.report.handled" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected community.report.handled event")
+	}
+	// At least 2 audit records: CREATE_ISSUE + HANDLE_COMMUNITY_REPORT.
+	if len(ar.records) < 2 {
+		t.Fatalf("expected at least 2 audit records, got %d", len(ar.records))
+	}
+	last := ar.records[len(ar.records)-1]
+	if last.action != "HANDLE_COMMUNITY_REPORT" {
+		t.Errorf("expected HANDLE_COMMUNITY_REPORT audit, got %s", last.action)
+	}
+}
