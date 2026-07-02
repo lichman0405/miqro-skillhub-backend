@@ -782,6 +782,26 @@ func (r *CommunitySearchRepo) Search(ctx context.Context, skillID int64, query s
 
 func (r *CommunitySearchRepo) Count(ctx context.Context, skillID int64, query string, types []string) (int64, error) {
 	var total int64
+	for _, q := range buildCommunitySearchCountQueries(skillID, query, types) {
+		var c int64
+		if err := r.DB.queryRow(ctx, q.sql, q.args...).Scan(&c); err != nil {
+			return 0, fmt.Errorf("community search count (%s): %w", q.table, err)
+		}
+		total += c
+	}
+	return total, nil
+}
+
+// countQuery holds a single count query for one table.
+type countQuery struct {
+	table string
+	sql   string
+	args  []any
+}
+
+// buildCommunitySearchCountQueries builds one COUNT(*) query per matching table.
+// It applies the same skill_id, query (ILIKE), and types filtering as Search.
+func buildCommunitySearchCountQueries(skillID int64, query string, types []string) []countQuery {
 	useTable := func(t string) bool {
 		if len(types) == 0 {
 			return true
@@ -793,27 +813,58 @@ func (r *CommunitySearchRepo) Count(ctx context.Context, skillID int64, query st
 		}
 		return false
 	}
+
+	var queries []countQuery
+
 	if useTable("ISSUE") {
-		var c int64
-		r.DB.queryRow(ctx, `SELECT COUNT(*) FROM skill_issue WHERE skill_id=$1`, skillID).Scan(&c)
-		total += c
+		q := countQuery{table: "ISSUE"}
+		if query == "" {
+			q.sql = `SELECT COUNT(*) FROM skill_issue WHERE skill_id=$1`
+			q.args = []any{skillID}
+		} else {
+			q.sql = `SELECT COUNT(*) FROM skill_issue WHERE skill_id=$1 AND (title ILIKE '%' || $2 || '%' OR body ILIKE '%' || $2 || '%')`
+			q.args = []any{skillID, query}
+		}
+		queries = append(queries, q)
 	}
+
 	if useTable("DISCUSSION") {
-		var c int64
-		r.DB.queryRow(ctx, `SELECT COUNT(*) FROM skill_discussion WHERE skill_id=$1`, skillID).Scan(&c)
-		total += c
+		q := countQuery{table: "DISCUSSION"}
+		if query == "" {
+			q.sql = `SELECT COUNT(*) FROM skill_discussion WHERE skill_id=$1`
+			q.args = []any{skillID}
+		} else {
+			q.sql = `SELECT COUNT(*) FROM skill_discussion WHERE skill_id=$1 AND (title ILIKE '%' || $2 || '%' OR body ILIKE '%' || $2 || '%')`
+			q.args = []any{skillID, query}
+		}
+		queries = append(queries, q)
 	}
+
 	if useTable("WIKI_PAGE") {
-		var c int64
-		r.DB.queryRow(ctx, `SELECT COUNT(*) FROM skill_wiki_page WHERE skill_id=$1`, skillID).Scan(&c)
-		total += c
+		q := countQuery{table: "WIKI_PAGE"}
+		if query == "" {
+			q.sql = `SELECT COUNT(*) FROM skill_wiki_page WHERE skill_id=$1`
+			q.args = []any{skillID}
+		} else {
+			q.sql = `SELECT COUNT(*) FROM skill_wiki_page sp LEFT JOIN skill_wiki_page_version wv ON wv.id = sp.current_version_id WHERE sp.skill_id=$1 AND (sp.title ILIKE '%' || $2 || '%' OR wv.body ILIKE '%' || $2 || '%')`
+			q.args = []any{skillID, query}
+		}
+		queries = append(queries, q)
 	}
+
 	if useTable("PROPOSAL") {
-		var c int64
-		r.DB.queryRow(ctx, `SELECT COUNT(*) FROM skill_change_proposal WHERE skill_id=$1`, skillID).Scan(&c)
-		total += c
+		q := countQuery{table: "PROPOSAL"}
+		if query == "" {
+			q.sql = `SELECT COUNT(*) FROM skill_change_proposal WHERE skill_id=$1`
+			q.args = []any{skillID}
+		} else {
+			q.sql = `SELECT COUNT(*) FROM skill_change_proposal WHERE skill_id=$1 AND (title ILIKE '%' || $2 || '%' OR summary ILIKE '%' || $2 || '%')`
+			q.args = []any{skillID, query}
+		}
+		queries = append(queries, q)
 	}
-	return total, nil
+
+	return queries
 }
 
 // ── Scan helpers ─────────────────────────────────────────────────────────────

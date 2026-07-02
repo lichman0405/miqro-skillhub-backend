@@ -150,6 +150,84 @@ func (r errIssueRepo) CountBySkillID(_ context.Context, skillID int64, status st
 }
 func (r errIssueRepo) Delete(_ context.Context, id int64) error { return nil }
 
+// ── Error-injecting detail stubs (return errors from FindByID / FindBySkillIDAndSlug) ──
+
+type errIssueDetailRepo struct{}
+
+func (r errIssueDetailRepo) Create(_ context.Context, i community.Issue) (community.Issue, error) {
+	return i, nil
+}
+func (r errIssueDetailRepo) Update(_ context.Context, i community.Issue) (community.Issue, error) {
+	return i, nil
+}
+func (r errIssueDetailRepo) FindByID(_ context.Context, id int64) (*community.Issue, error) {
+	return nil, fmt.Errorf("db error")
+}
+func (r errIssueDetailRepo) FindBySkillID(_ context.Context, skillID int64, status string, offset, limit int) ([]community.Issue, error) {
+	return nil, nil
+}
+func (r errIssueDetailRepo) CountBySkillID(_ context.Context, skillID int64, status string) (int64, error) {
+	return 0, nil
+}
+func (r errIssueDetailRepo) Delete(_ context.Context, id int64) error { return nil }
+
+type errDiscDetailRepo struct{}
+
+func (r errDiscDetailRepo) Create(_ context.Context, d community.Discussion) (community.Discussion, error) {
+	return d, nil
+}
+func (r errDiscDetailRepo) Update(_ context.Context, d community.Discussion) (community.Discussion, error) {
+	return d, nil
+}
+func (r errDiscDetailRepo) FindByID(_ context.Context, id int64) (*community.Discussion, error) {
+	return nil, fmt.Errorf("db error")
+}
+func (r errDiscDetailRepo) FindBySkillID(_ context.Context, skillID int64, category string, offset, limit int) ([]community.Discussion, error) {
+	return nil, nil
+}
+func (r errDiscDetailRepo) CountBySkillID(_ context.Context, skillID int64, category string) (int64, error) {
+	return 0, nil
+}
+func (r errDiscDetailRepo) Delete(_ context.Context, id int64) error { return nil }
+
+type errWikiDetailRepo struct{}
+
+func (r errWikiDetailRepo) Create(_ context.Context, p community.WikiPage) (community.WikiPage, error) {
+	return p, nil
+}
+func (r errWikiDetailRepo) Update(_ context.Context, p community.WikiPage) (community.WikiPage, error) {
+	return p, nil
+}
+func (r errWikiDetailRepo) FindByID(_ context.Context, id int64) (*community.WikiPage, error) {
+	return nil, nil
+}
+func (r errWikiDetailRepo) FindBySkillIDAndSlug(_ context.Context, skillID int64, slug string) (*community.WikiPage, error) {
+	return nil, fmt.Errorf("db error")
+}
+func (r errWikiDetailRepo) ListBySkillID(_ context.Context, skillID int64) ([]community.WikiPage, error) {
+	return nil, nil
+}
+func (r errWikiDetailRepo) Delete(_ context.Context, id int64) error { return nil }
+
+type errPropDetailRepo struct{}
+
+func (r errPropDetailRepo) Create(_ context.Context, p community.ChangeProposal) (community.ChangeProposal, error) {
+	return p, nil
+}
+func (r errPropDetailRepo) Update(_ context.Context, p community.ChangeProposal) (community.ChangeProposal, error) {
+	return p, nil
+}
+func (r errPropDetailRepo) FindByID(_ context.Context, id int64) (*community.ChangeProposal, error) {
+	return nil, fmt.Errorf("db error")
+}
+func (r errPropDetailRepo) FindBySkillID(_ context.Context, skillID int64, status string, offset, limit int) ([]community.ChangeProposal, error) {
+	return nil, nil
+}
+func (r errPropDetailRepo) CountBySkillID(_ context.Context, skillID int64, status string) (int64, error) {
+	return 0, nil
+}
+func (r errPropDetailRepo) Delete(_ context.Context, id int64) error { return nil }
+
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 // newFrontendCommunityHandler creates a CommunityFrontendHandler with stubs.
@@ -228,7 +306,8 @@ func TestFrontendCommunity_IssueDetail_WrongPathSkill(t *testing.T) {
 }
 
 func TestFrontendCommunity_IssueDetail_NotFound(t *testing.T) {
-	// Issue just doesn't exist.
+	// Issue doesn't exist. Service wraps (nil, nil) as an error.
+	// Handler must use WriteError, not return 404 or 200.
 	issueRepo := &ftStubIssueRepo{issues: make(map[int64]community.Issue)}
 	svc := community.NewService(
 		issueRepo,
@@ -244,8 +323,9 @@ func TestFrontendCommunity_IssueDetail_NotFound(t *testing.T) {
 	w := httptest.NewRecorder()
 	h.HandleIssueDetail(w, req)
 
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404 for nonexistent issue, got %d: %s", w.Code, w.Body.String())
+	// Must not return 200 or 404 — error must go through WriteError.
+	if w.Code == http.StatusOK || w.Code == http.StatusNotFound {
+		t.Fatalf("expected error response (not 200/404) for nonexistent issue, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -272,6 +352,8 @@ func TestFrontendCommunity_DiscussionDetail_WrongPathSkill(t *testing.T) {
 }
 
 func TestFrontendCommunity_WikiDetail_NotFound(t *testing.T) {
+	// Wiki page doesn't exist. Service wraps (nil, nil) as an error.
+	// Handler must use WriteError, not return 404 or 200.
 	wikiRepo := &ftStubWikiRepo{pages: make(map[int64]community.WikiPage)}
 	svc := community.NewService(
 		nil, nil, nil, nil, wikiRepo, nil, nil, nil, nil, nil, nil,
@@ -286,8 +368,9 @@ func TestFrontendCommunity_WikiDetail_NotFound(t *testing.T) {
 	w := httptest.NewRecorder()
 	h.HandleWikiDetail(w, req)
 
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404 for nonexistent wiki page, got %d: %s", w.Code, w.Body.String())
+	// Must not return 200 or 404 — error must go through WriteError.
+	if w.Code == http.StatusOK || w.Code == http.StatusNotFound {
+		t.Fatalf("expected error response (not 200/404) for nonexistent wiki page, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -310,6 +393,86 @@ func TestFrontendCommunity_ProposalDetail_WrongPathSkill(t *testing.T) {
 
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("expected 404 for wrong-path proposal, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// ── Tests: repo error returns error response (not 404/200) ─────────────────
+
+func TestFrontendCommunity_IssueDetail_RepoError(t *testing.T) {
+	// Repo FindByID returns a DB error. Handler must call WriteError, not return 404/200.
+	svc := community.NewService(
+		errIssueDetailRepo{},
+		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
+	)
+	h := newFrontendCommunityHandler(svc)
+
+	req := httptest.NewRequest("GET", "/api/v1/frontend/skills/ns1/myskill/issues/1", nil)
+	req.SetPathValue("namespace", "ns1")
+	req.SetPathValue("slug", "myskill")
+	req.SetPathValue("issueID", "1")
+	req = middleware.SetPrincipal(req, authUser("u1"))
+	w := httptest.NewRecorder()
+	h.HandleIssueDetail(w, req)
+
+	if w.Code == http.StatusOK || w.Code == http.StatusNotFound {
+		t.Fatalf("expected error response (not 200/404) for repo error, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestFrontendCommunity_DiscussionDetail_RepoError(t *testing.T) {
+	svc := community.NewService(
+		nil, nil, errDiscDetailRepo{}, nil, nil, nil, nil, nil, nil, nil, nil,
+	)
+	h := newFrontendCommunityHandler(svc)
+
+	req := httptest.NewRequest("GET", "/api/v1/frontend/skills/ns1/myskill/discussions/1", nil)
+	req.SetPathValue("namespace", "ns1")
+	req.SetPathValue("slug", "myskill")
+	req.SetPathValue("discussionID", "1")
+	req = middleware.SetPrincipal(req, authUser("u1"))
+	w := httptest.NewRecorder()
+	h.HandleDiscussionDetail(w, req)
+
+	if w.Code == http.StatusOK || w.Code == http.StatusNotFound {
+		t.Fatalf("expected error response (not 200/404) for repo error, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestFrontendCommunity_WikiDetail_RepoError(t *testing.T) {
+	svc := community.NewService(
+		nil, nil, nil, nil, errWikiDetailRepo{}, nil, nil, nil, nil, nil, nil,
+	)
+	h := newFrontendCommunityHandler(svc)
+
+	req := httptest.NewRequest("GET", "/api/v1/frontend/skills/ns1/myskill/wiki/some-page", nil)
+	req.SetPathValue("namespace", "ns1")
+	req.SetPathValue("slug", "myskill")
+	req.SetPathValue("pageSlug", "some-page")
+	req = middleware.SetPrincipal(req, authUser("u1"))
+	w := httptest.NewRecorder()
+	h.HandleWikiDetail(w, req)
+
+	if w.Code == http.StatusOK || w.Code == http.StatusNotFound {
+		t.Fatalf("expected error response (not 200/404) for repo error, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestFrontendCommunity_ProposalDetail_RepoError(t *testing.T) {
+	svc := community.NewService(
+		nil, nil, nil, nil, nil, nil, errPropDetailRepo{}, nil, nil, nil, nil,
+	)
+	h := newFrontendCommunityHandler(svc)
+
+	req := httptest.NewRequest("GET", "/api/v1/frontend/skills/ns1/myskill/proposals/1", nil)
+	req.SetPathValue("namespace", "ns1")
+	req.SetPathValue("slug", "myskill")
+	req.SetPathValue("proposalID", "1")
+	req = middleware.SetPrincipal(req, authUser("u1"))
+	w := httptest.NewRecorder()
+	h.HandleProposalDetail(w, req)
+
+	if w.Code == http.StatusOK || w.Code == http.StatusNotFound {
+		t.Fatalf("expected error response (not 200/404) for repo error, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

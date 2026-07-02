@@ -308,7 +308,11 @@ func (h *CommunityFrontendHandler) HandleIssueDetail(w http.ResponseWriter, r *h
 	}
 
 	issue, err := h.CommunitySvc.GetIssue(r.Context(), issueID)
-	if err != nil || issue == nil || issue.SkillID != sk.ID {
+	if err != nil {
+		middleware.WriteError(w, err)
+		return
+	}
+	if issue == nil || issue.SkillID != sk.ID {
 		middleware.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "issue not found"})
 		return
 	}
@@ -393,7 +397,11 @@ func (h *CommunityFrontendHandler) HandleDiscussionDetail(w http.ResponseWriter,
 	}
 
 	d, err := h.CommunitySvc.GetDiscussion(r.Context(), discID)
-	if err != nil || d == nil || d.SkillID != sk.ID {
+	if err != nil {
+		middleware.WriteError(w, err)
+		return
+	}
+	if d == nil || d.SkillID != sk.ID {
 		middleware.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "discussion not found"})
 		return
 	}
@@ -467,7 +475,11 @@ func (h *CommunityFrontendHandler) HandleWikiDetail(w http.ResponseWriter, r *ht
 	slug := r.PathValue("pageSlug")
 
 	page, err := h.CommunitySvc.GetWikiPage(r.Context(), sk.ID, slug)
-	if err != nil || page == nil {
+	if err != nil {
+		middleware.WriteError(w, err)
+		return
+	}
+	if page == nil {
 		middleware.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "wiki page not found"})
 		return
 	}
@@ -553,7 +565,11 @@ func (h *CommunityFrontendHandler) HandleProposalDetail(w http.ResponseWriter, r
 	}
 
 	pr, err := h.CommunitySvc.GetChangeProposal(r.Context(), proposalID)
-	if err != nil || pr == nil || pr.SkillID != sk.ID {
+	if err != nil {
+		middleware.WriteError(w, err)
+		return
+	}
+	if pr == nil || pr.SkillID != sk.ID {
 		middleware.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "proposal not found"})
 		return
 	}
