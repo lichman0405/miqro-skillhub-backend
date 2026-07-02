@@ -229,6 +229,27 @@ func (svc *Service) updateCheckStatus(ctx context.Context, checkRunID int64, sta
 	return &updated, nil
 }
 
+// ── Worker polling ─────────────────────────────────────────────────────────
+
+// FindPendingRuns returns pipeline runs in PENDING or RUNNING status for
+// worker polling. limit controls the max number returned.
+func (svc *Service) FindPendingRuns(ctx context.Context, limit int) ([]PipelineRun, error) {
+	if svc.pipelineRunRepo == nil {
+		return nil, fmt.Errorf("agentci: pipeline run repository not configured")
+	}
+	return svc.pipelineRunRepo.FindPending(ctx, limit)
+}
+
+// ClaimPendingRun atomically claims a PENDING pipeline run by updating its
+// status to RUNNING. Returns the updated run or nil if the run was already
+// claimed by another worker.
+func (svc *Service) ClaimPendingRun(ctx context.Context, runID int64) (*PipelineRun, error) {
+	if svc.pipelineRunRepo == nil {
+		return nil, fmt.Errorf("agentci: pipeline run repository not configured")
+	}
+	return svc.pipelineRunRepo.ClaimPending(ctx, runID)
+}
+
 // ── Pipeline run finalization ──────────────────────────────────────────────
 
 // FinalizePipelineRun computes the final status of a pipeline run based on
@@ -369,6 +390,33 @@ func (svc *Service) ListCheckRuns(ctx context.Context, pipelineRunID int64) ([]C
 
 // ── Steps and logs ─────────────────────────────────────────────────────────
 
+// CreateCheckStep creates a check step record.
+func (svc *Service) CreateCheckStep(ctx context.Context, step CheckStep) (*CheckStep, error) {
+	if svc.checkStepRepo == nil {
+		return nil, fmt.Errorf("agentci: check step repository not configured")
+	}
+	saved, err := svc.checkStepRepo.Create(ctx, step)
+	if err != nil {
+		return nil, fmt.Errorf("agentci: create check step: %w", err)
+	}
+	return &saved, nil
+}
+
+// ListCheckSteps lists steps for a check run.
+func (svc *Service) ListCheckSteps(ctx context.Context, checkRunID int64) ([]CheckStep, error) {
+	if svc.checkStepRepo == nil {
+		return nil, fmt.Errorf("agentci: check step repository not configured")
+	}
+	steps, err := svc.checkStepRepo.FindByCheckRunID(ctx, checkRunID)
+	if err != nil {
+		return nil, fmt.Errorf("agentci: list check steps: %w", err)
+	}
+	if steps == nil {
+		steps = make([]CheckStep, 0)
+	}
+	return steps, nil
+}
+
 // AppendStepLog appends log output to a check step.
 func (svc *Service) AppendStepLog(ctx context.Context, stepID int64, data []byte) error {
 	if svc.logStore == nil {
@@ -469,6 +517,21 @@ func (svc *Service) EvaluateGates(ctx context.Context, input GateEvalRequest) (*
 		result.Reason = "one or more gate policies are not satisfied"
 	}
 	return result, nil
+}
+
+// GateEnforce is a blocking gate enforcement method. It evaluates applicable
+// gate policies and returns an error if any gate is not satisfied.
+// Callers in release publish or review approval flows should call this before
+// allowing the operation to proceed.
+func (svc *Service) GateEnforce(ctx context.Context, input GateEvalRequest) error {
+	result, err := svc.EvaluateGates(ctx, input)
+	if err != nil {
+		return fmt.Errorf("gate enforcement: evaluate gates: %w", err)
+	}
+	if !result.Passed {
+		return fmt.Errorf("gate enforcement: %s", result.Reason)
+	}
+	return nil
 }
 
 func evaluateGatePolicy(policy GatePolicy, checks []CheckRun) bool {

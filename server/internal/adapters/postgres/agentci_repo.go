@@ -241,6 +241,32 @@ func (r *PipelineRunRepo) FindByReleaseID(ctx context.Context, releaseID int64) 
 	return scanPipelineRuns(rows)
 }
 
+func (r *PipelineRunRepo) FindPending(ctx context.Context, limit int) ([]agentci.PipelineRun, error) {
+	rows, err := r.DB.query(ctx,
+		`SELECT id, pipeline_id, skill_id, version_id, release_id, trigger_type, triggered_by,
+		 status, check_count, passed_count, failed_count, skipped_count, started_at, completed_at, created_at, updated_at
+		 FROM ci_pipeline_runs WHERE status IN ('PENDING','RUNNING') ORDER BY created_at ASC LIMIT $1`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanPipelineRuns(rows)
+}
+
+func (r *PipelineRunRepo) ClaimPending(ctx context.Context, id int64) (*agentci.PipelineRun, error) {
+	tag, err := r.DB.exec(ctx,
+		`UPDATE ci_pipeline_runs SET status='RUNNING', started_at=NOW(), updated_at=NOW()
+		 WHERE id=$1 AND status='PENDING'`, id)
+	if err != nil {
+		return nil, err
+	}
+	rowsAffected := tag.RowsAffected()
+	if rowsAffected == 0 {
+		return nil, nil // already claimed by another worker
+	}
+	return r.FindByID(ctx, id)
+}
+
 func (r *PipelineRunRepo) Update(ctx context.Context, pr agentci.PipelineRun) (agentci.PipelineRun, error) {
 	_, err := r.DB.exec(ctx,
 		`UPDATE ci_pipeline_runs SET status=$2, check_count=$3, passed_count=$4, failed_count=$5,

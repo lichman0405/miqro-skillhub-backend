@@ -17,8 +17,14 @@ type AgentCIHandler struct {
 }
 
 // resolveCISkill resolves skillID to a skill and checks that the requesting
-// user is authorized to view CI data. Owners, maintainers, admins, and users
-// viewing public skills are allowed. Private skill CI data is restricted.
+// user is authorized to view CI data, reusing the same visibility rules as
+// skill queries (VisibilityChecker.CanAccess).
+//
+// Rules:
+//   - PUBLIC: visible to everyone (anonymous OK)
+//   - NAMESPACE_ONLY: visible to namespace members, admins, owner, super admins
+//   - PRIVATE: visible to owner, namespace admin, super admin
+//   - Hidden or no LatestVersionID: follows CanAccess rules
 func (h *AgentCIHandler) resolveCISkill(w http.ResponseWriter, r *http.Request, skillID int64) (*skill.Skill, bool) {
 	if h.SkillSvc == nil || h.SkillSvc.Query == nil {
 		middleware.WriteJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "skill service not available"})
@@ -35,21 +41,21 @@ func (h *AgentCIHandler) resolveCISkill(w http.ResponseWriter, r *http.Request, 
 		return nil, false
 	}
 
-	// Public and unlisted skills: CI data is visible to authenticated users.
-	// Private skills: only owner/namespace admin/super admin can see CI data.
-	if sk.Visibility == "PRIVATE" {
-		p := middleware.GetPrincipal(r)
+	// Use the same visibility checker as the skill query service.
+	p := middleware.GetPrincipal(r)
+	checker := h.SkillSvc.Visibility
+	if checker == nil {
+		checker = skill.NewVisibilityChecker()
+	}
+	if !checker.CanAccess(*sk, p.UserID, p.NamespaceRoles, p.PlatformRoles) {
+		// For NAMESPACE_ONLY and PRIVATE: unauthenticated gets 401,
+		// authenticated-but-unauthorized gets 403.
 		if !p.IsAuthenticated {
-			middleware.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "authentication required for private skill"})
-			return nil, false
+			middleware.WriteJSON(w, http.StatusUnauthorized, map[string]string{"error": "authentication required"})
+		} else {
+			middleware.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "access denied"})
 		}
-		if p.UserID != sk.OwnerID && !p.HasPlatformRole("SUPER_ADMIN") {
-			role := p.NamespaceRole(sk.NamespaceID)
-			if role != "ADMIN" && role != "OWNER" {
-				middleware.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "access denied"})
-				return nil, false
-			}
-		}
+		return nil, false
 	}
 
 	return sk, true

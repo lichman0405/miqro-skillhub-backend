@@ -3,7 +3,10 @@
 // and the scanner architecture from C:\Users\lishi\code\skillhub\scanner\README.md.
 package agentci
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 // ── Agent Worker ────────────────────────────────────────────────────────────
 
@@ -224,6 +227,22 @@ type CheckRunListResult struct {
 	Page       int        `json:"page"`
 	Size       int        `json:"size"`
 }
+
+// ── Package file entry (used by runner adapters) ─────────────────────────────
+
+// PackageFileEntry is a single file snapshot passed to runner adapters.
+// Runner adapters use these entries to inspect version content without
+// depending on storage or skill-package internals.
+type PackageFileEntry struct {
+	Path        string `json:"path"`
+	Content     []byte `json:"-"`
+	Size        int64  `json:"size"`
+	ContentType string `json:"contentType,omitempty"`
+}
+
+// VersionFileReader reads package file entries for a given version.
+// This is injected into runner adapters so they remain decoupled.
+type VersionFileReader func(ctx context.Context, versionID, skillID int64) ([]PackageFileEntry, error)
 
 // ── Trigger request ─────────────────────────────────────────────────────────
 

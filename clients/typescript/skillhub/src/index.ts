@@ -773,6 +773,82 @@ export interface ProposalDetailReadModel {
   proposal: ProposalDetailView; availableActions: ProposalDetailActions;
 }
 
+// ── Agent CI Types ─────────────────────────────────────────────────────
+
+/** A single CI pipeline run. */
+export interface PipelineRun {
+  id: number;
+  pipelineId: number;
+  skillId: number;
+  versionId?: number;
+  releaseId?: number;
+  triggerType: string;
+  triggeredBy: string;
+  status: string;
+  checkCount: number;
+  passedCount: number;
+  failedCount: number;
+  skippedCount: number;
+  startedAt?: string;
+  completedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Paginated pipeline run list. */
+export interface PipelineRunListResult {
+  runs: PipelineRun[];
+  totalCount: number;
+  page: number;
+  size: number;
+}
+
+/** A single CI check run. */
+export interface CheckRun {
+  id: number;
+  pipelineRunId: number;
+  skillId: number;
+  versionId?: number;
+  releaseId?: number;
+  name: string;
+  runnerType: string;
+  status: string;
+  conclusion?: string;
+  summary?: string;
+  isBlocking: boolean;
+  startedAt?: string;
+  completedAt?: string;
+  durationMs?: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** A CI check artifact. */
+export interface CheckArtifact {
+  id: number;
+  checkRunId: number;
+  name: string;
+  contentType: string;
+  size: number;
+  storageKey: string;
+  createdAt: string;
+}
+
+/** A single gate policy evaluation result. */
+export interface GatePolicyResult {
+  policyId: number;
+  policyName: string;
+  passed: boolean;
+  reason?: string;
+}
+
+/** Gate evaluation result. */
+export interface GateEvalResult {
+  passed: boolean;
+  reason?: string;
+  policyResults?: GatePolicyResult[];
+}
+
 // ── Community Search ───────────────────────────────────────────────────
 
 export interface CommunitySearchResultItem {
@@ -1257,6 +1333,70 @@ export class SkillHubClient {
     if (params?.size !== undefined) qs.set("size", String(params.size));
     const q = qs.toString();
     return this.fetch(`/api/v1/skills/${namespace}/${slug}/community/search${q ? `?${q}` : ""}`);
+  }
+
+  // ── Agent CI methods ─────────────────────────────────────────────
+
+  /** List CI pipeline runs for a skill. */
+  async listPipelineRuns(
+    skillId: number,
+    page?: number,
+    size?: number
+  ): Promise<Envelope<PipelineRunListResult>> {
+    const params = new URLSearchParams();
+    if (page !== undefined) params.set("page", String(page));
+    if (size !== undefined) params.set("size", String(size));
+    return this.fetch(
+      `/api/v1/skills/${skillId}/ci/runs?${params.toString()}`
+    );
+  }
+
+  /** Get a single pipeline run. */
+  async getPipelineRun(
+    skillId: number,
+    runId: number
+  ): Promise<Envelope<PipelineRun>> {
+    return this.fetch(`/api/v1/skills/${skillId}/ci/runs/${runId}`);
+  }
+
+  /** List check runs for a pipeline run. */
+  async listCheckRuns(
+    skillId: number,
+    runId: number
+  ): Promise<Envelope<CheckRun[]>> {
+    return this.fetch(`/api/v1/skills/${skillId}/ci/runs/${runId}/checks`);
+  }
+
+  /** Get a single check run. */
+  async getCheckRun(
+    skillId: number,
+    checkId: number
+  ): Promise<Envelope<CheckRun>> {
+    return this.fetch(`/api/v1/skills/${skillId}/ci/checks/${checkId}`);
+  }
+
+  /** List artifacts for a check run. */
+  async listCheckArtifacts(
+    skillId: number,
+    checkId: number
+  ): Promise<Envelope<CheckArtifact[]>> {
+    return this.fetch(
+      `/api/v1/skills/${skillId}/ci/checks/${checkId}/artifacts`
+    );
+  }
+
+  /** Evaluate CI gates for a skill. */
+  async evaluateGates(
+    skillId: number,
+    params?: { trigger?: string; versionId?: number; releaseId?: number }
+  ): Promise<Envelope<GateEvalResult>> {
+    const q = new URLSearchParams();
+    if (params?.trigger) q.set("trigger", params.trigger);
+    if (params?.versionId !== undefined) q.set("versionId", String(params.versionId));
+    if (params?.releaseId !== undefined) q.set("releaseId", String(params.releaseId));
+    return this.fetch(
+      `/api/v1/skills/${skillId}/ci/gates?${q.toString()}`
+    );
   }
 
   // ── Community frontend methods ────────────────────────────────────

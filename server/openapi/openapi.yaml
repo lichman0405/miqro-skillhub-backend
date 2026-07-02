@@ -1081,6 +1081,131 @@ paths:
         "200": { description: Updated proposal }
 
   # ── Community Search ──────────────────────────────────────────────────
+  # ── Agent CI routes ──────────────────────────────────────────────────────
+
+  /api/v1/skills/{skillID}/ci/runs:
+    get:
+      tags: [AgentCI]
+      summary: List CI pipeline runs for a skill
+      parameters:
+        - { name: skillID, in: path, required: true, schema: { type: integer, format: int64 } }
+        - { name: page, in: query, schema: { type: integer } }
+        - { name: size, in: query, schema: { type: integer } }
+      responses:
+        "200":
+          description: Paginated pipeline run list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PipelineRunListResult"
+
+  /api/v1/skills/{skillID}/ci/runs/{runID}:
+    get:
+      tags: [AgentCI]
+      summary: Get a single pipeline run by ID
+      parameters:
+        - { name: skillID, in: path, required: true, schema: { type: integer, format: int64 } }
+        - { name: runID, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        "200":
+          description: Pipeline run detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PipelineRun"
+
+  /api/v1/skills/{skillID}/ci/runs/{runID}/checks:
+    get:
+      tags: [AgentCI]
+      summary: List check runs for a pipeline run
+      parameters:
+        - { name: skillID, in: path, required: true, schema: { type: integer, format: int64 } }
+        - { name: runID, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        "200":
+          description: Check run list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CheckRun"
+
+  /api/v1/skills/{skillID}/ci/checks/{checkID}:
+    get:
+      tags: [AgentCI]
+      summary: Get a single check run by ID
+      parameters:
+        - { name: skillID, in: path, required: true, schema: { type: integer, format: int64 } }
+        - { name: checkID, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        "200":
+          description: Check run detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CheckRun"
+
+  /api/v1/skills/{skillID}/ci/checks/{checkID}/artifacts:
+    get:
+      tags: [AgentCI]
+      summary: List artifacts for a check run
+      parameters:
+        - { name: skillID, in: path, required: true, schema: { type: integer, format: int64 } }
+        - { name: checkID, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        "200":
+          description: Artifact list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CheckArtifact"
+
+  /api/v1/skills/{skillID}/ci/gates:
+    get:
+      tags: [AgentCI]
+      summary: Evaluate CI gates for a skill
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      parameters:
+        - { name: skillID, in: path, required: true, schema: { type: integer, format: int64 } }
+        - { name: trigger, in: query, schema: { type: string } }
+        - { name: versionId, in: query, schema: { type: integer, format: int64 } }
+        - { name: releaseId, in: query, schema: { type: integer, format: int64 } }
+      responses:
+        "200":
+          description: Gate evaluation result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GateEvalResult"
+
+  # ── Release publish with gates ─────────────────────────────────────────
+
+  /api/v1/skills/{namespace}/{slug}/releases/{releaseID}/publish:
+    post:
+      tags: [Release]
+      summary: Publish a draft release (with gate enforcement)
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      parameters:
+        - { name: namespace, in: path, required: true, schema: { type: string } }
+        - { name: slug, in: path, required: true, schema: { type: string } }
+        - { name: releaseID, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        "200":
+          description: Published release
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Release"
+        "409":
+          description: Gate enforcement failed
+
   /api/v1/skills/{namespace}/{slug}/community/search:
     get:
       tags: [Community]
@@ -2254,3 +2379,85 @@ components:
         canAccept: { type: boolean }
         canReject: { type: boolean }
         canWithdraw: { type: boolean }
+
+    # ── Agent CI schemas ──────────────────────────────────────────────────
+
+    PipelineRun:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        pipelineId: { type: integer, format: int64 }
+        skillId: { type: integer, format: int64 }
+        versionId: { type: integer, format: int64 }
+        releaseId: { type: integer, format: int64 }
+        triggerType: { type: string }
+        triggeredBy: { type: string }
+        status: { type: string }
+        checkCount: { type: integer }
+        passedCount: { type: integer }
+        failedCount: { type: integer }
+        skippedCount: { type: integer }
+        startedAt: { type: string }
+        completedAt: { type: string }
+        createdAt: { type: string }
+        updatedAt: { type: string }
+
+    PipelineRunListResult:
+      type: object
+      properties:
+        runs:
+          type: array
+          items:
+            $ref: "#/components/schemas/PipelineRun"
+        totalCount: { type: integer, format: int64 }
+        page: { type: integer }
+        size: { type: integer }
+
+    CheckRun:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        pipelineRunId: { type: integer, format: int64 }
+        skillId: { type: integer, format: int64 }
+        versionId: { type: integer, format: int64 }
+        releaseId: { type: integer, format: int64 }
+        name: { type: string }
+        runnerType: { type: string }
+        status: { type: string }
+        conclusion: { type: string }
+        summary: { type: string }
+        isBlocking: { type: boolean }
+        startedAt: { type: string }
+        completedAt: { type: string }
+        durationMs: { type: integer, format: int64 }
+        createdAt: { type: string }
+        updatedAt: { type: string }
+
+    CheckArtifact:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        checkRunId: { type: integer, format: int64 }
+        name: { type: string }
+        contentType: { type: string }
+        size: { type: integer, format: int64 }
+        storageKey: { type: string }
+        createdAt: { type: string }
+
+    GatePolicyResult:
+      type: object
+      properties:
+        policyId: { type: integer, format: int64 }
+        policyName: { type: string }
+        passed: { type: boolean }
+        reason: { type: string }
+
+    GateEvalResult:
+      type: object
+      properties:
+        passed: { type: boolean }
+        reason: { type: string }
+        policyResults:
+          type: array
+          items:
+            $ref: "#/components/schemas/GatePolicyResult"

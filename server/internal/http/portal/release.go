@@ -6,14 +6,16 @@ import (
 	"strconv"
 
 	"miqro-skillhub/server/internal/http/middleware"
+	"miqro-skillhub/server/sdk/skillhub/agentci"
 	"miqro-skillhub/server/sdk/skillhub/release"
 	"miqro-skillhub/server/sdk/skillhub/skill"
 )
 
 // ReleaseHandler exposes /api/v1/skills/{namespace}/{slug}/releases/* routes.
 type ReleaseHandler struct {
-	ReleaseSvc *release.Service
-	SkillSvc   *skill.Service
+	ReleaseSvc  *release.Service
+	SkillSvc    *skill.Service
+	AgentCISvc  *agentci.Service // optional: enables gate enforcement on publish
 }
 
 // RegisterReleaseRoutes registers release routes on the given mux.
@@ -45,6 +47,8 @@ func (h *ReleaseHandler) RegisterReleaseRoutes(mux *http.ServeMux, authMW *middl
 		authMW.Authenticate(middleware.RequireAuth(h.handleUpdateRelease)))
 	mux.HandleFunc("DELETE /api/v1/skills/{namespace}/{slug}/releases/{releaseID}",
 		authMW.Authenticate(middleware.RequireAuth(h.handleDeleteRelease)))
+	mux.HandleFunc("POST /api/v1/skills/{namespace}/{slug}/releases/{releaseID}/publish",
+		authMW.Authenticate(middleware.RequireAuth(h.handlePublishRelease)))
 }
 
 // resolveSkillFromPath resolves namespace+slug from path parameters to a skill,
@@ -333,4 +337,57 @@ func (h *ReleaseHandler) handleDeleteRelease(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	middleware.WriteJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+// handlePublishRelease publishes a draft release after passing gate enforcement.
+func (h *ReleaseHandler) handlePublishRelease(w http.ResponseWriter, r *http.Request) {
+	if h.ReleaseSvc == nil {
+		middleware.WriteJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "release service not available"})
+		return
+	}
+	releaseID, err := strconv.ParseInt(r.PathValue("releaseID"), 10, 64)
+	if err != nil {
+		middleware.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid release ID"})
+		return
+	}
+
+	sk, ok := h.resolveSkillFromPath(w, r)
+	if !ok {
+		return
+	}
+
+	// Authorization: only the publisher or a super admin may publish.
+	existing, ok := h.assertReleaseOwnership(w, r, releaseID)
+	if !ok {
+		return
+	}
+	if existing.SkillID != sk.ID {
+		middleware.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "release not found"})
+		return
+	}
+
+	// ── Gate enforcement ──────────────────────────────────────────────────
+	// Before publishing, check that CI gates are satisfied.
+	if h.AgentCISvc != nil {
+		if err := h.AgentCISvc.GateEnforce(r.Context(), agentci.GateEvalRequest{
+			SkillID:     sk.ID,
+			VersionID:   &existing.VersionID,
+			ReleaseID:   &releaseID,
+			TriggerType: "release_publish",
+		}); err != nil {
+			middleware.WriteJSON(w, http.StatusConflict, map[string]string{
+				"error":   "gate enforcement failed",
+				"message": err.Error(),
+			})
+			return
+		}
+	}
+	// ── End gate enforcement ──────────────────────────────────────────────
+
+	rel, err := h.ReleaseSvc.PublishRelease(r.Context(), releaseID)
+	if err != nil {
+		middleware.WriteError(w, err)
+		return
+	}
+	middleware.WriteJSON(w, http.StatusOK, rel)
 }

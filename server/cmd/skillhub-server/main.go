@@ -8,6 +8,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -24,6 +25,8 @@ import (
 	"miqro-skillhub/server/internal/http/observability"
 	"miqro-skillhub/server/internal/http/portal"
 	"miqro-skillhub/server/internal/http/toolapi"
+	"miqro-skillhub/server/internal/adapters/agentrunner"
+	"miqro-skillhub/server/sdk/skillhub/agentci"
 	"miqro-skillhub/server/sdk/skillhub/audit"
 	"miqro-skillhub/server/sdk/skillhub/auth"
 	"miqro-skillhub/server/sdk/skillhub/community"
@@ -58,6 +61,7 @@ func main() {
 		srcSvc         *search.Service
 		releaseSvc     *release.Service
 		communitySvc   *community.Service
+		agentciSvc     *agentci.Service
 		limiter        *middleware.RateLimiter
 		authMW         *middleware.AuthMiddleware
 		validator      *packagekit.SkillPackageValidator
@@ -145,6 +149,39 @@ func main() {
 			)
 		}
 
+		// Agent CI service.
+		{
+			agentciSvc = agentci.NewService(
+				postgres.NewPipelineDefinitionRepo(db),
+				postgres.NewPipelineRunRepo(db),
+				postgres.NewCheckRunRepo(db),
+				postgres.NewCheckStepRepo(db),
+				postgres.NewCheckArtifactRepo(db),
+				postgres.NewGatePolicyRepo(db),
+				postgres.NewAgentWorkerRepo(db),
+				nil, // log store not yet wired
+			)
+
+			// Register local deterministic runner with version file reader.
+			localRunner := agentrunner.NewLocalRunner()
+			localRunner.SetVersionFileReader(func(ctx context.Context, versionID, skillID int64) ([]agentci.PackageFileEntry, error) {
+				files, err := fileRepo.FindByVersionID(ctx, versionID)
+				if err != nil {
+					return nil, fmt.Errorf("find files: %w", err)
+				}
+				entries := make([]agentci.PackageFileEntry, 0, len(files))
+				for _, f := range files {
+					entries = append(entries, agentci.PackageFileEntry{
+						Path:        f.FilePath,
+						Size:        f.FileSize,
+						ContentType: f.ContentType,
+					})
+				}
+				return entries, nil
+			})
+			agentciSvc.RegisterRunner(localRunner)
+		}
+
 		// Auth middleware with full namespace projection.
 		authMW = middleware.NewAuthMiddleware(
 			nil,            // session store (not wired yet)
@@ -182,7 +219,7 @@ func main() {
 	// Release handler — always constructed when the release service is available.
 	var handlerRelease *portal.ReleaseHandler
 	if releaseSvc != nil && skillSvc != nil {
-		handlerRelease = &portal.ReleaseHandler{ReleaseSvc: releaseSvc, SkillSvc: skillSvc}
+		handlerRelease = &portal.ReleaseHandler{ReleaseSvc: releaseSvc, SkillSvc: skillSvc, AgentCISvc: agentciSvc}
 	}
 
 	// Community handler — always constructed when the community service is available.
@@ -209,10 +246,19 @@ func main() {
 		frontendCommunity = &frontend.CommunityFrontendHandler{CommunitySvc: communitySvc, SkillH: handlerSkill}
 	}
 
+	// Agent CI handler — always constructed when agent CI service is available.
+	var handlerAgentCI *portal.AgentCIHandler
+	if agentciSvc != nil && skillSvc != nil {
+		handlerAgentCI = &portal.AgentCIHandler{AgentCISvc: agentciSvc, SkillSvc: skillSvc}
+	}
+
 	// Tool API handler — always constructed when the skill service is available.
 	var handlerToolAPI *toolapi.Handler
 	if skillSvc != nil {
 		toolingSvc := tooling.NewService(skillSvc)
+		if agentciSvc != nil {
+			toolingSvc.SetAgentCIService(agentciSvc)
+		}
 		handlerToolAPI = &toolapi.Handler{Tooling: toolingSvc}
 	}
 
@@ -228,6 +274,7 @@ func main() {
 		PortalSearch:    handlerSearch,
 		PortalRelease:    handlerRelease,
 		PortalCommunity:  handlerCommunity,
+		PortalAgentCI:    handlerAgentCI,
 		FrontendCommunity: frontendCommunity,
 		CLI:              handlerCLI,
 		ToolAPI:         handlerToolAPI,

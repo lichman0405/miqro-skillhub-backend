@@ -155,6 +155,37 @@ func (r *stubPipelineRunRepo) FindByVersionID(_ context.Context, versionID int64
 func (r *stubPipelineRunRepo) FindByReleaseID(_ context.Context, releaseID int64) ([]PipelineRun, error) {
 	return nil, nil
 }
+func (r *stubPipelineRunRepo) FindPending(_ context.Context, limit int) ([]PipelineRun, error) {
+	var out []PipelineRun
+	for _, pr := range r.rec {
+		if pr.Status == RunStatusPending || pr.Status == RunStatusRunning {
+			out = append(out, pr)
+			if len(out) >= limit {
+				break
+			}
+		}
+	}
+	return out, nil
+}
+
+func (r *stubPipelineRunRepo) ClaimPending(_ context.Context, id int64) (*PipelineRun, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	pr, ok := r.rec[id]
+	if !ok {
+		return nil, nil
+	}
+	if pr.Status != RunStatusPending {
+		return nil, nil // already claimed
+	}
+	now := time.Now()
+	pr.Status = RunStatusRunning
+	pr.StartedAt = &now
+	pr.UpdatedAt = now
+	r.rec[id] = pr
+	return &pr, nil
+}
+
 func (r *stubPipelineRunRepo) Update(_ context.Context, pr PipelineRun) (PipelineRun, error) {
 	r.rec[pr.ID] = pr
 	return pr, nil
@@ -704,6 +735,163 @@ func TestGateRule_NoCritical(t *testing.T) {
 	if evaluateGatePolicy(policy, checks) {
 		t.Error("no_critical: expected false when ERROR exists")
 	}
+}
+
+// ── Gate enforcement test ────────────────────────────────────────────────────
+
+func TestGateEnforce_Passes(t *testing.T) {
+	svc := testSvcWithGates()
+	rid := int64(99)
+	svc.checkRunRepo.Create(context.Background(), CheckRun{
+		PipelineRunID: 1, SkillID: 100, ReleaseID: &rid,
+		Name: "secret-scan", RunnerType: "deterministic",
+		Status: CheckStatusPassed, IsBlocking: true, CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	})
+
+	err := svc.GateEnforce(context.Background(), GateEvalRequest{
+		SkillID:     100,
+		ReleaseID:   &rid,
+		TriggerType: "release_publish",
+	})
+	if err != nil {
+		t.Errorf("GateEnforce: expected no error when gates pass, got %v", err)
+	}
+}
+
+func TestGateEnforce_Fails(t *testing.T) {
+	svc := testSvcWithGates()
+	rid := int64(99)
+	svc.checkRunRepo.Create(context.Background(), CheckRun{
+		PipelineRunID: 1, SkillID: 100, ReleaseID: &rid,
+		Name: "secret-scan", RunnerType: "deterministic",
+		Status: CheckStatusFailed, IsBlocking: true, CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	})
+
+	err := svc.GateEnforce(context.Background(), GateEvalRequest{
+		SkillID:     100,
+		ReleaseID:   &rid,
+		TriggerType: "release_publish",
+	})
+	if err == nil {
+		t.Error("GateEnforce: expected error when gates fail")
+	}
+}
+
+// ── Worker polling tests ────────────────────────────────────────────────────
+
+func TestFindPendingRuns(t *testing.T) {
+	svc := testSvc()
+	vid := int64(42)
+
+	// Create a few runs.
+	for i := 0; i < 3; i++ {
+		svc.TriggerPipeline(context.Background(), TriggerPipelineInput{
+			SkillID:     100,
+			VersionID:   &vid,
+			TriggerType: "publish",
+			TriggeredBy: "u1",
+		})
+	}
+
+	runs, err := svc.FindPendingRuns(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("FindPendingRuns: %v", err)
+	}
+	if len(runs) == 0 {
+		t.Error("expected pending runs to be found")
+	}
+	for _, r := range runs {
+		if r.Status != RunStatusPending && r.Status != RunStatusRunning {
+			t.Errorf("expected PENDING or RUNNING, got %s", r.Status)
+		}
+	}
+}
+
+func TestClaimPendingRun(t *testing.T) {
+	svc := testSvc()
+	now := time.Now()
+	// Manually create a PENDING run (TriggerPipeline marks it RUNNING).
+	run, err := svc.pipelineRunRepo.Create(context.Background(), PipelineRun{
+		PipelineID:  1,
+		SkillID:     100,
+		Status:      RunStatusPending,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	})
+	if err != nil {
+		t.Fatalf("Create (manual): %v", err)
+	}
+
+	claimed, err := svc.ClaimPendingRun(context.Background(), run.ID)
+	if err != nil {
+		t.Fatalf("ClaimPendingRun: %v", err)
+	}
+	if claimed == nil {
+		t.Fatal("expected non-nil claimed run")
+	}
+	if claimed.Status != RunStatusRunning {
+		t.Errorf("expected RUNNING after claim, got %s", claimed.Status)
+	}
+
+	// Second claim should return nil.
+	claimed2, err := svc.ClaimPendingRun(context.Background(), run.ID)
+	if err != nil {
+		t.Fatalf("ClaimPendingRun (2nd): %v", err)
+	}
+	if claimed2 != nil {
+		t.Error("expected nil when claiming already-running run")
+	}
+}
+
+// ── CreateCheckStep test ────────────────────────────────────────────────────
+
+func TestCreateCheckStep(t *testing.T) {
+	svc := NewService(nil, nil, nil,
+		newStubCheckStepRepo(), nil, nil, nil, nil,
+	)
+	step, err := svc.CreateCheckStep(context.Background(), CheckStep{
+		CheckRunID: 1,
+		Name:       "test-step",
+		Status:     CheckStatusPassed,
+	})
+	if err != nil {
+		t.Fatalf("CreateCheckStep: %v", err)
+	}
+	if step.ID == 0 {
+		t.Error("expected non-zero ID")
+	}
+}
+
+type stubCheckStepRepo struct {
+	mu  sync.Mutex
+	rec map[int64]CheckStep
+	nid int64
+}
+
+func newStubCheckStepRepo() *stubCheckStepRepo {
+	return &stubCheckStepRepo{rec: make(map[int64]CheckStep), nid: 1}
+}
+
+func (r *stubCheckStepRepo) Create(_ context.Context, s CheckStep) (CheckStep, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	s.ID = r.nid
+	r.rec[r.nid] = s
+	r.nid++
+	return s, nil
+}
+func (r *stubCheckStepRepo) FindByCheckRunID(_ context.Context, checkRunID int64) ([]CheckStep, error) {
+	var out []CheckStep
+	for _, s := range r.rec {
+		if s.CheckRunID == checkRunID {
+			out = append(out, s)
+		}
+	}
+	return out, nil
+}
+func (r *stubCheckStepRepo) Update(_ context.Context, s CheckStep) (CheckStep, error) {
+	r.rec[s.ID] = s
+	return s, nil
 }
 
 // ── Ensure unused imports don't cause errors ────────────────────────────────

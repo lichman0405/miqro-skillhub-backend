@@ -89,6 +89,8 @@ type PipelineRunRepository interface {
 	CountBySkillID(ctx context.Context, skillID int64) (int64, error)
 	FindByVersionID(ctx context.Context, versionID int64) ([]PipelineRun, error)
 	FindByReleaseID(ctx context.Context, releaseID int64) ([]PipelineRun, error)
+	FindPending(ctx context.Context, limit int) ([]PipelineRun, error)
+	ClaimPending(ctx context.Context, id int64) (*PipelineRun, error)
 	Update(ctx context.Context, r PipelineRun) (PipelineRun, error)
 }
 
