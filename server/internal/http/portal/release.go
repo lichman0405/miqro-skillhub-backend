@@ -159,9 +159,22 @@ func (h *ReleaseHandler) handleGetRelease(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// Resolve the skill from the URL path — ensures the requested release
+	// actually belongs to the skill identified by namespace+slug.
+	sk, ok := h.resolveSkillFromPath(w, r)
+	if !ok {
+		return
+	}
+
 	rel, err := h.ReleaseSvc.GetRelease(r.Context(), releaseID)
 	if err != nil {
 		middleware.WriteError(w, err)
+		return
+	}
+
+	// Verify the release belongs to the path-resolved skill.
+	if rel.SkillID != sk.ID {
+		middleware.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "release not found"})
 		return
 	}
 
@@ -240,8 +253,21 @@ func (h *ReleaseHandler) handleUpdateRelease(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	// Resolve the skill from the URL path.
+	sk, ok := h.resolveSkillFromPath(w, r)
+	if !ok {
+		return
+	}
+
 	// Authorization: only the publisher or a super admin may update.
-	if _, ok := h.assertReleaseOwnership(w, r, releaseID); !ok {
+	existing, ok := h.assertReleaseOwnership(w, r, releaseID)
+	if !ok {
+		return
+	}
+
+	// Verify the release belongs to the path-resolved skill.
+	if existing.SkillID != sk.ID {
+		middleware.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "release not found"})
 		return
 	}
 
@@ -284,8 +310,21 @@ func (h *ReleaseHandler) handleDeleteRelease(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	// Resolve the skill from the URL path.
+	sk, ok := h.resolveSkillFromPath(w, r)
+	if !ok {
+		return
+	}
+
 	// Authorization: only the publisher or a super admin may delete.
-	if _, ok := h.assertReleaseOwnership(w, r, releaseID); !ok {
+	existing, ok := h.assertReleaseOwnership(w, r, releaseID)
+	if !ok {
+		return
+	}
+
+	// Verify the release belongs to the path-resolved skill.
+	if existing.SkillID != sk.ID {
+		middleware.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "release not found"})
 		return
 	}
 

@@ -120,7 +120,7 @@ func main() {
 		{
 			releaseRepo := postgres.NewReleaseRepo(db)
 			releaseAssetRepo := postgres.NewReleaseAssetRepo(db)
-			releaseSvc = release.NewService(releaseRepo, releaseAssetRepo)
+			releaseSvc = release.NewService(releaseRepo, releaseAssetRepo, versionRepo)
 		}
 
 		// Auth middleware with full namespace projection.

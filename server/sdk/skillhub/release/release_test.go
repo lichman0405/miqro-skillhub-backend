@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"miqro-skillhub/server/sdk/skillhub/skill"
 )
 
 // stubRepo is an in-memory ReleaseRepository for testing.
@@ -105,10 +107,64 @@ func (r *stubRepo) CountBySkillID(ctx context.Context, skillID int64) (int64, er
 	return count, nil
 }
 
+// stubVersionRepo is an in-memory skill.SkillVersionRepository for testing.
+type stubVersionRepo struct {
+	versions map[int64]skill.SkillVersion
+}
+
+func newStubVersionRepo(versions ...skill.SkillVersion) *stubVersionRepo {
+	m := make(map[int64]skill.SkillVersion)
+	for _, v := range versions {
+		m[v.ID] = v
+	}
+	return &stubVersionRepo{versions: m}
+}
+
+func pubVersion(id, skillID int64) skill.SkillVersion {
+	return skill.SkillVersion{
+		ID:      id,
+		SkillID: skillID,
+		Version: "1.0.0",
+		Status:  "PUBLISHED",
+	}
+}
+
+func (r *stubVersionRepo) FindByID(ctx context.Context, id int64) (*skill.SkillVersion, error) {
+	if v, ok := r.versions[id]; ok {
+		return &v, nil
+	}
+	return nil, nil
+}
+func (r *stubVersionRepo) FindByIDs(ctx context.Context, ids []int64) ([]skill.SkillVersion, error) { return nil, nil }
+func (r *stubVersionRepo) FindBySkillID(ctx context.Context, skillID int64) ([]skill.SkillVersion, error) {
+	return nil, nil
+}
+func (r *stubVersionRepo) FindBySkillIDAndVersion(ctx context.Context, skillID int64, version string) (*skill.SkillVersion, error) {
+	return nil, nil
+}
+func (r *stubVersionRepo) FindBySkillIDAndStatus(ctx context.Context, skillID int64, status string) ([]skill.SkillVersion, error) {
+	return nil, nil
+}
+func (r *stubVersionRepo) Save(ctx context.Context, v skill.SkillVersion) (skill.SkillVersion, error) {
+	return v, nil
+}
+func (r *stubVersionRepo) Delete(ctx context.Context, id int64) error                  { return nil }
+func (r *stubVersionRepo) DeleteBySkillID(ctx context.Context, skillID int64) error    { return nil }
+
+// newTestService creates a Service with a stub repo and pre-seeded published
+// versions for skill 1 (version IDs 10, 20, 30, 40, 50, 60).
+func newTestService() *Service {
+	var versions []skill.SkillVersion
+	for _, vid := range []int64{10, 20, 30, 40, 50, 60} {
+		versions = append(versions, pubVersion(vid, 1))
+	}
+	return NewService(newStubRepo(), nil, newStubVersionRepo(versions...))
+}
+
 // ── Tests ───────────────────────────────────────────────────────────────────
 
 func TestCreateRelease_Success(t *testing.T) {
-	svc := NewService(newStubRepo(), nil)
+	svc := newTestService()
 	ctx := context.Background()
 
 	r, err := svc.CreateRelease(ctx, CreateReleaseInput{
@@ -136,7 +192,7 @@ func TestCreateRelease_Success(t *testing.T) {
 }
 
 func TestCreateRelease_DuplicateChannelRejected(t *testing.T) {
-	svc := NewService(newStubRepo(), nil)
+	svc := newTestService()
 	ctx := context.Background()
 
 	_, err := svc.CreateRelease(ctx, CreateReleaseInput{
@@ -155,7 +211,7 @@ func TestCreateRelease_DuplicateChannelRejected(t *testing.T) {
 }
 
 func TestCreateRelease_TitleRequired(t *testing.T) {
-	svc := NewService(newStubRepo(), nil)
+	svc := newTestService()
 	ctx := context.Background()
 
 	_, err := svc.CreateRelease(ctx, CreateReleaseInput{
@@ -167,7 +223,7 @@ func TestCreateRelease_TitleRequired(t *testing.T) {
 }
 
 func TestCreateRelease_Draft(t *testing.T) {
-	svc := NewService(newStubRepo(), nil)
+	svc := newTestService()
 	ctx := context.Background()
 
 	r, err := svc.CreateRelease(ctx, CreateReleaseInput{
@@ -185,7 +241,7 @@ func TestCreateRelease_Draft(t *testing.T) {
 }
 
 func TestCreateRelease_Prerelease(t *testing.T) {
-	svc := NewService(newStubRepo(), nil)
+	svc := newTestService()
 	ctx := context.Background()
 
 	r, err := svc.CreateRelease(ctx, CreateReleaseInput{
@@ -200,7 +256,7 @@ func TestCreateRelease_Prerelease(t *testing.T) {
 }
 
 func TestCreateRelease_Provenance(t *testing.T) {
-	svc := NewService(newStubRepo(), nil)
+	svc := newTestService()
 	ctx := context.Background()
 
 	hash := "sha256:abc123"
@@ -231,7 +287,7 @@ func TestCreateRelease_Provenance(t *testing.T) {
 }
 
 func TestGetRelease_NotFound(t *testing.T) {
-	svc := NewService(newStubRepo(), nil)
+	svc := newTestService()
 	ctx := context.Background()
 
 	_, err := svc.GetRelease(ctx, 999)
@@ -241,7 +297,7 @@ func TestGetRelease_NotFound(t *testing.T) {
 }
 
 func TestListReleases(t *testing.T) {
-	svc := NewService(newStubRepo(), nil)
+	svc := newTestService()
 	ctx := context.Background()
 
 	// Create 3 releases for skill 1.
@@ -270,7 +326,7 @@ func TestListReleases(t *testing.T) {
 }
 
 func TestListReleases_Pagination(t *testing.T) {
-	svc := NewService(newStubRepo(), nil)
+	svc := newTestService()
 	ctx := context.Background()
 
 	for i := 1; i <= 5; i++ {
@@ -292,7 +348,7 @@ func TestListReleases_Pagination(t *testing.T) {
 }
 
 func TestUpdateRelease(t *testing.T) {
-	svc := NewService(newStubRepo(), nil)
+	svc := newTestService()
 	ctx := context.Background()
 
 	r, _ := svc.CreateRelease(ctx, CreateReleaseInput{
@@ -318,7 +374,7 @@ func TestUpdateRelease(t *testing.T) {
 }
 
 func TestUpdateRelease_NotFound(t *testing.T) {
-	svc := NewService(newStubRepo(), nil)
+	svc := newTestService()
 	ctx := context.Background()
 
 	title := "x"
@@ -329,7 +385,7 @@ func TestUpdateRelease_NotFound(t *testing.T) {
 }
 
 func TestPublishRelease(t *testing.T) {
-	svc := NewService(newStubRepo(), nil)
+	svc := newTestService()
 	ctx := context.Background()
 
 	r, _ := svc.CreateRelease(ctx, CreateReleaseInput{
@@ -352,7 +408,7 @@ func TestPublishRelease(t *testing.T) {
 }
 
 func TestYankRelease(t *testing.T) {
-	svc := NewService(newStubRepo(), nil)
+	svc := newTestService()
 	ctx := context.Background()
 
 	r, _ := svc.CreateRelease(ctx, CreateReleaseInput{
@@ -378,7 +434,7 @@ func TestYankRelease(t *testing.T) {
 }
 
 func TestUnyankRelease(t *testing.T) {
-	svc := NewService(newStubRepo(), nil)
+	svc := newTestService()
 	ctx := context.Background()
 
 	r, _ := svc.CreateRelease(ctx, CreateReleaseInput{
@@ -408,7 +464,7 @@ func TestUnyankRelease(t *testing.T) {
 }
 
 func TestYankReflectedInLatestStable(t *testing.T) {
-	svc := NewService(newStubRepo(), nil)
+	svc := newTestService()
 	ctx := context.Background()
 
 	// Create two releases, yank the first.
@@ -432,7 +488,7 @@ func TestYankReflectedInLatestStable(t *testing.T) {
 }
 
 func TestGetLatestRelease_WrongChannel(t *testing.T) {
-	svc := NewService(newStubRepo(), nil)
+	svc := newTestService()
 	ctx := context.Background()
 
 	_, _ = svc.CreateRelease(ctx, CreateReleaseInput{
@@ -446,7 +502,7 @@ func TestGetLatestRelease_WrongChannel(t *testing.T) {
 }
 
 func TestDeleteRelease(t *testing.T) {
-	svc := NewService(newStubRepo(), nil)
+	svc := newTestService()
 	ctx := context.Background()
 
 	r, _ := svc.CreateRelease(ctx, CreateReleaseInput{
@@ -466,7 +522,7 @@ func TestDeleteRelease(t *testing.T) {
 // fields (SkillID, VersionID, Channel, PublisherID) are immutable — only
 // metadata (title, notes, draft, prerelease, yanked) can change.
 func TestReleaseArtifactImmutability(t *testing.T) {
-	svc := NewService(newStubRepo(), nil)
+	svc := newTestService()
 	ctx := context.Background()
 
 	r, _ := svc.CreateRelease(ctx, CreateReleaseInput{
@@ -502,5 +558,68 @@ func TestReleaseArtifactImmutability(t *testing.T) {
 	}
 	if refetched.PublisherID != origPublisherID {
 		t.Errorf("PublisherID should be immutable")
+	}
+}
+
+// ── Version validation tests ────────────────────────────────────────────────
+
+func TestCreateRelease_VersionFromDifferentSkill_Rejected(t *testing.T) {
+	// version 10 belongs to skill 2, but we claim skill 1.
+	v := pubVersion(10, 2)
+	svc := NewService(newStubRepo(), nil, newStubVersionRepo(v))
+	ctx := context.Background()
+
+	_, err := svc.CreateRelease(ctx, CreateReleaseInput{
+		SkillID: 1, VersionID: 10, Title: "Mismatch", PublisherID: "u1",
+	})
+	if err == nil {
+		t.Fatal("expected error for version from different skill")
+	}
+}
+
+func TestCreateRelease_NonPublishedVersion_Rejected(t *testing.T) {
+	v := skill.SkillVersion{
+		ID: 10, SkillID: 1, Version: "1.0.0", Status: "DRAFT",
+	}
+	svc := NewService(newStubRepo(), nil, newStubVersionRepo(v))
+	ctx := context.Background()
+
+	_, err := svc.CreateRelease(ctx, CreateReleaseInput{
+		SkillID: 1, VersionID: 10, Title: "Draft Version", PublisherID: "u1",
+	})
+	if err == nil {
+		t.Fatal("expected error for non-published version")
+	}
+}
+
+func TestCreateRelease_YankedVersion_Rejected(t *testing.T) {
+	yankedAt := time.Now()
+	v := skill.SkillVersion{
+		ID: 10, SkillID: 1, Version: "1.0.0", Status: "PUBLISHED", YankedAt: &yankedAt,
+	}
+	svc := NewService(newStubRepo(), nil, newStubVersionRepo(v))
+	ctx := context.Background()
+
+	_, err := svc.CreateRelease(ctx, CreateReleaseInput{
+		SkillID: 1, VersionID: 10, Title: "Yanked Version", PublisherID: "u1",
+	})
+	if err == nil {
+		t.Fatal("expected error for yanked version")
+	}
+}
+
+func TestCreateRelease_PublishedVersionOwnedBySameSkill_Accepted(t *testing.T) {
+	v := pubVersion(10, 1)
+	svc := NewService(newStubRepo(), nil, newStubVersionRepo(v))
+	ctx := context.Background()
+
+	r, err := svc.CreateRelease(ctx, CreateReleaseInput{
+		SkillID: 1, VersionID: 10, Title: "Good Release", PublisherID: "u1",
+	})
+	if err != nil {
+		t.Fatalf("expected success for published version owned by same skill: %v", err)
+	}
+	if r.SkillID != 1 || r.VersionID != 10 {
+		t.Errorf("unexpected release identity: skill=%d version=%d", r.SkillID, r.VersionID)
 	}
 }

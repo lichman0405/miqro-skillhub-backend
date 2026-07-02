@@ -10,14 +10,17 @@ import (
 
 // Service manages skill releases.
 type Service struct {
-	repo      ReleaseRepository
-	assetRepo ReleaseAssetRepository
+	repo        ReleaseRepository
+	assetRepo   ReleaseAssetRepository
+	versionRepo skill.SkillVersionRepository
 }
 
 // NewService creates a ReleaseService.
-// Either repository may be nil if the caller does not need asset support.
-func NewService(repo ReleaseRepository, assetRepo ReleaseAssetRepository) *Service {
-	return &Service{repo: repo, assetRepo: assetRepo}
+// versionRepo is required to validate that the version exists, is published,
+// and belongs to the claimed skill before creating a release.
+// assetRepo may be nil if the caller does not need asset support.
+func NewService(repo ReleaseRepository, assetRepo ReleaseAssetRepository, versionRepo skill.SkillVersionRepository) *Service {
+	return &Service{repo: repo, assetRepo: assetRepo, versionRepo: versionRepo}
 }
 
 // CreateReleaseInput is the input to CreateRelease.
@@ -43,6 +46,24 @@ func (svc *Service) CreateRelease(ctx context.Context, input CreateReleaseInput)
 	}
 	if input.Title == "" {
 		return nil, fmt.Errorf("release: title is required")
+	}
+
+	// Validate version exists, belongs to the claimed skill, and is publishable.
+	version, err := svc.versionRepo.FindByID(ctx, input.VersionID)
+	if err != nil {
+		return nil, fmt.Errorf("release: version lookup: %w", err)
+	}
+	if version == nil {
+		return nil, fmt.Errorf("release: version not found")
+	}
+	if version.SkillID != input.SkillID {
+		return nil, fmt.Errorf("release: version does not belong to skill")
+	}
+	if version.Status != "PUBLISHED" {
+		return nil, fmt.Errorf("release: version is not published (status: %s)", version.Status)
+	}
+	if version.YankedAt != nil {
+		return nil, fmt.Errorf("release: version is yanked")
 	}
 
 	// Enforce one release per version per channel.
