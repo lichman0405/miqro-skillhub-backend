@@ -709,57 +709,15 @@ func NewCommunitySearchRepo(db *DB) *CommunitySearchRepo {
 }
 
 func (r *CommunitySearchRepo) Search(ctx context.Context, skillID int64, query string, types []string, offset, limit int) ([]community.SearchResultItem, error) {
-	// Build UNION ALL query across community tables.
-	var parts []string
-	var args []any
-	argIdx := 0
-
-	useTable := func(t string) bool {
-		if len(types) == 0 {
-			return true
-		}
-		for _, tt := range types {
-			if tt == t {
-				return true
-			}
-		}
-		return false
-	}
-
-	if useTable("ISSUE") {
-		argIdx++
-		parts = append(parts, fmt.Sprintf(
-			`SELECT 'ISSUE' AS type, id, skill_id, title, COALESCE(body,'') AS snippet FROM skill_issue WHERE skill_id=$1 AND ($%d::text='' OR title ILIKE '%%'||$%d::text||'%%' OR body ILIKE '%%'||$%d::text||'%%')`,
-			argIdx, argIdx, argIdx))
-		args = append(args, query)
-	}
-	if useTable("DISCUSSION") {
-		argIdx++
-		parts = append(parts, fmt.Sprintf(
-			`SELECT 'DISCUSSION' AS type, id, skill_id, title, COALESCE(body,'') AS snippet FROM skill_discussion WHERE skill_id=$1 AND ($%d::text='' OR title ILIKE '%%'||$%d::text||'%%' OR body ILIKE '%%'||$%d::text||'%%')`,
-			argIdx, argIdx, argIdx))
-		args = append(args, query)
-	}
-	if useTable("WIKI_PAGE") {
-		argIdx++
-		parts = append(parts, fmt.Sprintf(
-			`SELECT 'WIKI_PAGE' AS type, sp.id, sp.skill_id, sp.title, COALESCE(wv.body,'') AS snippet FROM skill_wiki_page sp LEFT JOIN skill_wiki_page_version wv ON wv.id = sp.current_version_id WHERE sp.skill_id=$1 AND ($%d::text='' OR sp.title ILIKE '%%'||$%d::text||'%%' OR wv.body ILIKE '%%'||$%d::text||'%%')`,
-			argIdx, argIdx, argIdx))
-		args = append(args, query)
-	}
-	if useTable("PROPOSAL") {
-		argIdx++
-		parts = append(parts, fmt.Sprintf(
-			`SELECT 'PROPOSAL' AS type, id, skill_id, title, COALESCE(summary,'') AS snippet FROM skill_change_proposal WHERE skill_id=$1 AND ($%d::text='' OR title ILIKE '%%'||$%d::text||'%%' OR summary ILIKE '%%'||$%d::text||'%%')`,
-			argIdx, argIdx, argIdx))
-		args = append(args, query)
-	}
-
-	if len(parts) == 0 {
+	sqlParts, args := buildCommunitySearchParts(query, types)
+	if len(sqlParts) == 0 {
 		return nil, nil
 	}
 
-	sql := strings.Join(parts, " UNION ALL ") + fmt.Sprintf(" ORDER BY type, title LIMIT $%d OFFSET $%d", argIdx+1, argIdx+2)
+	// $1 = skillID; args has one entry per included table, starting at $2.
+	// LIMIT = next after all query args, OFFSET = after LIMIT.
+	nextParam := len(args) + 2
+	sql := strings.Join(sqlParts, " UNION ALL ") + fmt.Sprintf(" ORDER BY type, title LIMIT $%d OFFSET $%d", nextParam, nextParam+1)
 	args = append(args, limit, offset)
 
 	allArgs := append([]any{skillID}, args...)
@@ -778,6 +736,56 @@ func (r *CommunitySearchRepo) Search(ctx context.Context, skillID int64, query s
 		out = append(out, item)
 	}
 	return out, nil
+}
+
+// buildCommunitySearchParts builds UNION ALL subqueries for community search.
+// $1 is always skill_id. Query parameters start at $2 and increment per table.
+// Each included table contributes one arg (the query string).
+func buildCommunitySearchParts(query string, types []string) (sqlParts []string, args []any) {
+	useTable := func(t string) bool {
+		if len(types) == 0 {
+			return true
+		}
+		for _, tt := range types {
+			if tt == t {
+				return true
+			}
+		}
+		return false
+	}
+
+	next := 2 // $1 = skill_id, query params start at $2
+
+	if useTable("ISSUE") {
+		sqlParts = append(sqlParts, fmt.Sprintf(
+			`SELECT 'ISSUE' AS type, id, skill_id, title, COALESCE(body,'') AS snippet FROM skill_issue WHERE skill_id=$1 AND ($%d::text='' OR title ILIKE '%%'||$%d::text||'%%' OR body ILIKE '%%'||$%d::text||'%%')`,
+			next, next, next))
+		args = append(args, query)
+		next++
+	}
+	if useTable("DISCUSSION") {
+		sqlParts = append(sqlParts, fmt.Sprintf(
+			`SELECT 'DISCUSSION' AS type, id, skill_id, title, COALESCE(body,'') AS snippet FROM skill_discussion WHERE skill_id=$1 AND ($%d::text='' OR title ILIKE '%%'||$%d::text||'%%' OR body ILIKE '%%'||$%d::text||'%%')`,
+			next, next, next))
+		args = append(args, query)
+		next++
+	}
+	if useTable("WIKI_PAGE") {
+		sqlParts = append(sqlParts, fmt.Sprintf(
+			`SELECT 'WIKI_PAGE' AS type, sp.id, sp.skill_id, sp.title, COALESCE(wv.body,'') AS snippet FROM skill_wiki_page sp LEFT JOIN skill_wiki_page_version wv ON wv.id = sp.current_version_id WHERE sp.skill_id=$1 AND ($%d::text='' OR sp.title ILIKE '%%'||$%d::text||'%%' OR wv.body ILIKE '%%'||$%d::text||'%%')`,
+			next, next, next))
+		args = append(args, query)
+		next++
+	}
+	if useTable("PROPOSAL") {
+		sqlParts = append(sqlParts, fmt.Sprintf(
+			`SELECT 'PROPOSAL' AS type, id, skill_id, title, COALESCE(summary,'') AS snippet FROM skill_change_proposal WHERE skill_id=$1 AND ($%d::text='' OR title ILIKE '%%'||$%d::text||'%%' OR summary ILIKE '%%'||$%d::text||'%%')`,
+			next, next, next))
+		args = append(args, query)
+		next++
+	}
+
+	return sqlParts, args
 }
 
 func (r *CommunitySearchRepo) Count(ctx context.Context, skillID int64, query string, types []string) (int64, error) {

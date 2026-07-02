@@ -306,8 +306,7 @@ func TestFrontendCommunity_IssueDetail_WrongPathSkill(t *testing.T) {
 }
 
 func TestFrontendCommunity_IssueDetail_NotFound(t *testing.T) {
-	// Issue doesn't exist. Service wraps (nil, nil) as an error.
-	// Handler must use WriteError, not return 404 or 200.
+	// Issue doesn't exist. Service returns sdkerror.NotFound → WriteError → 404.
 	issueRepo := &ftStubIssueRepo{issues: make(map[int64]community.Issue)}
 	svc := community.NewService(
 		issueRepo,
@@ -323,9 +322,8 @@ func TestFrontendCommunity_IssueDetail_NotFound(t *testing.T) {
 	w := httptest.NewRecorder()
 	h.HandleIssueDetail(w, req)
 
-	// Must not return 200 or 404 — error must go through WriteError.
-	if w.Code == http.StatusOK || w.Code == http.StatusNotFound {
-		t.Fatalf("expected error response (not 200/404) for nonexistent issue, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for nonexistent issue, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -352,8 +350,7 @@ func TestFrontendCommunity_DiscussionDetail_WrongPathSkill(t *testing.T) {
 }
 
 func TestFrontendCommunity_WikiDetail_NotFound(t *testing.T) {
-	// Wiki page doesn't exist. Service wraps (nil, nil) as an error.
-	// Handler must use WriteError, not return 404 or 200.
+	// Wiki page doesn't exist. Service returns sdkerror.NotFound → WriteError → 404.
 	wikiRepo := &ftStubWikiRepo{pages: make(map[int64]community.WikiPage)}
 	svc := community.NewService(
 		nil, nil, nil, nil, wikiRepo, nil, nil, nil, nil, nil, nil,
@@ -368,9 +365,8 @@ func TestFrontendCommunity_WikiDetail_NotFound(t *testing.T) {
 	w := httptest.NewRecorder()
 	h.HandleWikiDetail(w, req)
 
-	// Must not return 200 or 404 — error must go through WriteError.
-	if w.Code == http.StatusOK || w.Code == http.StatusNotFound {
-		t.Fatalf("expected error response (not 200/404) for nonexistent wiki page, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for nonexistent wiki page, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

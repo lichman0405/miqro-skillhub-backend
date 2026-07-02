@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	skerrors "miqro-skillhub/server/sdk/skillhub/errors"
 )
 
 // Viewer carries the identity and roles of the current user for authorization.
@@ -259,7 +261,7 @@ func (svc *Service) UpdateIssue(ctx context.Context, viewer Viewer, input Update
 		return nil, fmt.Errorf("community: find issue: %w", err)
 	}
 	if existing == nil {
-		return nil, fmt.Errorf("community: issue not found")
+		return nil, skerrors.NotFound("community.issue.not_found")
 	}
 	if !isAuthorOrSuperAdmin(viewer, existing.AuthorID) {
 		return nil, fmt.Errorf("community: forbidden")
@@ -314,7 +316,7 @@ func (svc *Service) GetIssue(ctx context.Context, id int64) (*Issue, error) {
 		return nil, fmt.Errorf("community: find issue: %w", err)
 	}
 	if i == nil {
-		return nil, fmt.Errorf("community: issue not found")
+		return nil, skerrors.NotFound("community.issue.not_found")
 	}
 	return i, nil
 }
@@ -365,7 +367,7 @@ func (svc *Service) DeleteIssue(ctx context.Context, viewer Viewer, id int64) er
 		return fmt.Errorf("community: find issue: %w", err)
 	}
 	if existing == nil {
-		return fmt.Errorf("community: issue not found")
+		return skerrors.NotFound("community.issue.not_found")
 	}
 	if !isAuthorOrSuperAdmin(viewer, existing.AuthorID) {
 		return fmt.Errorf("community: forbidden")
@@ -392,7 +394,7 @@ func (svc *Service) AddIssueComment(ctx context.Context, viewer Viewer, input Ad
 		return nil, fmt.Errorf("community: find issue: %w", err)
 	}
 	if issue == nil {
-		return nil, fmt.Errorf("community: issue not found")
+		return nil, skerrors.NotFound("community.issue.not_found")
 	}
 	now := time.Now()
 	c := IssueComment{
@@ -480,7 +482,7 @@ func (svc *Service) UpdateDiscussion(ctx context.Context, viewer Viewer, input U
 		return nil, fmt.Errorf("community: find discussion: %w", err)
 	}
 	if existing == nil {
-		return nil, fmt.Errorf("community: discussion not found")
+		return nil, skerrors.NotFound("community.discussion.not_found")
 	}
 	if !isAuthorOrSuperAdmin(viewer, existing.AuthorID) {
 		return nil, fmt.Errorf("community: forbidden")
@@ -521,7 +523,7 @@ func (svc *Service) GetDiscussion(ctx context.Context, id int64) (*Discussion, e
 		return nil, fmt.Errorf("community: find discussion: %w", err)
 	}
 	if d == nil {
-		return nil, fmt.Errorf("community: discussion not found")
+		return nil, skerrors.NotFound("community.discussion.not_found")
 	}
 	return d, nil
 }
@@ -572,7 +574,7 @@ func (svc *Service) DeleteDiscussion(ctx context.Context, viewer Viewer, id int6
 		return fmt.Errorf("community: find discussion: %w", err)
 	}
 	if existing == nil {
-		return fmt.Errorf("community: discussion not found")
+		return skerrors.NotFound("community.discussion.not_found")
 	}
 	if !isAuthorOrSuperAdmin(viewer, existing.AuthorID) {
 		return fmt.Errorf("community: forbidden")
@@ -598,7 +600,7 @@ func (svc *Service) AddDiscussionComment(ctx context.Context, viewer Viewer, inp
 		return nil, fmt.Errorf("community: find discussion: %w", err)
 	}
 	if d == nil {
-		return nil, fmt.Errorf("community: discussion not found")
+		return nil, skerrors.NotFound("community.discussion.not_found")
 	}
 	now := time.Now()
 	c := DiscussionComment{
@@ -639,7 +641,7 @@ func (svc *Service) AcceptAnswer(ctx context.Context, viewer Viewer, discussionI
 		return nil, fmt.Errorf("community: find discussion: %w", err)
 	}
 	if d == nil {
-		return nil, fmt.Errorf("community: discussion not found")
+		return nil, skerrors.NotFound("community.discussion.not_found")
 	}
 	// Only QA discussions support accepted answers.
 	if d.Category != "QA" {
@@ -765,7 +767,7 @@ func (svc *Service) UpdateWikiPage(ctx context.Context, viewer Viewer, skillOwne
 		return nil, fmt.Errorf("community: find wiki page: %w", err)
 	}
 	if existing == nil {
-		return nil, fmt.Errorf("community: wiki page not found")
+		return nil, skerrors.NotFound("community.wiki_page.not_found")
 	}
 	if input.Title != nil {
 		existing.Title = *input.Title
@@ -811,7 +813,7 @@ func (svc *Service) GetWikiPage(ctx context.Context, skillID int64, slug string)
 		return nil, fmt.Errorf("community: find wiki page: %w", err)
 	}
 	if p == nil {
-		return nil, fmt.Errorf("community: wiki page not found")
+		return nil, skerrors.NotFound("community.wiki_page.not_found")
 	}
 	return p, nil
 }
@@ -916,7 +918,7 @@ func (svc *Service) UpdateChangeProposalStatus(ctx context.Context, viewer Viewe
 		return nil, fmt.Errorf("community: find proposal: %w", err)
 	}
 	if existing == nil {
-		return nil, fmt.Errorf("community: proposal not found")
+		return nil, skerrors.NotFound("community.proposal.not_found")
 	}
 	if input.Status != nil {
 		switch *input.Status {
@@ -956,7 +958,7 @@ func (svc *Service) GetChangeProposal(ctx context.Context, id int64) (*ChangePro
 		return nil, fmt.Errorf("community: find proposal: %w", err)
 	}
 	if p == nil {
-		return nil, fmt.Errorf("community: proposal not found")
+		return nil, skerrors.NotFound("community.proposal.not_found")
 	}
 	return p, nil
 }
