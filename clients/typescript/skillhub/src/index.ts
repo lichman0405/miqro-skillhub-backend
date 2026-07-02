@@ -1168,6 +1168,18 @@ export class SkillHubClient {
     );
   }
 
+  /** Publish a draft release (runs gate enforcement). */
+  async publishRelease(
+    namespace: string,
+    slug: string,
+    releaseId: number
+  ): Promise<Envelope<Release>> {
+    return this.fetch(
+      `/api/v1/skills/${namespace}/${slug}/releases/${releaseId}/publish`,
+      { method: "POST" }
+    );
+  }
+
   // ── Frontend release page methods ──────────────────────────────────────
 
   /** Get release list page read model. */

@@ -554,6 +554,46 @@ describe("Tool API type shapes", () => {
   });
 });
 
+describe("Release client methods", () => {
+  const client = new SkillHubClient("http://localhost:8080");
+
+  it("listReleases is a function", () => {
+    assert.strictEqual(typeof client.listReleases, "function");
+  });
+
+  it("getLatestRelease is a function", () => {
+    assert.strictEqual(typeof client.getLatestRelease, "function");
+  });
+
+  it("getRelease is a function", () => {
+    assert.strictEqual(typeof client.getRelease, "function");
+  });
+
+  it("createRelease is a function", () => {
+    assert.strictEqual(typeof client.createRelease, "function");
+  });
+
+  it("updateRelease is a function", () => {
+    assert.strictEqual(typeof client.updateRelease, "function");
+  });
+
+  it("deleteRelease is a function", () => {
+    assert.strictEqual(typeof client.deleteRelease, "function");
+  });
+
+  it("publishRelease is a function", () => {
+    assert.strictEqual(typeof client.publishRelease, "function");
+  });
+
+  it("frontendReleaseList is a function", () => {
+    assert.strictEqual(typeof client.frontendReleaseList, "function");
+  });
+
+  it("frontendReleaseDetail is a function", () => {
+    assert.strictEqual(typeof client.frontendReleaseDetail, "function");
+  });
+});
+
 describe("Type exports", () => {
   it("Envelope interface is importable", () => {
     const env: Envelope<Principal> = { success: true, data: undefined };

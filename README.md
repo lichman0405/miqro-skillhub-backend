@@ -1,117 +1,175 @@
 # Miqro-SkillHub
 
-Go + Vue 3 复现 SkillHub——企业自托管 Agent 技能注册中心。
+Self-hosted Agent Skill Registry — a backend service for publishing, reviewing, releasing, and installing agent skills.
+
+## What is Miqro-SkillHub?
+
+Miqro-SkillHub is an enterprise self-hosted registry for agent skills. It provides:
+
+- **Skill publishing** — upload and validate skill packages (SKILL.md + files)
+- **Namespace management** — organize skills by organization/team
+- **CI/CD pipeline** — deterministic checks (manifest, secrets, docs) run on every publish
+- **Release management** — versioned, gated releases with draft/publish workflow
+- **Community features** — issues, discussions, wiki, change proposals per skill
+- **Review workflow** — submit skills for review, approve/reject with gate enforcement
+- **Search and discovery** — search across public/namespace-scoped skills
+- **Tool API** — miqro CLI integration for resolve, install, diff, validate, publish
 
 ## Architecture
 
-The backend is **SDK-first**: core behavior lives in public Go SDK packages under `server/sdk/skillhub`. The server binary is a process/HTTP adapter that wires SDK services. No product workflow beyond health/config runs in this phase.
+The backend is **SDK-first**: core behavior lives in public Go SDK packages under `server/sdk/skillhub`. The server binary is a process/HTTP adapter that wires SDK services.
 
 ```
 miqro-skillhub/
 ├── server/
-│   ├── sdk/skillhub/       # Public Go SDK (importable by other Go programs)
-│   │   ├── auth/           # Auth, sessions, API tokens, scopes, RBAC
-│   │   ├── namespace/      # Namespace lifecycle, members, policies
-│   │   ├── skill/          # Skill publish, query, download, lifecycle
-│   │   ├── packagekit/     # Package validation, SKILL.md parsing
-│   │   ├── review/         # Review submission, approval, rejection
-│   │   ├── promotion/      # Global namespace promotion
-│   │   ├── search/         # Search query, indexing, visibility scope
-│   │   ├── storage/        # Object storage interface
-│   │   ├── eventbus/       # Domain event bus interface
-│   │   ├── errors/         # Typed error model
-│   │   ├── uow/            # Unit-of-work / transaction boundary
-│   │   └── ...             # label, social, report, governance, notification, security, audit
+│   ├── sdk/skillhub/        # Public Go SDK (importable by other Go programs)
+│   │   ├── agentci/         # CI pipeline, checks, gates, worker execution
+│   │   ├── auth/            # Auth, sessions, API tokens, scopes, RBAC
+│   │   ├── community/       # Issues, discussions, wiki, proposals
+│   │   ├── namespace/       # Namespace lifecycle, members, policies
+│   │   ├── packagekit/      # Package validation, SKILL.md parsing
+│   │   ├── release/         # Release lifecycle, assets, gate enforcement
+│   │   ├── review/          # Review submission, approval, gate enforcement
+│   │   ├── search/          # Search query, indexing, visibility scope
+│   │   ├── skill/           # Skill publish, query, download, lifecycle
+│   │   ├── storage/         # Object storage interface
+│   │   ├── tooling/         # Tool API (hash, resolve, install, diff)
+│   │   ├── eventbus/        # Domain event bus interface
+│   │   ├── errors/          # Typed error model
+│   │   └── uow/             # Unit-of-work / transaction boundary
 │   ├── internal/
-│   │   ├── config/         # Environment configuration
-│   │   ├── http/           # HTTP routes (health only in Phase 01)
 │   │   ├── adapters/
-│   │   │   └── postgres/   # PostgreSQL repository implementations
-│   │   └── testutil/
-│   │       └── postgres/   # Integration test helpers
-│   ├── migrations/         # PostgreSQL migration SQL files
-│   │   ├── 001_users_auth.sql
-│   │   ├── 002_namespaces.sql
-│   │   ├── 003_skills.sql
-│   │   ├── 004_review_governance.sql
-│   │   └── 005_labels_social_search.sql
-│   ├── tests/
-│   │   └── integration/
-│   │       └── repository/ # Repository integration tests
+│   │   │   ├── postgres/    # PostgreSQL repository implementations
+│   │   │   ├── localstorage/# Local filesystem object storage
+│   │   │   └── agentrunner/ # CI runner (local + LLM)
+│   │   ├── config/          # Environment configuration
+│   │   ├── http/            # HTTP routes and handlers
+│   │   │   ├── portal/      # /api/v1/* routes
+│   │   │   ├── frontend/    # /api/v1/frontend/* read-model routes
+│   │   │   ├── toolapi/     # /api/tool/v1/* routes
+│   │   │   ├── cliapi/      # /api/cli/v1/* routes
+│   │   │   ├── middleware/  # Auth, rate limiting, error handling
+│   │   │   └── observability/ # Logging, metrics
+│   │   └── testutil/        # Integration test helpers
+│   ├── migrations/          # PostgreSQL migration SQL files (12 groups)
+│   ├── openapi/             # OpenAPI 3.0.3 specification
 │   ├── cmd/
-│   │   ├── skillhub-server/  # HTTP server entry point
-│   │   ├── skillhub-migrate/ # Database migrations (placeholder)
-│   │   └── skillhub-worker/  # Background workers (placeholder)
-│   └── tests/
-├── web/                    # Vue 3 frontend
-├── docs/                   # Architecture and phase documentation
+│   │   ├── skillhub-server/ # HTTP server entry point
+│   │   ├── skillhub-worker/ # Background CI worker
+│   │   └── skillhub-migrate/# Database migration runner
+│   └── go.mod
+├── clients/
+│   └── typescript/skillhub/ # TypeScript SDK (@miqro/skillhub-client)
+├── guides/                  # Integration and usage guides
+│   ├── backend-quickstart.md
+│   ├── api-usage.md
+│   ├── typescript-sdk.md
+│   ├── frontend-integration.md
+│   └── end-to-end-flow.md
 ├── docker-compose.yml
 └── README.md
 ```
 
-## Phase 01 — SDK Foundation
+## Current backend capabilities
 
-Status: ✅ Complete
+| Domain | Status |
+|---|---|
+| Auth (login, register, tokens, RBAC) | ✅ |
+| Namespace CRUD + members | ✅ |
+| Skill publish, query, download | ✅ |
+| Package validation + manifest | ✅ |
+| Search (keyword, filters, pagination) | ✅ |
+| CI pipeline (manifest, secrets, docs) | ✅ |
+| CI worker (poll + execute) | ✅ |
+| CI gate enforcement | ✅ |
+| Release lifecycle (draft → publish) | ✅ |
+| Review workflow (submit, approve, reject) | ✅ SDK; HTTP handler partial |
+| Community (issues, discussions, wiki, proposals) | ✅ |
+| Frontend read-model routes (22 routes) | ✅ |
+| Tool API (miqro CLI protocol) | ✅ |
+| OpenAPI 3.0.3 spec | ✅ |
+| TypeScript SDK | ✅ |
+| PostgreSQL migrations (35+ tables) | ✅ |
+| Docker Compose stack | ✅ |
 
-- Go module skeleton at `server/go.mod` (module `miqro-skillhub/server`)
-- SDK root `Service` struct with typed fields for all domain services
-- Typed error model (`bad_request`, `forbidden`, `not_found`, `conflict`, `unauthorized`, `internal`)
-- Event bus interface (`Publish`) with synchronous no-op adapter
-- Unit-of-work `Transactor` interface with no-op adapter
-- Object storage `Store` interface matching source `ObjectStorageService`
-- Package docs for auth, namespace, skill, packagekit, review, promotion, search, label, social, report, governance, notification, security, audit
-- Environment config loader (API addr, database URL, Redis URL, storage, local mode)
-- Health routes: `GET /healthz`, `GET /readyz`
-- `cmd/skillhub-server`: HTTP server wiring config and health routes
-- `cmd/skillhub-migrate`: placeholder (migrations start in Phase 02)
-- `cmd/skillhub-worker`: placeholder (workers start in later phases)
-- Docker Compose: PostgreSQL 16, Redis 7, MinIO, server (profile: full)
+## Local development
 
-## Phase 02 — Schema and Repositories
+See **[guides/backend-quickstart.md](guides/backend-quickstart.md)** for step-by-step setup.
 
-Status: ✅ Complete
-
-- 35 PostgreSQL tables across 5 migration groups matching source Flyway schema
-- Migration groups: 001 (users/auth/RBAC), 002 (namespaces), 003 (skills), 004 (review/governance), 005 (labels/social/search/security)
-- All timestamps use TIMESTAMPTZ; seed data for roles, permissions, and global namespace
-- SDK repository interfaces in auth, namespace, skill, review, label, social, report, governance, security, audit packages
-- PostgreSQL adapter implementations under `internal/adapters/postgres` using pgx v5
-- Transactor implementation for PostgreSQL transaction boundaries
-- Integration test utilities and repository integration tests
-- Migration runner with reset support
-
-## Commands
+### Quick start (with Docker)
 
 ```bash
-# Run all Go tests
-make test
-
-# Vet and build the server
-make test-server
-
-# Run the server locally
-make run-server
-
-# Validate docker-compose.yml
-make compose-config
-
-# Reset and re-apply database migrations
-make db-reset
-
-# Start infrastructure services
-docker compose up -d postgres redis minio
+docker compose up -d postgres
+cd server
+DATABASE_URL="postgres://skillhub:skillhub@localhost:5432/skillhub?sslmode=disable" go run ./cmd/skillhub-migrate
+DATABASE_URL="postgres://skillhub:skillhub@localhost:5432/skillhub?sslmode=disable" STORAGE_ROOT=./data/storage go run ./cmd/skillhub-server
 ```
 
-## 工作流
+### Quick start (Windows, no Docker)
 
-```
-Codex (规划+审查)  ←→  Claude Code (实现)
-         ↘              ↗
-        你 (审查+决策)
+Install PostgreSQL 16, create the `skillhub` database, then:
+
+```powershell
+$env:DATABASE_URL = "postgres://skillhub:skillhub@localhost:5432/skillhub?sslmode=disable"
+$env:STORAGE_ROOT = "./data/storage"
+cd server
+go run ./cmd/skillhub-migrate
+go run ./cmd/skillhub-server
 ```
 
-1. **Codex** 读取 `docs/codex-input-original-analysis.md`，理解原始项目
-2. **Codex** 输出分阶段实现方案，每阶段末尾包含「给 Claude Code 的指令」
-3. **你** 审查方案
-4. **Claude Code** 逐阶段实现
-5. **Codex** 审查实现结果
+### Commands
+
+```bash
+# Go tests (all packages)
+cd server && go test ./...
+
+# Static analysis
+cd server && go vet ./...
+
+# Build binaries
+cd server && go build ./cmd/skillhub-server
+cd server && go build ./cmd/skillhub-worker
+cd server && go build ./cmd/skillhub-migrate
+
+# OpenAPI spec validation
+cd server && go test ./openapi/ -v
+
+# TypeScript SDK
+cd clients/typescript/skillhub && npm install && npm run build && npm test
+```
+
+## Binary locations
+
+| Binary | Path | Purpose |
+|---|---|---|
+| `skillhub-server` | `server/cmd/skillhub-server/` | HTTP API server |
+| `skillhub-worker` | `server/cmd/skillhub-worker/` | Background CI worker |
+| `skillhub-migrate` | `server/cmd/skillhub-migrate/` | Database migration runner |
+
+## OpenAPI
+
+The OpenAPI 3.0.3 specification is at `server/openapi/openapi.yaml`. It documents all portal, tool, CLI, frontend, release, community, and agent CI routes.
+
+Validate: `cd server && go test ./openapi/ -v`
+
+## TypeScript SDK
+
+The TypeScript client is at `clients/typescript/skillhub/`.
+
+```typescript
+import { SkillHubClient } from "@miqro/skillhub-client";
+const client = new SkillHubClient("http://localhost:8080");
+const { data } = await client.search({ keyword: "agent" });
+```
+
+See **[guides/typescript-sdk.md](guides/typescript-sdk.md)** for full usage.
+
+## Documentation
+
+| Guide | Description |
+|---|---|
+| [guides/backend-quickstart.md](guides/backend-quickstart.md) | Environment setup, env vars, Docker/Windows notes |
+| [guides/api-usage.md](guides/api-usage.md) | API reference with request/response examples |
+| [guides/typescript-sdk.md](guides/typescript-sdk.md) | TS SDK installation and usage |
+| [guides/frontend-integration.md](guides/frontend-integration.md) | Per-page API calls, permission buttons, empty/error states |
+| [guides/end-to-end-flow.md](guides/end-to-end-flow.md) | Complete happy path from upload to release |
