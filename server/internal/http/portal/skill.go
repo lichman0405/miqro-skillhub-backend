@@ -1,12 +1,11 @@
 package portal
 
 import (
-	"archive/zip"
-	"bytes"
 	"io"
 	"net/http"
 
 	"miqro-skillhub/server/internal/http/middleware"
+	"miqro-skillhub/server/internal/http/packageupload"
 	"miqro-skillhub/server/sdk/skillhub/packagekit"
 	"miqro-skillhub/server/sdk/skillhub/skill"
 )
@@ -149,34 +148,18 @@ func (h *SkillHandler) handlePublish(w http.ResponseWriter, r *http.Request) {
 	p := middleware.GetPrincipal(r)
 	namespaceSlug := r.PathValue("namespace")
 
-	if err := r.ParseMultipartForm(100 << 20); err != nil {
-		middleware.WriteError(w, err)
-		return
-	}
-
-	file, _, err := r.FormFile("package")
+	entries, err := packageupload.ReadPackageFromRequest(r)
 	if err != nil {
-		middleware.WriteError(w, err)
+		middleware.WriteJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "failed to read package: " + err.Error(),
+		})
 		return
 	}
-	defer file.Close()
 
 	confirmWarnings := r.FormValue("confirmWarnings") == "true"
 	visibility := r.FormValue("visibility")
 	if visibility == "" {
 		visibility = "PUBLIC"
-	}
-
-	body, err := io.ReadAll(file)
-	if err != nil {
-		middleware.WriteError(w, err)
-		return
-	}
-
-	entries, err := extractZipEntries(body)
-	if err != nil {
-		middleware.WriteError(w, err)
-		return
 	}
 
 	result, err := h.SkillSvc.Publish.Publish(r.Context(), namespaceSlug, entries, p.UserID, visibility, p.PlatformRoles, confirmWarnings)
@@ -203,36 +186,4 @@ func (h *SkillHandler) handleDeleteSkill(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	middleware.WriteJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
-}
-
-// extractZipEntries reads a zip archive from src and returns PackageEntry
-// slices ready for the SDK publish service.
-func extractZipEntries(src []byte) ([]packagekit.PackageEntry, error) {
-	zr, err := zip.NewReader(bytes.NewReader(src), int64(len(src)))
-	if err != nil {
-		return nil, err
-	}
-	var entries []packagekit.PackageEntry
-	for _, f := range zr.File {
-		if f.FileInfo().IsDir() {
-			continue
-		}
-		rc, err := f.Open()
-		if err != nil {
-			return nil, err
-		}
-		content, err := io.ReadAll(rc)
-		rc.Close()
-		if err != nil {
-			return nil, err
-		}
-		ct := "application/octet-stream"
-		entries = append(entries, packagekit.PackageEntry{
-			Path:        f.Name,
-			Content:     content,
-			Size:        int64(len(content)),
-			ContentType: ct,
-		})
-	}
-	return entries, nil
 }
