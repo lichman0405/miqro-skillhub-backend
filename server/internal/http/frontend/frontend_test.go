@@ -540,6 +540,106 @@ func TestFrontend_AuthIntegration_Anonymous(t *testing.T) {
 	}
 }
 
+// ── Release page read models ────────────────────────────────────────────
+
+func TestFrontend_ReleaseList_Authenticated(t *testing.T) {
+	req := httptest.NewRequest("GET", "/api/v1/frontend/skills/ns1/myskill/releases", nil)
+	req = middleware.SetPrincipal(req, middleware.Principal{
+		UserID:          "user-1",
+		IsAuthenticated: true,
+	})
+	w := httptest.NewRecorder()
+	handleReleaseList(w, req)
+
+	var resp struct {
+		Success bool                 `json:"success"`
+		Data    ReleaseListReadModel `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if !resp.Data.AvailableActions.CanCreateRelease {
+		t.Error("authenticated user should be able to create release")
+	}
+}
+
+func TestFrontend_ReleaseList_Anonymous(t *testing.T) {
+	req := httptest.NewRequest("GET", "/api/v1/frontend/skills/ns1/myskill/releases", nil)
+	req = middleware.SetPrincipal(req, middleware.Anonymous())
+	w := httptest.NewRecorder()
+	handleReleaseList(w, req)
+
+	var resp struct {
+		Success bool                 `json:"success"`
+		Data    ReleaseListReadModel `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if resp.Data.AvailableActions.CanCreateRelease {
+		t.Error("anonymous should NOT be able to create release")
+	}
+}
+
+func TestFrontend_ReleaseDetail_SuperAdmin(t *testing.T) {
+	req := httptest.NewRequest("GET", "/api/v1/frontend/skills/ns1/myskill/releases/1", nil)
+	req = middleware.SetPrincipal(req, middleware.Principal{
+		UserID:          "admin-1",
+		IsAuthenticated: true,
+		PlatformRoles:   map[string]bool{"SUPER_ADMIN": true},
+	})
+	w := httptest.NewRecorder()
+	handleReleaseDetail(w, req)
+
+	var resp struct {
+		Success bool                    `json:"success"`
+		Data    ReleaseDetailReadModel  `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if !resp.Data.AvailableActions.CanEdit {
+		t.Error("SUPER_ADMIN should have CanEdit on release detail")
+	}
+	if !resp.Data.AvailableActions.CanDelete {
+		t.Error("SUPER_ADMIN should have CanDelete on release detail")
+	}
+	if !resp.Data.AvailableActions.CanYank {
+		t.Error("SUPER_ADMIN should have CanYank on release detail")
+	}
+	if !resp.Data.AvailableActions.CanUnYank {
+		t.Error("SUPER_ADMIN should have CanUnYank on release detail")
+	}
+}
+
+func TestFrontend_ReleaseDetail_NormalUser(t *testing.T) {
+	req := httptest.NewRequest("GET", "/api/v1/frontend/skills/ns1/myskill/releases/1", nil)
+	req = middleware.SetPrincipal(req, middleware.Principal{
+		UserID:          "user-1",
+		IsAuthenticated: true,
+	})
+	w := httptest.NewRecorder()
+	handleReleaseDetail(w, req)
+
+	var resp struct {
+		Success bool                    `json:"success"`
+		Data    ReleaseDetailReadModel  `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if resp.Data.AvailableActions.CanEdit {
+		t.Error("normal user should NOT have CanEdit on release detail")
+	}
+	if resp.Data.AvailableActions.CanDelete {
+		t.Error("normal user should NOT have CanDelete on release detail")
+	}
+}
+
 // TestFrontend_AuthIntegration_InvalidToken proves that an invalid bearer
 // token is treated as anonymous (no privilege escalation).
 func TestFrontend_AuthIntegration_InvalidToken(t *testing.T) {

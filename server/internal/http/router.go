@@ -25,6 +25,7 @@ type RouterConfig struct {
 	PortalNamespace *portal.NamespaceHandler
 	PortalSkill     *portal.SkillHandler
 	PortalSearch    *portal.SearchHandler
+	PortalRelease   *portal.ReleaseHandler
 
 	// CLI handler.
 	CLI *cliapi.Handler
@@ -85,6 +86,11 @@ func NewRouter(cfg RouterConfig) *http.ServeMux {
 		cfg.PortalSearch.RegisterSearchRoutes(mux, cfg.AuthMW, rl)
 	} else {
 		registerUnconfiguredRoute(mux, "GET /api/v1/search")
+	}
+
+	// Portal release routes.
+	if cfg.PortalRelease != nil {
+		cfg.PortalRelease.RegisterReleaseRoutes(mux, cfg.AuthMW, rl)
 	}
 
 	// CLI /api/cli/v1/* routes.

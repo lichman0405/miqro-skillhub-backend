@@ -82,6 +82,18 @@ func RegisterRoutes(
 	// Admin page.
 	mux.HandleFunc("GET /api/v1/frontend/admin", wrap(handleAdminPage))
 
+	// Release list page — closure captures skillH for namespace scoping.
+	mux.HandleFunc("GET /api/v1/frontend/skills/{namespace}/{slug}/releases",
+		wrap(func(w http.ResponseWriter, r *http.Request) {
+			handleReleaseList(w, r)
+		}))
+
+	// Release detail page.
+	mux.HandleFunc("GET /api/v1/frontend/skills/{namespace}/{slug}/releases/{releaseID}",
+		wrap(func(w http.ResponseWriter, r *http.Request) {
+			handleReleaseDetail(w, r)
+		}))
+
 	_ = searchH
 	_ = skillH
 }

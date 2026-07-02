@@ -26,6 +26,7 @@ import (
 	"miqro-skillhub/server/sdk/skillhub/auth"
 	"miqro-skillhub/server/sdk/skillhub/namespace"
 	"miqro-skillhub/server/sdk/skillhub/packagekit"
+	"miqro-skillhub/server/sdk/skillhub/release"
 	"miqro-skillhub/server/sdk/skillhub/search"
 	"miqro-skillhub/server/sdk/skillhub/skill"
 	"miqro-skillhub/server/sdk/skillhub/tooling"
@@ -51,6 +52,7 @@ func main() {
 		nsSvc          *namespace.Service
 		skillSvc       *skill.Service
 		srcSvc         *search.Service
+		releaseSvc     *release.Service
 		limiter        *middleware.RateLimiter
 		authMW         *middleware.AuthMiddleware
 		validator      *packagekit.SkillPackageValidator
@@ -114,6 +116,13 @@ func main() {
 			Query: searchQueryRepo,
 		}
 
+		// Release service.
+		{
+			releaseRepo := postgres.NewReleaseRepo(db)
+			releaseAssetRepo := postgres.NewReleaseAssetRepo(db)
+			releaseSvc = release.NewService(releaseRepo, releaseAssetRepo)
+		}
+
 		// Auth middleware with full namespace projection.
 		authMW = middleware.NewAuthMiddleware(
 			nil,            // session store (not wired yet)
@@ -148,6 +157,12 @@ func main() {
 		handlerCLI = &cliapi.Handler{SkillSvc: skillSvc, SearchSvc: srcSvc}
 	}
 
+	// Release handler — always constructed when the release service is available.
+	var handlerRelease *portal.ReleaseHandler
+	if releaseSvc != nil && skillSvc != nil {
+		handlerRelease = &portal.ReleaseHandler{ReleaseSvc: releaseSvc, SkillSvc: skillSvc}
+	}
+
 	// Tool API handler — always constructed when the skill service is available.
 	var handlerToolAPI *toolapi.Handler
 	if skillSvc != nil {
@@ -165,6 +180,7 @@ func main() {
 		PortalNamespace: handlerNamespace,
 		PortalSkill:     handlerSkill,
 		PortalSearch:    handlerSearch,
+		PortalRelease:   handlerRelease,
 		CLI:             handlerCLI,
 		ToolAPI:         handlerToolAPI,
 		MetricsRegistry: metricsReg,

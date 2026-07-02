@@ -566,6 +566,206 @@ paths:
               schema:
                 $ref: "#/components/schemas/AdminPageReadModel"
 
+  # ── Release routes ─────────────────────────────────────────────────────
+
+  /api/v1/skills/{namespace}/{slug}/releases:
+    get:
+      summary: List releases for a skill
+      parameters:
+        - name: namespace
+          in: path
+          required: true
+          schema: { type: string }
+        - name: slug
+          in: path
+          required: true
+          schema: { type: string }
+        - name: page
+          in: query
+          schema: { type: integer }
+        - name: size
+          in: query
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Paginated list of releases
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReleaseListResult"
+    post:
+      summary: Create a new release
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      parameters:
+        - name: namespace
+          in: path
+          required: true
+          schema: { type: string }
+        - name: slug
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateReleaseRequest"
+      responses:
+        "201":
+          description: Created release
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Release"
+
+  /api/v1/skills/{namespace}/{slug}/releases/latest:
+    get:
+      summary: Get latest stable release for a skill
+      parameters:
+        - name: namespace
+          in: path
+          required: true
+          schema: { type: string }
+        - name: slug
+          in: path
+          required: true
+          schema: { type: string }
+        - name: channel
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: Latest stable release
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Release"
+
+  /api/v1/skills/{namespace}/{slug}/releases/{releaseID}:
+    get:
+      summary: Get a single release by ID
+      parameters:
+        - name: namespace
+          in: path
+          required: true
+          schema: { type: string }
+        - name: slug
+          in: path
+          required: true
+          schema: { type: string }
+        - name: releaseID
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        "200":
+          description: Release with assets
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReleaseDetailResponse"
+    patch:
+      summary: Update release metadata
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      parameters:
+        - name: namespace
+          in: path
+          required: true
+          schema: { type: string }
+        - name: slug
+          in: path
+          required: true
+          schema: { type: string }
+        - name: releaseID
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateReleaseRequest"
+      responses:
+        "200":
+          description: Updated release
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Release"
+    delete:
+      summary: Delete a release
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      parameters:
+        - name: namespace
+          in: path
+          required: true
+          schema: { type: string }
+        - name: slug
+          in: path
+          required: true
+          schema: { type: string }
+        - name: releaseID
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        "200":
+          description: Release deleted
+
+  # ── Frontend release read models ────────────────────────────────────────
+
+  /api/v1/frontend/skills/{namespace}/{slug}/releases:
+    get:
+      summary: Release list page read model
+      parameters:
+        - name: namespace
+          in: path
+          required: true
+          schema: { type: string }
+        - name: slug
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Release list with viewer-scoped availableActions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReleaseListReadModel"
+
+  /api/v1/frontend/skills/{namespace}/{slug}/releases/{releaseID}:
+    get:
+      summary: Release detail page read model
+      parameters:
+        - name: namespace
+          in: path
+          required: true
+          schema: { type: string }
+        - name: slug
+          in: path
+          required: true
+          schema: { type: string }
+        - name: releaseID
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        "200":
+          description: Release detail with viewer-scoped availableActions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReleaseDetailReadModel"
+
 components:
   securitySchemes:
     bearerAuth:
@@ -1174,3 +1374,155 @@ components:
         accepted: { type: boolean }
         proposalId: { type: string }
         message: { type: string }
+
+    # ── Release schemas ──────────────────────────────────────────────────
+
+    Release:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        skillId: { type: integer, format: int64 }
+        versionId: { type: integer, format: int64 }
+        channel: { type: string }
+        title: { type: string }
+        notes: { type: string }
+        draft: { type: boolean }
+        prerelease: { type: boolean }
+        yanked: { type: boolean }
+        publishedAt: { type: string }
+        publisherId: { type: string }
+        reviewerId: { type: string }
+        packageHash: { type: string }
+        ciCheckRunId: { type: string }
+
+    ReleaseAsset:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
+        label: { type: string }
+        contentType: { type: string }
+        size: { type: integer, format: int64 }
+        downloadCount: { type: integer, format: int64 }
+
+    ReleaseListResult:
+      type: object
+      properties:
+        releases:
+          type: array
+          items:
+            $ref: "#/components/schemas/Release"
+        totalCount: { type: integer, format: int64 }
+        page: { type: integer }
+        size: { type: integer }
+
+    ReleaseDetailResponse:
+      type: object
+      properties:
+        release:
+          $ref: "#/components/schemas/Release"
+        assets:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReleaseAsset"
+
+    CreateReleaseRequest:
+      type: object
+      required: [versionId, title]
+      properties:
+        versionId: { type: integer, format: int64 }
+        channel: { type: string }
+        title: { type: string }
+        notes: { type: string }
+        draft: { type: boolean }
+        prerelease: { type: boolean }
+
+    UpdateReleaseRequest:
+      type: object
+      properties:
+        title: { type: string }
+        notes: { type: string }
+        draft: { type: boolean }
+        prerelease: { type: boolean }
+        yanked: { type: boolean }
+
+    # ── Frontend release read models ──────────────────────────────────────
+
+    ReleaseListReadModel:
+      type: object
+      properties:
+        releases:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReleaseListView"
+        totalCount: { type: integer, format: int64 }
+        page: { type: integer }
+        size: { type: integer }
+        availableActions:
+          $ref: "#/components/schemas/ReleaseListActions"
+
+    ReleaseListView:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        versionId: { type: integer, format: int64 }
+        channel: { type: string }
+        title: { type: string }
+        draft: { type: boolean }
+        prerelease: { type: boolean }
+        yanked: { type: boolean }
+        publishedAt: { type: string }
+        publisherId: { type: string }
+
+    ReleaseListActions:
+      type: object
+      properties:
+        canCreateRelease: { type: boolean }
+
+    ReleaseDetailReadModel:
+      type: object
+      properties:
+        release:
+          $ref: "#/components/schemas/ReleaseDetailView"
+        assets:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReleaseAssetView"
+        availableActions:
+          $ref: "#/components/schemas/ReleaseDetailActions"
+
+    ReleaseDetailView:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        skillId: { type: integer, format: int64 }
+        versionId: { type: integer, format: int64 }
+        channel: { type: string }
+        title: { type: string }
+        notes: { type: string }
+        draft: { type: boolean }
+        prerelease: { type: boolean }
+        yanked: { type: boolean }
+        publishedAt: { type: string }
+        publisherId: { type: string }
+        reviewerId: { type: string }
+        packageHash: { type: string }
+        ciCheckRunId: { type: string }
+
+    ReleaseAssetView:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
+        label: { type: string }
+        contentType: { type: string }
+        size: { type: integer, format: int64 }
+        downloadCount: { type: integer, format: int64 }
+
+    ReleaseDetailActions:
+      type: object
+      properties:
+        canEdit: { type: boolean }
+        canDelete: { type: boolean }
+        canYank: { type: boolean }
+        canUnYank: { type: boolean }
