@@ -1437,6 +1437,9 @@ func TestFrontend_ReviewQueue_NamespaceReviewerFiltersRows(t *testing.T) {
 	if resp.Data.Tasks[0].NamespaceID != 5 {
 		t.Errorf("expected only namespace 5 task, got namespace %d", resp.Data.Tasks[0].NamespaceID)
 	}
+	if !resp.Data.AvailableActions.CanReview {
+		t.Error("expected CanReview=true for TEAM namespace OWNER")
+	}
 }
 
 func TestFrontend_ReviewQueue_DoesNotRepeatNamespaceLookupForSameNamespace(t *testing.T) {
@@ -1509,6 +1512,9 @@ func TestFrontend_ReviewQueue_NamespaceReviewerPaginationUsesVisibleScope(t *tes
 	}
 	if resp.Data.Tasks[0].NamespaceID != 5 {
 		t.Errorf("expected namespace 5 task, got namespace %d", resp.Data.Tasks[0].NamespaceID)
+	}
+	if !resp.Data.AvailableActions.CanReview {
+		t.Error("expected CanReview=true for TEAM namespace OWNER with visible tasks")
 	}
 }
 
@@ -1589,6 +1595,9 @@ func TestFrontend_ReviewQueue_GlobalNamespaceRoleDoesNotGrantVisibility(t *testi
 	}
 	if len(resp.Data.Tasks) != 0 {
 		t.Errorf("expected 0 tasks for GLOBAL namespace role without platform reviewer, got %d", len(resp.Data.Tasks))
+	}
+	if resp.Data.AvailableActions.CanReview {
+		t.Error("expected CanReview=false for GLOBAL namespace role without platform reviewer")
 	}
 }
 

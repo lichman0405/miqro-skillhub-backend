@@ -63,29 +63,15 @@ func handleReviewQueue(w http.ResponseWriter, r *http.Request, deps ReviewFronte
 
 	canSubmit := p.IsAuthenticated
 	actions := ReviewQueueActions{
-		CanReview:   hasReviewCapability(p),
+		CanReview:   canActAsReviewer(p),
 		CanSubmit:   canSubmit,
 		CanWithdraw: canSubmit,
 	}
 
 	// Without review task repository we keep the fallback behavior used by
-	// route-registration tests.
+	// route-registration tests.  The pre-cache CanReview (platform roles only)
+	// is acceptable for this path.
 	if deps.ReviewTasks == nil {
-		middleware.WriteJSON(w, http.StatusOK, ReviewQueueReadModel{
-			Tasks:            []ReviewTaskView{},
-			PendingCount:     0,
-			Page:             page,
-			Size:             size,
-			HasMore:          false,
-			AvailableActions: actions,
-		})
-		return
-	}
-
-	// The global review queue is only visible to platform reviewers or to
-	// namespace OWNER/ADMIN users for their own non-GLOBAL namespaces. Other
-	// authenticated users may still see queue actions for their own submissions.
-	if !actions.CanReview {
 		middleware.WriteJSON(w, http.StatusOK, ReviewQueueReadModel{
 			Tasks:            []ReviewTaskView{},
 			PendingCount:     0,
@@ -99,6 +85,27 @@ func handleReviewQueue(w http.ResponseWriter, r *http.Request, deps ReviewFronte
 
 	cache := newReviewLookupCache()
 
+	// For non-platform reviewers, resolve non-GLOBAL namespace OWNER/ADMIN
+	// roles now so we can set CanReview correctly.  GLOBAL namespace roles
+	// alone do not grant review capability.
+	var nsIDs []int64
+	if !canActAsReviewer(p) {
+		nsIDs = nonGlobalReviewerNamespaceIDs(r.Context(), deps, p, cache)
+	}
+	actions.CanReview = canActAsReviewer(p) || len(nsIDs) > 0
+
+	if !actions.CanReview {
+		middleware.WriteJSON(w, http.StatusOK, ReviewQueueReadModel{
+			Tasks:            []ReviewTaskView{},
+			PendingCount:     0,
+			Page:             page,
+			Size:             size,
+			HasMore:          false,
+			AvailableActions: actions,
+		})
+		return
+	}
+
 	var tasks []review.ReviewTask
 	var hasMore bool
 	var err error
@@ -110,18 +117,7 @@ func handleReviewQueue(w http.ResponseWriter, r *http.Request, deps ReviewFronte
 	} else {
 		// Namespace reviewers see only tasks in their non-GLOBAL namespaces.
 		// Pagination must operate on the visible subset, not the full table.
-		nsIDs := nonGlobalReviewerNamespaceIDs(r.Context(), deps, p, cache)
-		if len(nsIDs) == 0 {
-			middleware.WriteJSON(w, http.StatusOK, ReviewQueueReadModel{
-				Tasks:            []ReviewTaskView{},
-				PendingCount:     0,
-				Page:             page,
-				Size:             size,
-				HasMore:          false,
-				AvailableActions: actions,
-			})
-			return
-		}
+		// nsIDs is guaranteed non-empty because actions.CanReview is true.
 		tasks, hasMore, err = deps.ReviewTasks.FindByNamespaceIDsAndStatusPaged(r.Context(), nsIDs, string(review.ReviewStatusPending), page, size)
 	}
 	if err != nil {
