@@ -974,34 +974,25 @@ func TestTagService_ListTags_UnauthorizedPrivateSkillDenied(t *testing.T) {
 // Skill lifecycle management authorization tests (canManageSkillLifecycle)
 // ============================================================================
 
-// setupLifecycleService creates necessary repos and a service wired for lifecycle auth tests.
-func setupLifecycleService(skillOwnerID string, skillNs int64) (*mockSkillRepo, *skill.SkillTagService) {
-	skillRepo := newMockSkillRepo()
-	versionRepo := newMockVersionRepo()
-	tagRepo := newMockTagRepo()
-
-	skillRepo.Save(context.Background(), skill.Skill{
-		ID:          1,
-		NamespaceID: skillNs,
-		OwnerID:     skillOwnerID,
-		Slug:        "test-skill",
-		Visibility:  "PUBLIC",
-		Status:      "ACTIVE",
+func TestSkillLifecycle_CreateTag_OwnerAllowed(t *testing.T) {
+	_, versionRepo, _, svc := setupTagService()
+	versionRepo.Save(context.Background(), skill.SkillVersion{
+		SkillID: 1, Version: "1.0.0", Status: "PUBLISHED",
 	})
 
-	vc := skill.NewVisibilityChecker()
-	svc := skill.NewSkillTagService(tagRepo, versionRepo, skillRepo, vc)
-	return skillRepo, svc
-}
-
-func TestSkillLifecycle_CreateTag_OwnerAllowed(t *testing.T) {
-	_, svc := setupLifecycleService("owner-1", 1)
-	// Add a published version.
-	svc.CreateTag(context.Background(), 1, "v1-owner", "1.0.0", "owner-1", ownerRoles())
-	// This would've failed if the lifecycle check denied the owner.
-	// We verify via the successful CreateTag which internally calls authorizeSkillLifecycle.
-	// But CreateTag needs a version; let's use a simpler approach — verify canManageSkillLifecycle
-	// contract directly by testing CreateTag (which wraps it).
+	tag, err := svc.CreateTag(context.Background(), 1, "v1-owner", "1.0.0", "owner-1", ownerRoles())
+	if err != nil {
+		t.Fatalf("CreateTag (owner) via lifecycle check failed: %v", err)
+	}
+	if tag.TagName != "v1-owner" {
+		t.Errorf("expected tag 'v1-owner', got '%s'", tag.TagName)
+	}
+	if tag.SkillID != 1 {
+		t.Errorf("expected SkillID 1, got %d", tag.SkillID)
+	}
+	if tag.CreatedBy == nil || *tag.CreatedBy != "owner-1" {
+		t.Errorf("expected CreatedBy 'owner-1', got %v", tag.CreatedBy)
+	}
 }
 
 func TestSkillLifecycle_CreateTag_StrangerForbidden(t *testing.T) {
