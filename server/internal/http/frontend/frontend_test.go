@@ -1468,6 +1468,130 @@ func TestFrontend_ReviewQueue_DoesNotRepeatNamespaceLookupForSameNamespace(t *te
 	}
 }
 
+// TestFrontend_ReviewQueue_NamespaceReviewerPaginationUsesVisibleScope verifies
+// that namespace-scoped pagination operates on the visible subset, not the
+// global queue. Without this fix, a namespace reviewer could get an empty page
+// when their namespace's tasks fall after tasks from other namespaces in the
+// global ordering.
+func TestFrontend_ReviewQueue_NamespaceReviewerPaginationUsesVisibleScope(t *testing.T) {
+	deps := ReviewFrontendDeps{
+		ReviewTasks: &fakeReviewTaskRepo{tasks: []review.ReviewTask{
+			{ID: 1, SkillVersionID: 101, NamespaceID: 6, Status: "PENDING", SubmittedBy: "user-1", SubmittedAt: time.Now()},
+			{ID: 2, SkillVersionID: 102, NamespaceID: 6, Status: "PENDING", SubmittedBy: "user-2", SubmittedAt: time.Now()},
+			{ID: 3, SkillVersionID: 103, NamespaceID: 5, Status: "PENDING", SubmittedBy: "user-3", SubmittedAt: time.Now()},
+		}},
+		Namespaces: &fakeNamespaceRepo{namespaces: []namespace.Namespace{
+			{ID: 5, Slug: "team-alpha", Type: "TEAM"},
+			{ID: 6, Slug: "team-beta", Type: "TEAM"},
+		}},
+	}
+
+	// user is namespace 5 OWNER only — should only see namespace 5 tasks
+	req := httptest.NewRequest("GET", "/api/v1/frontend/reviews?size=2&page=0", nil)
+	req = middleware.SetPrincipal(req, middleware.Principal{
+		UserID:             "owner-1",
+		IsAuthenticated:    true,
+		NamespaceRoles:     map[int64]string{5: "OWNER"},
+		MemberNamespaceIDs: []int64{5},
+	})
+	w := httptest.NewRecorder()
+	handleReviewQueue(w, req, deps)
+
+	var resp struct {
+		Success bool                 `json:"success"`
+		Data    ReviewQueueReadModel `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(resp.Data.Tasks) != 1 {
+		t.Errorf("expected 1 task from namespace 5, got %d", len(resp.Data.Tasks))
+	}
+	if resp.Data.Tasks[0].NamespaceID != 5 {
+		t.Errorf("expected namespace 5 task, got namespace %d", resp.Data.Tasks[0].NamespaceID)
+	}
+}
+
+// TestFrontend_ReviewQueue_NamespaceReviewerHasMoreUsesVisibleScope verifies
+// that hasMore reflects the visible subset, not the global pending set.
+func TestFrontend_ReviewQueue_NamespaceReviewerHasMoreUsesVisibleScope(t *testing.T) {
+	deps := ReviewFrontendDeps{
+		ReviewTasks: &fakeReviewTaskRepo{tasks: []review.ReviewTask{
+			{ID: 1, SkillVersionID: 101, NamespaceID: 5, Status: "PENDING", SubmittedBy: "user-a", SubmittedAt: time.Now()},
+			{ID: 2, SkillVersionID: 102, NamespaceID: 5, Status: "PENDING", SubmittedBy: "user-b", SubmittedAt: time.Now()},
+			{ID: 3, SkillVersionID: 103, NamespaceID: 5, Status: "PENDING", SubmittedBy: "user-c", SubmittedAt: time.Now()},
+			{ID: 4, SkillVersionID: 104, NamespaceID: 6, Status: "PENDING", SubmittedBy: "user-x", SubmittedAt: time.Now()},
+			{ID: 5, SkillVersionID: 105, NamespaceID: 6, Status: "PENDING", SubmittedBy: "user-y", SubmittedAt: time.Now()},
+		}},
+		Namespaces: &fakeNamespaceRepo{namespaces: []namespace.Namespace{
+			{ID: 5, Slug: "team-alpha", Type: "TEAM"},
+			{ID: 6, Slug: "team-beta", Type: "TEAM"},
+		}},
+	}
+
+	// namespace 5 OWNER with size=2 should see 2 tasks and hasMore=true
+	// because there are 3 pending tasks in namespace 5
+	req := httptest.NewRequest("GET", "/api/v1/frontend/reviews?size=2", nil)
+	req = middleware.SetPrincipal(req, middleware.Principal{
+		UserID:             "owner-1",
+		IsAuthenticated:    true,
+		NamespaceRoles:     map[int64]string{5: "OWNER"},
+		MemberNamespaceIDs: []int64{5},
+	})
+	w := httptest.NewRecorder()
+	handleReviewQueue(w, req, deps)
+
+	var resp struct {
+		Success bool                 `json:"success"`
+		Data    ReviewQueueReadModel `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(resp.Data.Tasks) != 2 {
+		t.Errorf("expected 2 tasks from namespace 5, got %d", len(resp.Data.Tasks))
+	}
+	if !resp.Data.HasMore {
+		t.Error("expected hasMore=true for namespace 5 with 3 tasks and size=2")
+	}
+}
+
+// TestFrontend_ReviewQueue_GlobalNamespaceRoleDoesNotGrantVisibility verifies
+// that GLOBAL namespace OWNER/ADMIN does not let a user see GLOBAL review tasks
+// unless they also hold SKILL_ADMIN or SUPER_ADMIN.
+func TestFrontend_ReviewQueue_GlobalNamespaceRoleDoesNotGrantVisibility(t *testing.T) {
+	deps := ReviewFrontendDeps{
+		ReviewTasks: &fakeReviewTaskRepo{tasks: []review.ReviewTask{
+			{ID: 1, SkillVersionID: 101, NamespaceID: 1, Status: "PENDING", SubmittedBy: "user-1", SubmittedAt: time.Now()},
+		}},
+		Namespaces: &fakeNamespaceRepo{namespaces: []namespace.Namespace{
+			{ID: 1, Slug: "global", Type: "GLOBAL"},
+		}},
+	}
+
+	// user has GLOBAL namespace OWNER role but no platform role
+	req := httptest.NewRequest("GET", "/api/v1/frontend/reviews", nil)
+	req = middleware.SetPrincipal(req, middleware.Principal{
+		UserID:             "global-owner",
+		IsAuthenticated:    true,
+		NamespaceRoles:     map[int64]string{1: "OWNER"},
+		MemberNamespaceIDs: []int64{1},
+	})
+	w := httptest.NewRecorder()
+	handleReviewQueue(w, req, deps)
+
+	var resp struct {
+		Success bool                 `json:"success"`
+		Data    ReviewQueueReadModel `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(resp.Data.Tasks) != 0 {
+		t.Errorf("expected 0 tasks for GLOBAL namespace role without platform reviewer, got %d", len(resp.Data.Tasks))
+	}
+}
+
 // ── Promotion read-model tests ───────────────────────────────────────────
 
 func TestFrontend_PromotionQueue_UsesRealPromotionRequests(t *testing.T) {
@@ -1865,6 +1989,32 @@ func (r *fakeReviewTaskRepo) FindByStatusPaged(ctx context.Context, status strin
 	out := []review.ReviewTask{}
 	for _, t := range r.tasks {
 		if t.Status == status {
+			out = append(out, t)
+		}
+	}
+	offset := page * size
+	if offset >= len(out) {
+		return nil, false, nil
+	}
+	result := out[offset:]
+	hasMore := len(result) > size
+	if hasMore {
+		result = result[:size]
+	}
+	return result, hasMore, nil
+}
+
+func (r *fakeReviewTaskRepo) FindByNamespaceIDsAndStatusPaged(ctx context.Context, namespaceIDs []int64, status string, page int, size int) ([]review.ReviewTask, bool, error) {
+	if len(namespaceIDs) == 0 {
+		return nil, false, nil
+	}
+	idSet := make(map[int64]bool, len(namespaceIDs))
+	for _, id := range namespaceIDs {
+		idSet[id] = true
+	}
+	out := []review.ReviewTask{}
+	for _, t := range r.tasks {
+		if t.Status == status && idSet[t.NamespaceID] {
 			out = append(out, t)
 		}
 	}

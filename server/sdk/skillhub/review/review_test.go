@@ -72,6 +72,31 @@ func (m *mockReviewTaskRepo) FindByStatusPaged(_ context.Context, status string,
 	}
 	return result, hasMore, nil
 }
+func (m *mockReviewTaskRepo) FindByNamespaceIDsAndStatusPaged(_ context.Context, namespaceIDs []int64, status string, page int, size int) ([]review.ReviewTask, bool, error) {
+	if len(namespaceIDs) == 0 {
+		return nil, false, nil
+	}
+	idSet := make(map[int64]bool, len(namespaceIDs))
+	for _, id := range namespaceIDs {
+		idSet[id] = true
+	}
+	var out []review.ReviewTask
+	for _, t := range m.tasks {
+		if t.Status == status && idSet[t.NamespaceID] {
+			out = append(out, t)
+		}
+	}
+	offset := page * size
+	if offset >= len(out) {
+		return nil, false, nil
+	}
+	result := out[offset:]
+	hasMore := len(result) > size
+	if hasMore {
+		result = result[:size]
+	}
+	return result, hasMore, nil
+}
 func (m *mockReviewTaskRepo) FindByNamespaceIDAndStatus(_ context.Context, nsID int64, status string) ([]review.ReviewTask, error) {
 	var out []review.ReviewTask
 	for _, t := range m.tasks {

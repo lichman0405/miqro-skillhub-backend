@@ -86,6 +86,28 @@ func (r *ReviewTaskRepo) FindByStatusPaged(ctx context.Context, status string, p
 	return tasks, false, nil
 }
 
+func (r *ReviewTaskRepo) FindByNamespaceIDsAndStatusPaged(ctx context.Context, namespaceIDs []int64, status string, page int, size int) ([]review.ReviewTask, bool, error) {
+	if len(namespaceIDs) == 0 {
+		return nil, false, nil
+	}
+	rows, err := r.query(ctx,
+		`SELECT id, skill_version_id, namespace_id, status, version, submitted_by, reviewed_by, review_comment, submitted_at, reviewed_at
+		 FROM review_task WHERE namespace_id = ANY($1) AND status = $2 ORDER BY submitted_at DESC, id DESC LIMIT $3 OFFSET $4`,
+		namespaceIDs, status, size+1, page*size)
+	if err != nil {
+		return nil, false, err
+	}
+	defer rows.Close()
+	tasks, err := scanReviewTasks(rows)
+	if err != nil {
+		return nil, false, err
+	}
+	if len(tasks) > size {
+		return tasks[:size], true, nil
+	}
+	return tasks, false, nil
+}
+
 func (r *ReviewTaskRepo) FindByNamespaceIDAndStatus(ctx context.Context, namespaceID int64, status string) ([]review.ReviewTask, error) {
 	rows, err := r.query(ctx,
 		`SELECT id, skill_version_id, namespace_id, status, version, submitted_by, reviewed_by, review_comment, submitted_at, reviewed_at

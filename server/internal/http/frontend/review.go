@@ -97,13 +97,38 @@ func handleReviewQueue(w http.ResponseWriter, r *http.Request, deps ReviewFronte
 		return
 	}
 
-	tasks, hasMore, err := deps.ReviewTasks.FindByStatusPaged(r.Context(), string(review.ReviewStatusPending), page, size)
+	cache := newReviewLookupCache()
+
+	var tasks []review.ReviewTask
+	var hasMore bool
+	var err error
+
+	if canActAsReviewer(p) {
+		// Platform reviewers see the global pending queue with global
+		// pagination — no need to scope by namespace.
+		tasks, hasMore, err = deps.ReviewTasks.FindByStatusPaged(r.Context(), string(review.ReviewStatusPending), page, size)
+	} else {
+		// Namespace reviewers see only tasks in their non-GLOBAL namespaces.
+		// Pagination must operate on the visible subset, not the full table.
+		nsIDs := nonGlobalReviewerNamespaceIDs(r.Context(), deps, p, cache)
+		if len(nsIDs) == 0 {
+			middleware.WriteJSON(w, http.StatusOK, ReviewQueueReadModel{
+				Tasks:            []ReviewTaskView{},
+				PendingCount:     0,
+				Page:             page,
+				Size:             size,
+				HasMore:          false,
+				AvailableActions: actions,
+			})
+			return
+		}
+		tasks, hasMore, err = deps.ReviewTasks.FindByNamespaceIDsAndStatusPaged(r.Context(), nsIDs, string(review.ReviewStatusPending), page, size)
+	}
 	if err != nil {
 		middleware.WriteError(w, sdkerror.Wrap(err, sdkerror.ErrInternal, "review.queue.failed"))
 		return
 	}
 
-	cache := newReviewLookupCache()
 	views := make([]ReviewTaskView, 0, len(tasks))
 	for _, task := range tasks {
 		ns := cache.getNamespace(r.Context(), deps, task.NamespaceID)
@@ -287,6 +312,26 @@ func reviewTaskViewFromTask(ctx context.Context, deps ReviewFrontendDeps, task r
 	}
 
 	return view
+}
+
+// nonGlobalReviewerNamespaceIDs returns the set of non-GLOBAL namespace IDs
+// where the principal holds an OWNER or ADMIN role. These are the namespaces
+// whose review tasks the principal is allowed to see and act on.
+func nonGlobalReviewerNamespaceIDs(ctx context.Context, deps ReviewFrontendDeps, p middleware.Principal, cache *reviewLookupCache) []int64 {
+	if !p.IsAuthenticated || deps.Namespaces == nil {
+		return nil
+	}
+	var ids []int64
+	for nsID, role := range p.NamespaceRoles {
+		if role != "OWNER" && role != "ADMIN" {
+			continue
+		}
+		ns := cache.getNamespace(ctx, deps, nsID)
+		if ns != nil && ns.Type != "GLOBAL" {
+			ids = append(ids, nsID)
+		}
+	}
+	return ids
 }
 
 // canActAsReviewer returns true for platform-level reviewer roles.

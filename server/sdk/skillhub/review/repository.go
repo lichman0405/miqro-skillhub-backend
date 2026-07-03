@@ -9,6 +9,7 @@ type ReviewTaskRepository interface {
 	FindByVersionIDAndStatus(ctx context.Context, versionID int64, status string) (*ReviewTask, error)
 	FindByStatus(ctx context.Context, status string) ([]ReviewTask, error)
 	FindByStatusPaged(ctx context.Context, status string, page int, size int) ([]ReviewTask, bool, error)
+	FindByNamespaceIDsAndStatusPaged(ctx context.Context, namespaceIDs []int64, status string, page int, size int) ([]ReviewTask, bool, error)
 	FindByNamespaceIDAndStatus(ctx context.Context, namespaceID int64, status string) ([]ReviewTask, error)
 	FindBySubmittedByAndStatus(ctx context.Context, submittedBy string, status string) ([]ReviewTask, error)
 	ExistsByNamespaceID(ctx context.Context, namespaceID int64) (bool, error)
