@@ -69,6 +69,11 @@ import {
   type ProposalDetailReadModel,
   type PipelineRunListResult,
   type PageIteratorOptions,
+  type ReviewMutationRequest,
+  type ReviewMutationResponse,
+  type PromotionMutationRequest,
+  type PromotionMutationResponse,
+  type WithdrawResponse,
 } from "./index.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────────
@@ -1399,5 +1404,127 @@ describe("Envelope handling", () => {
     const result = await errorClient.frontendSearch({ keyword: "x" });
     assert.strictEqual(result.success, false);
     assert.strictEqual(result.error?.code, "search.failed");
+  });
+});
+
+// ── Review/Promotion Mutation Methods ───────────────────────────────────
+
+describe("Review mutation methods", () => {
+  it("approveReview sends POST to correct URL", async () => {
+    const capture: { calls: CapturedCall[] } = { calls: [] };
+    const client = new SkillHubClient({
+      baseUrl: "http://localhost:8080",
+      fetch: capturingFetch({ success: true, data: { task: { id: 1 } } }, capture),
+    });
+
+    await client.approveReview(42, { comment: "lgtm" });
+    const call = capture.calls.at(-1)!;
+    assert.strictEqual(call.init?.method, "POST");
+    assert.ok(call.url.endsWith("/api/v1/reviews/42/approve"));
+  });
+
+  it("approveReview sends comment in request body", async () => {
+    const capture: { calls: CapturedCall[] } = { calls: [] };
+    const client = new SkillHubClient({
+      baseUrl: "http://localhost:8080",
+      fetch: capturingFetch({ success: true, data: { task: { id: 1 } } }, capture),
+    });
+
+    await client.approveReview(1, { comment: "looks good" });
+    const call = capture.calls.at(-1)!;
+    assert.strictEqual(call.init?.method, "POST");
+    const body = JSON.parse(call.init?.body as string);
+    assert.strictEqual(body.comment, "looks good");
+  });
+
+  it("rejectReview sends POST to correct URL", async () => {
+    const capture: { calls: CapturedCall[] } = { calls: [] };
+    const client = new SkillHubClient({
+      baseUrl: "http://localhost:8080",
+      fetch: capturingFetch({ success: true, data: { task: { id: 1 } } }, capture),
+    });
+
+    await client.rejectReview(7, { comment: "needs work" });
+    const call = capture.calls.at(-1)!;
+    assert.strictEqual(call.init?.method, "POST");
+    assert.ok(call.url.endsWith("/api/v1/reviews/7/reject"));
+  });
+
+  it("withdrawReview sends POST to correct URL", async () => {
+    const capture: { calls: CapturedCall[] } = { calls: [] };
+    const client = new SkillHubClient({
+      baseUrl: "http://localhost:8080",
+      fetch: capturingFetch({ success: true, data: { status: "withdrawn" } }, capture),
+    });
+
+    await client.withdrawReview(3);
+    const call = capture.calls.at(-1)!;
+    assert.strictEqual(call.init?.method, "POST");
+    assert.ok(call.url.endsWith("/api/v1/reviews/3/withdraw"));
+  });
+
+  it("review mutation methods do not use frontend route prefix", async () => {
+    const capture: { calls: CapturedCall[] } = { calls: [] };
+    const client = new SkillHubClient({
+      baseUrl: "http://localhost:8080",
+      fetch: capturingFetch({ success: true, data: { task: { id: 1 } } }, capture),
+    });
+
+    await client.approveReview(1);
+    const call = capture.calls.at(-1)!;
+    assert.ok(!call.url.includes("/api/v1/frontend/"), "should not use /api/v1/frontend/ prefix");
+  });
+});
+
+describe("Promotion mutation methods", () => {
+  it("approvePromotion sends POST to correct URL", async () => {
+    const capture: { calls: CapturedCall[] } = { calls: [] };
+    const client = new SkillHubClient({
+      baseUrl: "http://localhost:8080",
+      fetch: capturingFetch({ success: true, data: { request: { id: 1 } } }, capture),
+    });
+
+    await client.approvePromotion(10, { comment: "promote" });
+    const call = capture.calls.at(-1)!;
+    assert.strictEqual(call.init?.method, "POST");
+    assert.ok(call.url.endsWith("/api/v1/promotions/10/approve"));
+  });
+
+  it("rejectPromotion sends POST to correct URL", async () => {
+    const capture: { calls: CapturedCall[] } = { calls: [] };
+    const client = new SkillHubClient({
+      baseUrl: "http://localhost:8080",
+      fetch: capturingFetch({ success: true, data: { request: { id: 1 } } }, capture),
+    });
+
+    await client.rejectPromotion(5, { comment: "not ready" });
+    const call = capture.calls.at(-1)!;
+    assert.strictEqual(call.init?.method, "POST");
+    assert.ok(call.url.endsWith("/api/v1/promotions/5/reject"));
+  });
+
+  it("withdrawPromotion sends POST to correct URL", async () => {
+    const capture: { calls: CapturedCall[] } = { calls: [] };
+    const client = new SkillHubClient({
+      baseUrl: "http://localhost:8080",
+      fetch: capturingFetch({ success: true, data: { status: "withdrawn" } }, capture),
+    });
+
+    await client.withdrawPromotion(2);
+    const call = capture.calls.at(-1)!;
+    assert.strictEqual(call.init?.method, "POST");
+    assert.ok(call.url.endsWith("/api/v1/promotions/2/withdraw"));
+  });
+
+  it("promotion mutation methods do not use frontend route prefix", async () => {
+    const capture: { calls: CapturedCall[] } = { calls: [] };
+    const client = new SkillHubClient({
+      baseUrl: "http://localhost:8080",
+      fetch: capturingFetch({ success: true, data: { request: { id: 1 } } }, capture),
+    });
+
+    await client.approvePromotion(1);
+    const call = capture.calls.at(-1)!;
+    assert.ok(!call.url.includes("/api/v1/frontend/"), "should not use /api/v1/frontend/ prefix");
   });
 });

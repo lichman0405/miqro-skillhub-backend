@@ -161,6 +161,11 @@ await client.createIssue("ns", "skill", { title: "Bug report" });
 // Agent CI
 const { data: runs } = await client.listPipelineRuns(1, 0, 20);
 const { data: gates } = await client.evaluateGates(1, { trigger: "publish", versionId: 5 });
+
+// Review & promotion mutations
+await client.unwrap(client.approveReview(1, { comment: "LGTM" }));
+await client.unwrap(client.rejectPromotion(2, { comment: "Needs work" }));
+await client.unwrap(client.withdrawReview(3));
 ```
 
 ## Tool API

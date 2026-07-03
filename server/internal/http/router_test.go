@@ -345,6 +345,83 @@ func TestNewRouter_BackendNotConfigured(t *testing.T) {
 	}
 }
 
+// TestNewRouter_ReviewPromotionRoutesNilHandler verifies review/promotion
+// mutation routes return 404 when the handler is not wired (nil).
+func TestNewRouter_ReviewPromotionRoutesNilHandler(t *testing.T) {
+	router := NewRouter(RouterConfig{
+		Health:          &HealthHandler{},
+		AuthMW:          middleware.NewAuthMiddleware(nil, nil, nil, nil, nil),
+		MetricsRegistry: observability.NewMetricsRegistry(),
+	})
+
+	routes := []struct {
+		method string
+		path   string
+	}{
+		{"POST", "/api/v1/reviews/1/approve"},
+		{"POST", "/api/v1/reviews/1/reject"},
+		{"POST", "/api/v1/reviews/1/withdraw"},
+		{"POST", "/api/v1/promotions/1/approve"},
+		{"POST", "/api/v1/promotions/1/reject"},
+		{"POST", "/api/v1/promotions/1/withdraw"},
+	}
+
+	for _, rt := range routes {
+		t.Run(rt.path, func(t *testing.T) {
+			req := httptest.NewRequest(rt.method, rt.path, nil)
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+
+			// When handler is nil, routes are not registered → 404.
+			if w.Code != http.StatusNotFound {
+				t.Errorf("%s %s → %d, expected 404 (routes should NOT be registered when handler is nil)", rt.method, rt.path, w.Code)
+			}
+		})
+	}
+}
+
+// TestNewRouter_ReviewPromotionRoutesWired verifies review/promotion mutation
+// routes are registered when the handler is wired (non-nil).
+func TestNewRouter_ReviewPromotionRoutesWired(t *testing.T) {
+	handler := &portal.ReviewPromotionHandler{}
+	authMW := middleware.NewAuthMiddleware(nil, nil, nil, nil, nil)
+
+	router := NewRouter(RouterConfig{
+		Health:                &HealthHandler{},
+		AuthMW:                authMW,
+		RateLimiter:           middleware.NewRateLimiter(10, 5.0),
+		PortalReviewPromotion: handler,
+		MetricsRegistry:       observability.NewMetricsRegistry(),
+	})
+
+	routes := []struct {
+		method string
+		path   string
+	}{
+		{"POST", "/api/v1/reviews/1/approve"},
+		{"POST", "/api/v1/reviews/1/reject"},
+		{"POST", "/api/v1/reviews/1/withdraw"},
+		{"POST", "/api/v1/promotions/1/approve"},
+		{"POST", "/api/v1/promotions/1/reject"},
+		{"POST", "/api/v1/promotions/1/withdraw"},
+	}
+
+	for _, rt := range routes {
+		t.Run(rt.path, func(t *testing.T) {
+			req := httptest.NewRequest(rt.method, rt.path, nil)
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+
+			// When handler is wired but services are nil, the handler itself
+			// returns 503. We just need to prove the route is registered
+			// (not 404).
+			if w.Code == http.StatusNotFound {
+				t.Errorf("%s %s → 404 (route NOT registered — handler is wired but route missing)", rt.method, rt.path)
+			}
+		})
+	}
+}
+
 // stub types to silence unused warnings in test helpers.
 var _ = clawhub.RegisterRoutes
 var _ = wellknown.RegisterRoutes

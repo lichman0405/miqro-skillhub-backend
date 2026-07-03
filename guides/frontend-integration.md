@@ -125,9 +125,31 @@ for await (const page of client.iterFrontendIssues("ns", "skill", { maxPages: 3 
 
 Do not use iterators without `maxPages` for unbounded background prefetch. For manual paging, call the underlying SDK method directly with `page` and `size` parameters.
 
-### Review/promotion mutation endpoints
+### Review/promotion mutations
 
-Review and promotion frontend endpoints are read-model only. There are currently no HTTP endpoints to approve, reject, or withdraw reviews or promotions. If the frontend needs mutation buttons, implement separate HTTP routes backed by the SDK `review` and `promotion` services. Do not assume `POST /api/v1/frontend/reviews/{id}/approve` or similar routes exist.
+Review and promotion frontend endpoints are read-model only. Mutations use portal routes under `/api/v1/reviews/{id}/...` and `/api/v1/promotions/{id}/...`. After a mutation, refetch the frontend read model to get updated state and `availableActions`.
+
+```typescript
+// Approve a review (requires reviewer permission — SDK enforces authorization)
+await client.unwrap(client.approveReview(reviewId, { comment: "Looks good" }));
+
+// Reject with feedback
+await client.unwrap(client.rejectReview(reviewId, { comment: "Needs more tests" }));
+
+// Withdraw own review submission
+await client.unwrap(client.withdrawReview(reviewId));
+
+// Approve/reject/withdraw promotions (platform-scoped)
+await client.unwrap(client.approvePromotion(promotionId, { comment: "Promoting" }));
+await client.unwrap(client.rejectPromotion(promotionId, { comment: "Not ready" }));
+await client.unwrap(client.withdrawPromotion(promotionId));
+
+// After mutation, refetch the read model
+const updated = await client.unwrap(client.frontendReviewDetail(reviewId));
+console.log(updated.availableActions.canApprove); // now false
+```
+
+Use `availableActions` to show/hide buttons, but the backend is authoritative — if the user lacks permission, the SDK returns 403.
 
 ---
 
@@ -317,7 +339,7 @@ The community section groups issues, discussions, wiki, and change proposals for
 
 **Data:** `task`, `skillName`, `version`, `availableActions.canApprove/canReject/canWithdraw`
 
-**Read-model only:** `/api/v1/frontend/reviews` and `/api/v1/frontend/reviews/{id}` are read-model endpoints. They expose the queue, detail, and viewer action flags, but the project currently does **not** provide HTTP endpoints to approve, reject, or withdraw a review task. If you need to implement review mutations, add separate HTTP routes that reuse the SDK `review` service and `agentci` gate enforcement; do not assume `POST /api/v1/frontend/reviews/{id}/approve` or similar exists today.
+**Mutations:** Use portal routes `/api/v1/reviews/{id}/approve`, `/api/v1/reviews/{id}/reject`, and `/api/v1/reviews/{id}/withdraw`. After mutation, refetch the frontend read model to get updated state.
 
 ### Promotion queue/detail
 
@@ -331,7 +353,7 @@ The community section groups issues, discussions, wiki, and change proposals for
 
 **Pagination:** Returns at most `size` requests. When `hasMore` is true, increment `page` to load the next window.
 
-**Read-model only:** promotion frontend endpoints are also read-model only. There are currently no HTTP endpoints to approve, reject, or withdraw a promotion request. Promotion mutations must be implemented as separate HTTP routes backed by the SDK `promotion` service.
+**Mutations:** Use portal routes `/api/v1/promotions/{id}/approve`, `/api/v1/promotions/{id}/reject`, and `/api/v1/promotions/{id}/withdraw`. After mutation, refetch the frontend read model.
 
 ### Admin dashboard
 

@@ -29,6 +29,9 @@ type RouterConfig struct {
 	PortalCommunity *portal.CommunityHandler
 	PortalAgentCI   *portal.AgentCIHandler
 
+	// Portal review/promotion mutation handler.
+	PortalReviewPromotion *portal.ReviewPromotionHandler
+
 	// Frontend community handler.
 	FrontendCommunity *frontend.CommunityFrontendHandler
 
@@ -112,6 +115,11 @@ func NewRouter(cfg RouterConfig) *http.ServeMux {
 	// Portal agent CI routes.
 	if cfg.PortalAgentCI != nil {
 		cfg.PortalAgentCI.RegisterAgentCIRoutes(mux, cfg.AuthMW, rl)
+	}
+
+	// Portal review/promotion mutation routes.
+	if cfg.PortalReviewPromotion != nil {
+		cfg.PortalReviewPromotion.RegisterReviewPromotionRoutes(mux, cfg.AuthMW, rl)
 	}
 
 	// CLI /api/cli/v1/* routes.

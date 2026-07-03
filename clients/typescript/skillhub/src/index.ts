@@ -942,6 +942,34 @@ export interface CommunitySearchResult {
   items: CommunitySearchResultItem[]; totalCount: number; page: number; size: number;
 }
 
+// ── Review/Promotion Mutation Types ────────────────────────────────────
+
+/** Request body for review/promotion approve and reject. */
+export interface ReviewMutationRequest {
+  comment?: string;
+}
+
+/** Response for review approve/reject. */
+export interface ReviewMutationResponse {
+  task: ReviewTaskView;
+}
+
+/** Request body for promotion approve and reject (same shape). */
+export interface PromotionMutationRequest {
+  comment?: string;
+}
+
+/** Response for promotion approve/reject. */
+export interface PromotionMutationResponse {
+  request: PromotionRequestView;
+}
+
+/** Response for review/promotion withdraw. */
+export interface WithdrawResponse {
+  status: string;
+  version?: VersionDetail;
+}
+
 // ── Client ─────────────────────────────────────────────────────────────
 
 /** SkillHub API client — thin HTTP wrapper over the backend. */
@@ -1926,6 +1954,72 @@ export class SkillHubClient {
     return this.fetch(
       `/api/v1/frontend/skills/${this.path(namespace, slug)}/proposals/${this.path(proposalId)}`,
     );
+  }
+
+  // ── Review/Promotion mutation methods ────────────────────────────
+
+  /** Approve a pending review task. */
+  async approveReview(
+    id: number,
+    req?: ReviewMutationRequest,
+  ): Promise<Envelope<ReviewMutationResponse>> {
+    return this.fetch(`/api/v1/reviews/${this.path(id)}/approve`, {
+      method: "POST",
+      body: req ? JSON.stringify(req) : "{}",
+    });
+  }
+
+  /** Reject a pending review task. */
+  async rejectReview(
+    id: number,
+    req?: ReviewMutationRequest,
+  ): Promise<Envelope<ReviewMutationResponse>> {
+    return this.fetch(`/api/v1/reviews/${this.path(id)}/reject`, {
+      method: "POST",
+      body: req ? JSON.stringify(req) : "{}",
+    });
+  }
+
+  /** Withdraw a pending review task. */
+  async withdrawReview(
+    id: number,
+  ): Promise<Envelope<WithdrawResponse>> {
+    return this.fetch(`/api/v1/reviews/${this.path(id)}/withdraw`, {
+      method: "POST",
+      body: "{}",
+    });
+  }
+
+  /** Approve a pending promotion request. */
+  async approvePromotion(
+    id: number,
+    req?: PromotionMutationRequest,
+  ): Promise<Envelope<PromotionMutationResponse>> {
+    return this.fetch(`/api/v1/promotions/${this.path(id)}/approve`, {
+      method: "POST",
+      body: req ? JSON.stringify(req) : "{}",
+    });
+  }
+
+  /** Reject a pending promotion request. */
+  async rejectPromotion(
+    id: number,
+    req?: PromotionMutationRequest,
+  ): Promise<Envelope<PromotionMutationResponse>> {
+    return this.fetch(`/api/v1/promotions/${this.path(id)}/reject`, {
+      method: "POST",
+      body: req ? JSON.stringify(req) : "{}",
+    });
+  }
+
+  /** Withdraw a pending promotion request. */
+  async withdrawPromotion(
+    id: number,
+  ): Promise<Envelope<WithdrawResponse>> {
+    return this.fetch(`/api/v1/promotions/${this.path(id)}/withdraw`, {
+      method: "POST",
+      body: "{}",
+    });
   }
 
   // ── Pagination iterators ──────────────────────────────────────────

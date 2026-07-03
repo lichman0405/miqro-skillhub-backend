@@ -416,7 +416,23 @@ const { data: proposals } = await client.frontendProposalList("team-alpha", "exa
 const { data: proposal } = await client.frontendProposalDetail("team-alpha", "example-skill", 1);
 ```
 
-These frontend methods are read-only. The SDK and guides still do not expose HTTP endpoints to approve, reject, or withdraw reviews or promotions; those mutations must be added as separate routes when the frontend needs them.
+## Review and promotion mutations
+
+Review and promotion approve, reject, and withdraw are available as portal mutation methods:
+
+```typescript
+// Review mutations
+await client.unwrap(client.approveReview(1, { comment: "Looks good" }));
+await client.unwrap(client.rejectReview(2, { comment: "Needs more tests" }));
+await client.unwrap(client.withdrawReview(3));
+
+// Promotion mutations
+await client.unwrap(client.approvePromotion(1, { comment: "Promoting" }));
+await client.unwrap(client.rejectPromotion(2, { comment: "Not ready" }));
+await client.unwrap(client.withdrawPromotion(3));
+```
+
+Backend authorization is enforced by the SDK — the client only passes credentials. SDK permission checks, gate enforcement, and status validation run server-side. After any mutation, refetch the frontend read model to get updated `availableActions`.
 
 ## Tool API (miqro CLI)
 

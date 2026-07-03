@@ -83,7 +83,7 @@ miqro-skillhub/
 | CI worker (poll + execute) | ✅ |
 | CI gate enforcement | ✅ |
 | Release lifecycle (draft → publish) | ✅ |
-| Review workflow (submit, approve, reject) | ✅ SDK + frontend read models; approve/reject HTTP handlers remain SDK-only |
+| Review workflow (submit, approve, reject) | ✅ SDK + HTTP adapters + frontend read models |
 | Community (issues, discussions, wiki, proposals) | ✅ |
 | Frontend read-model routes | ✅ core pages + review/promotion/governance/admin read models wired with real data |
 | Tool API (miqro CLI protocol) | ✅ |

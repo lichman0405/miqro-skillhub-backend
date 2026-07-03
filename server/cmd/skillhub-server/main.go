@@ -36,6 +36,7 @@ import (
 	"miqro-skillhub/server/sdk/skillhub/governance"
 	"miqro-skillhub/server/sdk/skillhub/namespace"
 	"miqro-skillhub/server/sdk/skillhub/packagekit"
+	"miqro-skillhub/server/sdk/skillhub/promotion"
 	"miqro-skillhub/server/sdk/skillhub/release"
 	"miqro-skillhub/server/sdk/skillhub/review"
 	"miqro-skillhub/server/sdk/skillhub/search"
@@ -68,6 +69,7 @@ func main() {
 		communitySvc   *community.Service
 		agentciSvc     *agentci.Service
 		reviewSvc      *review.ReviewService
+		promotionSvc   *promotion.PromotionService
 		objStore       storage.Store
 		limiter        *middleware.RateLimiter
 		authMW         *middleware.AuthMiddleware
@@ -246,6 +248,20 @@ func main() {
 			}
 		}
 
+		// Promotion service — constructed when repos are available.
+		if promotionRequestRepo != nil && skillRepo != nil && versionRepo != nil {
+			promotionSvc = promotion.NewPromotionService(
+				promotionRequestRepo,
+				skillRepo,
+				versionRepo,
+				fileRepo,
+				nsRepo,
+				nil, // permission checker (default)
+				eventbus.NewNoopBus(true),
+				governanceNotificationSvc,
+			)
+		}
+
 		// Auth middleware with full namespace projection.
 		authMW = middleware.NewAuthMiddleware(
 			nil,           // session store (not wired yet)
@@ -316,6 +332,16 @@ func main() {
 		handlerAgentCI = &portal.AgentCIHandler{AgentCISvc: agentciSvc, SkillSvc: skillSvc}
 	}
 
+	// Review/promotion mutation handler — constructed when review/promotion services are available.
+	var handlerReviewPromotion *portal.ReviewPromotionHandler
+	if reviewSvc != nil && promotionSvc != nil && reviewTaskRepo != nil {
+		handlerReviewPromotion = &portal.ReviewPromotionHandler{
+			ReviewSvc:    reviewSvc,
+			PromotionSvc: promotionSvc,
+			ReviewTasks:  reviewTaskRepo,
+		}
+	}
+
 	// Tool API handler — always constructed when the skill service is available.
 	var handlerToolAPI *toolapi.Handler
 	if skillSvc != nil {
@@ -339,6 +365,7 @@ func main() {
 		PortalRelease:     handlerRelease,
 		PortalCommunity:   handlerCommunity,
 		PortalAgentCI:     handlerAgentCI,
+		PortalReviewPromotion: handlerReviewPromotion,
 		FrontendCommunity: frontendCommunity,
 		FrontendReview: frontend.ReviewFrontendDeps{
 			ReviewTasks: reviewTaskRepo,

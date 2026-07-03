@@ -1236,6 +1236,158 @@ paths:
         "409":
           description: Gate enforcement failed
 
+  # ── Review/Promotion Mutations ───────────────────────────────────────
+  /api/v1/reviews/{id}/approve:
+    post:
+      tags: [Review]
+      summary: Approve a pending review task (with gate enforcement)
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewMutationRequest"
+      responses:
+        "200":
+          description: Review approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewMutationResponse"
+        "400": { description: Invalid ID or request body }
+        "401": { description: Unauthorized }
+        "403": { description: Forbidden }
+        "404": { description: Review task not found }
+        "409": { description: Gate enforcement failed or not pending }
+
+  /api/v1/reviews/{id}/reject:
+    post:
+      tags: [Review]
+      summary: Reject a pending review task
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewMutationRequest"
+      responses:
+        "200":
+          description: Review rejected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewMutationResponse"
+        "400": { description: Invalid ID or request body }
+        "401": { description: Unauthorized }
+        "403": { description: Forbidden }
+        "404": { description: Review task not found }
+
+  /api/v1/reviews/{id}/withdraw:
+    post:
+      tags: [Review]
+      summary: Withdraw a pending review task
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        "200":
+          description: Review withdrawn
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WithdrawResponse"
+        "400": { description: Invalid ID }
+        "401": { description: Unauthorized }
+        "403": { description: Forbidden }
+        "404": { description: Review task not found }
+
+  /api/v1/promotions/{id}/approve:
+    post:
+      tags: [Review]
+      summary: Approve a pending promotion request
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewMutationRequest"
+      responses:
+        "200":
+          description: Promotion approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PromotionMutationResponse"
+        "400": { description: Invalid ID or request body }
+        "401": { description: Unauthorized }
+        "403": { description: Forbidden }
+        "404": { description: Promotion request not found }
+
+  /api/v1/promotions/{id}/reject:
+    post:
+      tags: [Review]
+      summary: Reject a pending promotion request
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewMutationRequest"
+      responses:
+        "200":
+          description: Promotion rejected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PromotionMutationResponse"
+        "400": { description: Invalid ID or request body }
+        "401": { description: Unauthorized }
+        "403": { description: Forbidden }
+        "404": { description: Promotion request not found }
+
+  /api/v1/promotions/{id}/withdraw:
+    post:
+      tags: [Review]
+      summary: Withdraw a pending promotion request
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        "200":
+          description: Promotion withdrawn
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WithdrawResponse"
+        "400": { description: Invalid ID }
+        "401": { description: Unauthorized }
+        "403": { description: Forbidden }
+        "404": { description: Promotion request not found }
+
   /api/v1/skills/{namespace}/{slug}/community/search:
     get:
       tags: [Community]
@@ -2601,3 +2753,37 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/GatePolicyResult"
+
+    ReviewMutationRequest:
+      type: object
+      properties:
+        comment: { type: string }
+
+    ReviewMutationResponse:
+      type: object
+      properties:
+        success: { type: boolean }
+        data:
+          type: object
+          properties:
+            task: { type: object }
+
+    PromotionMutationResponse:
+      type: object
+      properties:
+        success: { type: boolean }
+        data:
+          type: object
+          properties:
+            request: { type: object }
+
+    WithdrawResponse:
+      type: object
+      properties:
+        success: { type: boolean }
+        data:
+          type: object
+          properties:
+            status: { type: string }
+            version: { type: object }
+
