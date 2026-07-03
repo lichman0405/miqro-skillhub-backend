@@ -536,10 +536,11 @@ func TestRateLimiter_EvictsStaleBuckets(t *testing.T) {
 	rl := NewRateLimiterWithOptions(RateLimiterOptions{
 		Capacity:      10,
 		RatePerSecond: 1.0,
-		BucketTTL:     50 * time.Millisecond,
+		BucketTTL:     20 * time.Millisecond,
+		MaxBuckets:    10,
 	})
 
-	// Create a bucket.
+	// Create bucket A.
 	if !rl.allow("test:A") {
 		t.Fatal("first request should be allowed")
 	}
@@ -547,25 +548,32 @@ func TestRateLimiter_EvictsStaleBuckets(t *testing.T) {
 		t.Fatalf("expected 1 bucket, got %d", rl.bucketCount())
 	}
 
-	// Wait past TTL.
-	time.Sleep(60 * time.Millisecond)
+	// Wait past TTL so A becomes stale.
+	time.Sleep(30 * time.Millisecond)
 
-	// Make a new allow call that triggers cleanup.
+	// allow("test:B") triggers the real allow() insertion path.
+	// cleanupLocked(now) must run before inserting B, evicting stale A.
 	if !rl.allow("test:B") {
 		t.Fatal("request for B should be allowed")
 	}
 
-	// Stale bucket A should have been evicted when B was inserted (via enforceMaxBuckets).
-	// Since we're under maxBuckets, stale eviction happens on cleanup in enforceMaxBuckets.
-	// Trigger another bucket creation to force cleanup.
+	// Only B should remain — A was stale and must have been evicted.
+	count := rl.bucketCount()
+	if count != 1 {
+		t.Fatalf("expected exactly 1 bucket after stale eviction, got %d", count)
+	}
+
+	// Verify A is gone and B exists.
 	rl.mu.Lock()
-	rl.cleanupLocked(time.Now())
+	_, aExists := rl.buckets["test:A"]
+	_, bExists := rl.buckets["test:B"]
 	rl.mu.Unlock()
 
-	count := rl.bucketCount()
-	// A should be gone (stale), B should remain.
-	if count < 1 || count > 2 {
-		t.Errorf("expected 1 or 2 buckets after cleanup, got %d", count)
+	if aExists {
+		t.Error("stale bucket A should have been evicted by cleanupLocked in allow()")
+	}
+	if !bExists {
+		t.Error("bucket B should exist")
 	}
 }
 

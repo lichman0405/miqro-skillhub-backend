@@ -89,7 +89,9 @@ func (rl *RateLimiter) allow(key string) bool {
 	now := time.Now()
 	b, ok := rl.buckets[key]
 	if !ok {
-		// Enforce max buckets before inserting a new one.
+		// Always evict stale buckets before inserting a new one.
+		rl.cleanupLocked(now)
+		// Enforce max buckets cap (evicts oldest if still at limit).
 		rl.enforceMaxBuckets(now)
 		b = &bucket{tokens: float64(rl.capacity), lastFill: now, lastSeen: now}
 		rl.buckets[key] = b
