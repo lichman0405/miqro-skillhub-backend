@@ -1091,6 +1091,200 @@ func TestFrontend_ReviewDetail_NotFound(t *testing.T) {
 	}
 }
 
+func TestFrontend_ReviewDetail_NamespaceOwnerCanViewAndApprove(t *testing.T) {
+	deps := ReviewFrontendDeps{
+		ReviewTasks: &fakeReviewTaskRepo{tasks: []review.ReviewTask{
+			{ID: 1, SkillVersionID: 101, NamespaceID: 5, Status: "PENDING", SubmittedBy: "user-1", SubmittedAt: time.Now()},
+		}},
+		Versions: &fakeSkillVersionRepo{versions: []skill.SkillVersion{
+			{ID: 101, SkillID: 201, Version: "1.0.0"},
+		}},
+		Skills: &fakeSkillRepo{skills: []skill.Skill{
+			{ID: 201, NamespaceID: 5, Slug: "my-skill", DisplayName: "My Skill"},
+		}},
+		Namespaces: &fakeNamespaceRepo{namespaces: []namespace.Namespace{
+			{ID: 5, Slug: "team-alpha", Type: "TEAM"},
+		}},
+	}
+
+	req := httptest.NewRequest("GET", "/api/v1/frontend/reviews/1", nil)
+	req.SetPathValue("id", "1")
+	req = middleware.SetPrincipal(req, middleware.Principal{
+		UserID:             "owner-1",
+		IsAuthenticated:    true,
+		NamespaceRoles:     map[int64]string{5: "OWNER"},
+		MemberNamespaceIDs: []int64{5},
+	})
+	w := httptest.NewRecorder()
+	handleReviewDetail(w, req, deps)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var resp struct {
+		Success bool                  `json:"success"`
+		Data    ReviewDetailReadModel `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.Data.Task.ID != 1 {
+		t.Errorf("expected task id 1, got %d", resp.Data.Task.ID)
+	}
+	if !resp.Data.AvailableActions.CanApprove {
+		t.Error("namespace OWNER should be able to approve review in their namespace")
+	}
+	if !resp.Data.AvailableActions.CanReject {
+		t.Error("namespace OWNER should be able to reject review in their namespace")
+	}
+}
+
+func TestFrontend_ReviewDetail_NamespaceAdminCanViewAndApprove(t *testing.T) {
+	deps := ReviewFrontendDeps{
+		ReviewTasks: &fakeReviewTaskRepo{tasks: []review.ReviewTask{
+			{ID: 1, SkillVersionID: 101, NamespaceID: 5, Status: "PENDING", SubmittedBy: "user-1", SubmittedAt: time.Now()},
+		}},
+		Versions: &fakeSkillVersionRepo{versions: []skill.SkillVersion{
+			{ID: 101, SkillID: 201, Version: "1.0.0"},
+		}},
+		Skills: &fakeSkillRepo{skills: []skill.Skill{
+			{ID: 201, NamespaceID: 5, Slug: "my-skill", DisplayName: "My Skill"},
+		}},
+		Namespaces: &fakeNamespaceRepo{namespaces: []namespace.Namespace{
+			{ID: 5, Slug: "team-alpha", Type: "TEAM"},
+		}},
+	}
+
+	req := httptest.NewRequest("GET", "/api/v1/frontend/reviews/1", nil)
+	req.SetPathValue("id", "1")
+	req = middleware.SetPrincipal(req, middleware.Principal{
+		UserID:             "admin-1",
+		IsAuthenticated:    true,
+		NamespaceRoles:     map[int64]string{5: "ADMIN"},
+		MemberNamespaceIDs: []int64{5},
+	})
+	w := httptest.NewRecorder()
+	handleReviewDetail(w, req, deps)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var resp struct {
+		Success bool                  `json:"success"`
+		Data    ReviewDetailReadModel `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if !resp.Data.AvailableActions.CanApprove {
+		t.Error("namespace ADMIN should be able to approve review in their namespace")
+	}
+}
+
+func TestFrontend_ReviewDetail_NamespaceMemberCannotView(t *testing.T) {
+	deps := ReviewFrontendDeps{
+		ReviewTasks: &fakeReviewTaskRepo{tasks: []review.ReviewTask{
+			{ID: 1, SkillVersionID: 101, NamespaceID: 5, Status: "PENDING", SubmittedBy: "user-1", SubmittedAt: time.Now()},
+		}},
+		Namespaces: &fakeNamespaceRepo{namespaces: []namespace.Namespace{
+			{ID: 5, Slug: "team-alpha", Type: "TEAM"},
+		}},
+	}
+
+	req := httptest.NewRequest("GET", "/api/v1/frontend/reviews/1", nil)
+	req.SetPathValue("id", "1")
+	req = middleware.SetPrincipal(req, middleware.Principal{
+		UserID:             "member-1",
+		IsAuthenticated:    true,
+		NamespaceRoles:     map[int64]string{5: "MEMBER"},
+		MemberNamespaceIDs: []int64{5},
+	})
+	w := httptest.NewRecorder()
+	handleReviewDetail(w, req, deps)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", w.Code)
+	}
+}
+
+func TestFrontend_ReviewDetail_GlobalNamespaceOwnerAdminNeedsPlatformRole(t *testing.T) {
+	deps := ReviewFrontendDeps{
+		ReviewTasks: &fakeReviewTaskRepo{tasks: []review.ReviewTask{
+			{ID: 1, SkillVersionID: 101, NamespaceID: 1, Status: "PENDING", SubmittedBy: "user-1", SubmittedAt: time.Now()},
+		}},
+		Namespaces: &fakeNamespaceRepo{namespaces: []namespace.Namespace{
+			{ID: 1, Slug: "global", Type: "GLOBAL"},
+		}},
+	}
+
+	req := httptest.NewRequest("GET", "/api/v1/frontend/reviews/1", nil)
+	req.SetPathValue("id", "1")
+	req = middleware.SetPrincipal(req, middleware.Principal{
+		UserID:             "owner-1",
+		IsAuthenticated:    true,
+		NamespaceRoles:     map[int64]string{1: "OWNER"},
+		MemberNamespaceIDs: []int64{1},
+	})
+	w := httptest.NewRecorder()
+	handleReviewDetail(w, req, deps)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for GLOBAL namespace owner without platform role, got %d", w.Code)
+	}
+}
+
+func TestFrontend_ReviewDetail_SubmitterCanViewButNotApprove(t *testing.T) {
+	deps := ReviewFrontendDeps{
+		ReviewTasks: &fakeReviewTaskRepo{tasks: []review.ReviewTask{
+			{ID: 1, SkillVersionID: 101, NamespaceID: 5, Status: "PENDING", SubmittedBy: "user-1", SubmittedAt: time.Now()},
+		}},
+		Versions: &fakeSkillVersionRepo{versions: []skill.SkillVersion{
+			{ID: 101, SkillID: 201, Version: "1.0.0"},
+		}},
+		Skills: &fakeSkillRepo{skills: []skill.Skill{
+			{ID: 201, NamespaceID: 5, Slug: "my-skill", DisplayName: "My Skill"},
+		}},
+		Namespaces: &fakeNamespaceRepo{namespaces: []namespace.Namespace{
+			{ID: 5, Slug: "team-alpha", Type: "TEAM"},
+		}},
+	}
+
+	req := httptest.NewRequest("GET", "/api/v1/frontend/reviews/1", nil)
+	req.SetPathValue("id", "1")
+	req = middleware.SetPrincipal(req, middleware.Principal{
+		UserID:          "user-1",
+		IsAuthenticated: true,
+	})
+	w := httptest.NewRecorder()
+	handleReviewDetail(w, req, deps)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var resp struct {
+		Success bool                  `json:"success"`
+		Data    ReviewDetailReadModel `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.Data.Task.ID != 1 {
+		t.Errorf("expected task id 1, got %d", resp.Data.Task.ID)
+	}
+	if resp.Data.AvailableActions.CanApprove {
+		t.Error("submitter should NOT be able to approve their own review")
+	}
+	if resp.Data.AvailableActions.CanReject {
+		t.Error("submitter should NOT be able to reject their own review")
+	}
+	if !resp.Data.AvailableActions.CanWithdraw {
+		t.Error("submitter should be able to withdraw their own review")
+	}
+}
+
 // ── Promotion read-model tests ───────────────────────────────────────────
 
 func TestFrontend_PromotionQueue_UsesRealPromotionRequests(t *testing.T) {

@@ -47,11 +47,9 @@ type ReviewQueueActions struct {
 func handleReviewQueue(w http.ResponseWriter, r *http.Request, deps ReviewFrontendDeps) {
 	p := middleware.GetPrincipal(r)
 
-	canReview := canActAsReviewer(p)
 	canSubmit := p.IsAuthenticated
-
 	actions := ReviewQueueActions{
-		CanReview:   canReview,
+		CanReview:   hasReviewCapability(p),
 		CanSubmit:   canSubmit,
 		CanWithdraw: canSubmit,
 	}
@@ -67,9 +65,10 @@ func handleReviewQueue(w http.ResponseWriter, r *http.Request, deps ReviewFronte
 		return
 	}
 
-	// The global review queue is only visible to platform reviewers. Other
+	// The global review queue is only visible to platform reviewers or to
+	// namespace OWNER/ADMIN users for their own non-GLOBAL namespaces. Other
 	// authenticated users may still see queue actions for their own submissions.
-	if !canReview {
+	if !actions.CanReview {
 		middleware.WriteJSON(w, http.StatusOK, ReviewQueueReadModel{
 			Tasks:            []ReviewTaskView{},
 			PendingCount:     0,
@@ -86,7 +85,9 @@ func handleReviewQueue(w http.ResponseWriter, r *http.Request, deps ReviewFronte
 
 	views := make([]ReviewTaskView, 0, len(tasks))
 	for _, task := range tasks {
-		views = append(views, reviewTaskViewFromTask(r.Context(), deps, task, p))
+		if canReviewTask(r.Context(), deps, task, p) {
+			views = append(views, reviewTaskViewFromTask(r.Context(), deps, task, p))
+		}
 	}
 
 	middleware.WriteJSON(w, http.StatusOK, ReviewQueueReadModel{
@@ -122,13 +123,11 @@ func handleReviewDetail(w http.ResponseWriter, r *http.Request, deps ReviewFront
 		return
 	}
 
-	canReview := canActAsReviewer(p)
-
 	// Fallback behavior when dependencies are not wired (route-registration tests).
 	if deps.ReviewTasks == nil {
 		actions := ReviewDetailActions{
-			CanApprove:  canReview,
-			CanReject:   canReview,
+			CanApprove:  canActAsReviewer(p),
+			CanReject:   canActAsReviewer(p),
 			CanWithdraw: p.IsAuthenticated,
 		}
 		middleware.WriteJSON(w, http.StatusOK, ReviewDetailReadModel{
@@ -148,15 +147,16 @@ func handleReviewDetail(w http.ResponseWriter, r *http.Request, deps ReviewFront
 		return
 	}
 
-	if !canViewReviewTask(task, p) {
+	if !canViewReviewTask(r.Context(), deps, task, p) {
 		middleware.WriteError(w, sdkerror.Forbidden("review.detail.no_permission"))
 		return
 	}
 
 	view := reviewTaskViewFromTask(r.Context(), deps, *task, p)
+	canApproveReject := canReviewTask(r.Context(), deps, *task, p)
 	actions := ReviewDetailActions{
-		CanApprove:  canReview,
-		CanReject:   canReview,
+		CanApprove:  canApproveReject,
+		CanReject:   canApproveReject,
 		CanWithdraw: canWithdrawReviewTask(task, p),
 	}
 
@@ -169,6 +169,7 @@ func handleReviewDetail(w http.ResponseWriter, r *http.Request, deps ReviewFront
 }
 
 func reviewTaskViewFromTask(ctx context.Context, deps ReviewFrontendDeps, task review.ReviewTask, p middleware.Principal) ReviewTaskView {
+	canApproveReject := canReviewTask(ctx, deps, task, p)
 	view := ReviewTaskView{
 		ID:             task.ID,
 		SkillVersionID: task.SkillVersionID,
@@ -176,8 +177,8 @@ func reviewTaskViewFromTask(ctx context.Context, deps ReviewFrontendDeps, task r
 		SubmittedBy:    task.SubmittedBy,
 		Status:         task.Status,
 		SubmittedAt:    task.SubmittedAt.Format(time.RFC3339),
-		CanApprove:     canActAsReviewer(p),
-		CanReject:      canActAsReviewer(p),
+		CanApprove:     canApproveReject,
+		CanReject:      canApproveReject,
 		CanWithdraw:    canWithdrawReviewTask(&task, p),
 	}
 
@@ -207,12 +208,62 @@ func reviewTaskViewFromTask(ctx context.Context, deps ReviewFrontendDeps, task r
 	return view
 }
 
+// canActAsReviewer returns true for platform-level reviewer roles.
 func canActAsReviewer(p middleware.Principal) bool {
 	return p.HasPlatformRole("SKILL_ADMIN") || p.HasPlatformRole("SUPER_ADMIN")
 }
 
-func canViewReviewTask(task *review.ReviewTask, p middleware.Principal) bool {
-	if canActAsReviewer(p) || p.HasPlatformRole("SUPER_ADMIN") {
+// canReviewTask determines whether the principal may act on (approve/reject) a
+// specific review task. It mirrors review.ReviewPermissionChecker semantics:
+// platform reviewers may review anything; non-GLOBAL namespace OWNER/ADMIN may
+// review tasks within that namespace. If the namespace repository is missing or
+// the namespace cannot be resolved, the check falls back to platform roles only.
+func canReviewTask(ctx context.Context, deps ReviewFrontendDeps, task review.ReviewTask, p middleware.Principal) bool {
+	if canActAsReviewer(p) {
+		return true
+	}
+	if !p.IsAuthenticated {
+		return false
+	}
+	if deps.Namespaces == nil {
+		return false
+	}
+	ns, err := deps.Namespaces.FindByID(ctx, task.NamespaceID)
+	if err != nil || ns == nil {
+		return false
+	}
+	if ns.Type == "GLOBAL" {
+		return false
+	}
+	role := p.NamespaceRole(task.NamespaceID)
+	return role == "OWNER" || role == "ADMIN"
+}
+
+// hasReviewCapability returns true if the viewer has any review capability that
+// would allow them to see at least some tasks in the queue. It is used for the
+// queue-level action flag and early empty-state decision.
+func hasReviewCapability(p middleware.Principal) bool {
+	if canActAsReviewer(p) {
+		return true
+	}
+	if !p.IsAuthenticated {
+		return false
+	}
+	// Any OWNER or ADMIN namespace role implies potential review capability for
+	// that namespace (assuming it is not GLOBAL). This is a fast pre-check; the
+	// per-task filter in handleReviewQueue uses namespace type lookup.
+	for _, role := range p.NamespaceRoles {
+		if role == "OWNER" || role == "ADMIN" {
+			return true
+		}
+	}
+	return false
+}
+
+// canViewReviewTask determines whether the principal may view a review task.
+// Reviewers may view tasks they can act on; submitters may view their own tasks.
+func canViewReviewTask(ctx context.Context, deps ReviewFrontendDeps, task *review.ReviewTask, p middleware.Principal) bool {
+	if canReviewTask(ctx, deps, *task, p) {
 		return true
 	}
 	if p.IsAuthenticated && task.SubmittedBy == p.UserID {

@@ -250,17 +250,17 @@ The community section groups issues, discussions, wiki, and change proposals for
 
 **Data:** `task`, `skillName`, `version`, `availableActions.canApprove/canReject/canWithdraw`
 
-**Approve flow:**
-1. Reviewer clicks "Approve"
-2. Frontend calls the review approve endpoint (SDK-level)
-3. Gate enforcement runs (`review_approve` trigger)
-4. On success → version is published; re-fetch review queue
-5. On 409 → show "Gate enforcement failed: {reason}"
+**Read-model only:** `/api/v1/frontend/reviews` and `/api/v1/frontend/reviews/{id}` are read-model endpoints. They expose the queue, detail, and viewer action flags, but the project currently does **not** provide HTTP endpoints to approve, reject, or withdraw a review task. If you need to implement review mutations, add separate HTTP routes that reuse the SDK `review` service and `agentci` gate enforcement; do not assume `POST /api/v1/frontend/reviews/{id}/approve` or similar exists today.
 
-### Promotion queue
+### Promotion queue/detail
 
-**Endpoint:** `GET /api/v1/frontend/promotions`
-**Detail:** `GET /api/v1/frontend/promotions/{id}`
+**Endpoints:**
+- `GET /api/v1/frontend/promotions`
+- `GET /api/v1/frontend/promotions/{id}`
+
+**Data:** `requests[]`, `pendingCount`, `availableActions.canReview/canSubmit/canWithdraw` (queue); `request`, `sourceSkillName`, `availableActions.canApprove/canReject/canWithdraw` (detail)
+
+**Read-model only:** promotion frontend endpoints are also read-model only. There are currently no HTTP endpoints to approve, reject, or withdraw a promotion request. Promotion mutations must be implemented as separate HTTP routes backed by the SDK `promotion` service.
 
 ### Admin dashboard
 
