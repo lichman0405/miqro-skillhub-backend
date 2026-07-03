@@ -31,32 +31,174 @@ import { SkillHubClient } from "@miqro/skillhub-client";
 // Default: http://localhost:8080
 const client = new SkillHubClient();
 
-// Custom base URL
+// Custom base URL (string form — backward compatible)
 const client = new SkillHubClient("https://skillhub.example.com");
+
+// Full options object
+const client = new SkillHubClient({
+  baseUrl: "https://skillhub.example.com",
+  credentials: "include",        // cookie-based session auth
+  token: "sk_abc123",            // static bearer token
+  getToken: () => localStorage.getItem("token") ?? undefined, // dynamic token
+  headers: { "X-Client": "web" }, // custom headers merged into every request
+  fetch: customFetch,            // custom fetch (SSR, tests, polyfills)
+});
 ```
 
-## Setting auth token
+The old `new SkillHubClient()` and `new SkillHubClient("http://...")` forms continue to work.
 
-The client uses `fetch()` under the hood. To send a Bearer token, store the token and include it in future requests by subclassing or wrapping:
+## Auth
+
+### Session cookie mode
 
 ```typescript
-class AuthenticatedClient extends SkillHubClient {
-  constructor(baseUrl: string, private token: string) {
-    super(baseUrl);
-  }
+const client = new SkillHubClient({
+  baseUrl: "http://localhost:8080",
+  credentials: "include",
+});
 
-  // Override fetch to inject Authorization header — or use a wrapper pattern.
-  // For now, the client does not auto-attach tokens; pass credentials: 'include'
-  // for session-based auth or attach headers at the application level.
+const { data: user } = await client.login("username", "password");
+// Cookie is set; subsequent requests use the session.
+```
+
+### Bearer token mode
+
+```typescript
+// Static token
+const client = new SkillHubClient({
+  baseUrl: "https://skillhub.example.com",
+  token: "sk_abc123",
+});
+
+// Dynamic token (e.g. from localStorage, refreshed on each call)
+const client = new SkillHubClient({
+  baseUrl: "https://skillhub.example.com",
+  getToken: () => localStorage.getItem("skillhub_token") ?? undefined,
+});
+```
+
+Every request automatically sends `Authorization: Bearer <token>`. Static `token` takes precedence over `getToken`. If `getToken` returns `undefined`, no auth header is sent for that request.
+
+### Custom fetch for SSR/tests
+
+```typescript
+const client = new SkillHubClient({
+  baseUrl: "http://localhost:8080",
+  fetch: nodeFetch, // e.g. 'node-fetch' in server-side code
+});
+```
+
+## Error handling
+
+### Envelope mode (compatible — existing code unchanged)
+
+Every method returns `Envelope<T>`:
+
+```typescript
+const result = await client.search({ keyword: "test" });
+if (result.success && result.data) {
+  // use result.data
+} else {
+  console.error(result.error?.code, result.error?.message);
 }
 ```
 
-For session-based auth, call `login()` which sets the session cookie:
+### Unwrap mode (throwing)
 
 ```typescript
-const { data: user } = await client.login("username", "password");
-// Cookie is set; subsequent requests with credentials: 'include' use the session.
+import { SkillHubClient, SkillHubError } from "@miqro/skillhub-client";
+
+const client = new SkillHubClient({
+  baseUrl: "http://localhost:8080",
+  credentials: "include",
+});
+
+try {
+  const me = await client.unwrap(client.me());
+  console.log(me.displayName);
+} catch (err) {
+  if (err instanceof SkillHubError) {
+    // err.code    — "not_found", "unauthorized", "client.network_error", etc.
+    // err.message — human-readable message
+    // err.status  — HTTP status code (e.g. 404)
+    // err.details — optional server-provided details
+    console.error(err.code, err.status, err.message);
+  }
+}
 ```
+
+Error codes:
+| Code | Meaning |
+|---|---|
+| `client.network_error` | fetch() rejected (network down, DNS, CORS) |
+| `client.invalid_json` | Response body was not valid JSON |
+| `client.error` | Error envelope without a specific code |
+| `<server code>` | Server-provided code (e.g. `not_found`, `unauthorized`, `forbidden`) |
+
+## Pagination iterators
+
+Bounded async iterators prevent unbounded data fetching. Every iterator defaults to `maxPages: 10`.
+
+```typescript
+// Review queue
+for await (const page of client.iterFrontendReviews({ size: 50, maxPages: 5 })) {
+  for (const task of page.tasks) {
+    console.log(task.skillName, task.status);
+  }
+}
+
+// Search with filters
+for await (const page of client.iterFrontendSearch({
+  keyword: "agent",
+  sortBy: "downloads",
+  size: 20,
+  maxPages: 3,
+})) {
+  console.log(page.searchResult.skillIds);
+}
+
+// Community issues
+for await (const page of client.iterFrontendIssues("ns", "skill", { size: 50 })) {
+  for (const issue of page.issues) {
+    console.log(issue.title);
+  }
+}
+
+// Releases
+for await (const page of client.iterReleases("ns", "skill", { maxPages: 5 })) {
+  console.log(page.releases);
+}
+
+// Pipeline runs
+for await (const page of client.iterPipelineRuns(1, { size: 20 })) {
+  console.log(page.runs);
+}
+```
+
+Each iterator stops when:
+- `maxPages` is reached;
+- `hasMore` is `false` (review/promotion queues);
+- the returned item list is empty;
+- `totalCount` indicates no more results.
+
+Iterator options:
+```typescript
+interface PageIteratorOptions {
+  page?: number;    // starting page (default 0)
+  size?: number;    // page size (default 20)
+  maxPages?: number; // max pages to fetch (default 10)
+}
+```
+
+Available iterators:
+- `iterFrontendSearch(query)`
+- `iterFrontendReviews(options?)`
+- `iterFrontendPromotions(options?)`
+- `iterFrontendIssues(namespace, slug, options?)`
+- `iterFrontendDiscussions(namespace, slug, options?)`
+- `iterFrontendProposals(namespace, slug, options?)`
+- `iterReleases(namespace, slug, options?)`
+- `iterPipelineRuns(skillId, options?)`
 
 ## Search skills
 
@@ -212,26 +354,6 @@ const { data: issues } = await client.frontendIssueList("ns", "my-skill");
 const { data: discussions } = await client.frontendDiscussionList("ns", "my-skill");
 const { data: wiki } = await client.frontendWikiList("ns", "my-skill");
 const { data: proposals } = await client.frontendProposalList("ns", "my-skill");
-```
-
-## Error handling
-
-The client returns `Envelope<T>` for every call:
-
-```typescript
-interface Envelope<T> {
-  success: boolean;
-  data?: T;
-  error?: { code: string; message: string };
-}
-
-// Usage pattern:
-const result = await client.search({ keyword: "test" });
-if (result.success && result.data) {
-  // use result.data
-} else {
-  console.error(result.error?.code, result.error?.message);
-}
 ```
 
 ## Frontend read-model methods

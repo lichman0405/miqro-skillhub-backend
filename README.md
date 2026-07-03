@@ -159,8 +159,24 @@ The TypeScript client is at `clients/typescript/skillhub/`.
 
 ```typescript
 import { SkillHubClient } from "@miqro/skillhub-client";
-const client = new SkillHubClient("http://localhost:8080");
+
+// Options constructor with auth, custom fetch, headers
+const client = new SkillHubClient({
+  baseUrl: "http://localhost:8080",
+  credentials: "include",
+  token: "sk_...",
+});
+
+// Envelope mode (backward compatible)
 const { data } = await client.search({ keyword: "agent" });
+
+// Unwrap mode (typed errors)
+const results = await client.unwrap(client.search({ keyword: "agent" }));
+
+// Bounded pagination iterators
+for await (const page of client.iterFrontendReviews({ size: 50, maxPages: 5 })) {
+  console.log(page.tasks);
+}
 ```
 
 See **[guides/typescript-sdk.md](guides/typescript-sdk.md)** for full usage.

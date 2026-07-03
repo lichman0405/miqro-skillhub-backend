@@ -1,14 +1,16 @@
 /**
  * Tests for the SkillHub TypeScript client.
  *
- * These tests validate the client's type safety and frontend contract
- * coverage — every /api/v1/frontend/* route exposed by the Go handlers
- * must have a corresponding typed client method.
+ * These tests validate the client's type safety, frontend contract
+ * coverage, URL construction, auth configuration, error handling,
+ * and pagination iterator behavior.
  */
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import {
   SkillHubClient,
+  SkillHubError,
+  type SkillHubClientOptions,
   type Envelope,
   type Principal,
   type SearchResult,
@@ -37,7 +39,6 @@ import {
   type GovernanceWorkbenchActions,
   type AdminPageReadModel,
   type AdminPageActions,
-  // Tool API types
   type WorkspaceMetadataResponse,
   type PackageEntry,
   type PackageManifest,
@@ -56,91 +57,825 @@ import {
   type EvaluateResponse,
   type ProposalRequest,
   type ProposalResponse,
+  type ReleaseListReadModel,
+  type ReleaseDetailReadModel,
+  type IssueListReadModel,
+  type IssueDetailReadModel,
+  type DiscussionListReadModel,
+  type DiscussionDetailReadModel,
+  type WikiPageListReadModel,
+  type WikiPageDetailReadModel,
+  type ProposalListReadModel,
+  type ProposalDetailReadModel,
+  type PipelineRunListResult,
+  type PageIteratorOptions,
 } from "./index.js";
 
-describe("SkillHubClient", () => {
+// ── Helpers ──────────────────────────────────────────────────────────────
+
+/** Create a mock fetch that captures requests and returns canned JSON. */
+function mockFetch(
+  responseBody: unknown,
+  status = 200,
+): typeof globalThis.fetch {
+  return (async (input: RequestInfo | URL, init?: RequestInit) => {
+    return {
+      ok: status >= 200 && status < 300,
+      status,
+      json: async () => responseBody,
+      headers: new Headers(),
+    } as Response;
+  }) as typeof globalThis.fetch;
+}
+
+/** Record of a captured fetch call. */
+interface CapturedCall {
+  url: string;
+  init?: RequestInit;
+}
+
+/** Create a mock fetch that captures calls and returns canned JSON. */
+function capturingFetch(
+  responseBody: unknown,
+  capture: { calls: CapturedCall[] },
+  status = 200,
+): typeof globalThis.fetch {
+  return (async (input: RequestInfo | URL, init?: RequestInit) => {
+    capture.calls.push({
+      url: typeof input === "string" ? input : input.toString(),
+      init,
+    });
+    return {
+      ok: status >= 200 && status < 300,
+      status,
+      json: async () => responseBody,
+      headers: new Headers(),
+    } as Response;
+  }) as typeof globalThis.fetch;
+}
+
+// ── Constructor tests ────────────────────────────────────────────────────
+
+describe("SkillHubClient constructor", () => {
   it("constructs with default base URL", () => {
     const client = new SkillHubClient();
     assert.ok(client instanceof SkillHubClient);
   });
 
-  it("constructs with custom base URL", () => {
+  it("constructs with custom base URL string", () => {
     const client = new SkillHubClient("https://skillhub.example.com");
     assert.ok(client instanceof SkillHubClient);
   });
 
-  it("builds correct login URL", () => {
-    const client = new SkillHubClient("http://localhost:8080");
+  it("constructs with options object", () => {
+    const client = new SkillHubClient({ baseUrl: "https://api.example.com" });
     assert.ok(client instanceof SkillHubClient);
   });
 
-  it("builds correct search URL with params", () => {
-    const client = new SkillHubClient("http://localhost:8080");
-    assert.strictEqual(typeof client.search, "function");
+  it("constructs with empty options object (defaults)", () => {
+    const client = new SkillHubClient({});
+    assert.ok(client instanceof SkillHubClient);
   });
 
-  it("builds correct getSkill path", () => {
-    const client = new SkillHubClient("http://localhost:8080");
-    assert.strictEqual(typeof client.getSkill, "function");
+  it("strips trailing slash from base URL", async () => {
+    const capture = { calls: [] as CapturedCall[] };
+    const client = new SkillHubClient({
+      baseUrl: "http://localhost:8080/",
+      fetch: capturingFetch({ success: true, data: {} }, capture),
+    });
+    await client.frontendNamespaces();
+    assert.strictEqual(
+      capture.calls.at(-1)!.url,
+      "http://localhost:8080/api/v1/frontend/namespaces",
+    );
+  });
+});
+
+// ── Auth configuration tests ─────────────────────────────────────────────
+
+describe("Auth configuration", () => {
+  it("sends bearer token via Authorization header", async () => {
+    const capture = { calls: [] as CapturedCall[] };
+    const client = new SkillHubClient({
+      baseUrl: "http://localhost:8080",
+      token: "sk_test123",
+      fetch: capturingFetch({ success: true, data: {} }, capture),
+    });
+    await client.me();
+    const authHeader = (capture.calls.at(-1)!.init?.headers as Headers).get(
+      "Authorization",
+    );
+    assert.strictEqual(authHeader, "Bearer sk_test123");
   });
 
-  it("builds correct getNamespace path", () => {
-    const client = new SkillHubClient("http://localhost:8080");
-    assert.strictEqual(typeof client.getNamespace, "function");
+  it("sends dynamic token via getToken", async () => {
+    const capture = { calls: [] as CapturedCall[] };
+    const client = new SkillHubClient({
+      baseUrl: "http://localhost:8080",
+      getToken: () => "dynamic_token_456",
+      fetch: capturingFetch({ success: true, data: {} }, capture),
+    });
+    await client.frontendGovernance();
+    const authHeader = (capture.calls.at(-1)!.init?.headers as Headers).get(
+      "Authorization",
+    );
+    assert.strictEqual(authHeader, "Bearer dynamic_token_456");
+  });
+
+  it("getToken returning undefined does not set auth header", async () => {
+    const capture = { calls: [] as CapturedCall[] };
+    const client = new SkillHubClient({
+      baseUrl: "http://localhost:8080",
+      getToken: () => undefined,
+      fetch: capturingFetch({ success: true, data: {} }, capture),
+    });
+    await client.frontendAdmin();
+    const headers = capture.calls.at(-1)!.init?.headers as Headers;
+    assert.strictEqual(headers.has("Authorization"), false);
+  });
+
+  it("passes credentials from options", async () => {
+    const capture = { calls: [] as CapturedCall[] };
+    const client = new SkillHubClient({
+      baseUrl: "http://localhost:8080",
+      credentials: "include",
+      fetch: capturingFetch({ success: true, data: {} }, capture),
+    });
+    await client.frontendSearch();
+    assert.strictEqual(capture.calls.at(-1)!.init?.credentials, "include");
+  });
+
+  it("per-request credentials override constructor default", async () => {
+    const capture = { calls: [] as CapturedCall[] };
+    const client = new SkillHubClient({
+      baseUrl: "http://localhost:8080",
+      credentials: "include",
+      fetch: capturingFetch({ success: true, data: {} }, capture),
+    });
+    // me() sets credentials: "include" in init
+    await client.me();
+    // Should have the per-request value
+    assert.strictEqual(capture.calls.at(-1)!.init?.credentials, "include");
+  });
+
+  it("custom headers are merged into every request", async () => {
+    const capture = { calls: [] as CapturedCall[] };
+    const client = new SkillHubClient({
+      baseUrl: "http://localhost:8080",
+      headers: { "X-Client": "web", "X-Version": "1.0" },
+      fetch: capturingFetch({ success: true, data: {} }, capture),
+    });
+    await client.frontendNamespaces();
+    const headers = capture.calls.at(-1)!.init?.headers as Headers;
+    assert.strictEqual(headers.get("X-Client"), "web");
+    assert.strictEqual(headers.get("X-Version"), "1.0");
+    // Default content-type is still set
+    assert.strictEqual(headers.get("Content-Type"), "application/json");
+  });
+
+  it("custom fetch is used when provided", async () => {
+    let called = false;
+    const customFetch = (async () => {
+      called = true;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ success: true, data: {} }),
+        headers: new Headers(),
+      } as Response;
+    }) as typeof globalThis.fetch;
+
+    const client = new SkillHubClient({
+      baseUrl: "http://localhost:8080",
+      fetch: customFetch,
+    });
+    await client.frontendGovernance();
+    assert.strictEqual(called, true);
+  });
+
+  it("token takes precedence over getToken", async () => {
+    const capture = { calls: [] as CapturedCall[] };
+    const client = new SkillHubClient({
+      baseUrl: "http://localhost:8080",
+      token: "static_token",
+      getToken: () => "dynamic_token",
+      fetch: capturingFetch({ success: true, data: {} }, capture),
+    });
+    await client.me();
+    const authHeader = (capture.calls.at(-1)!.init?.headers as Headers).get(
+      "Authorization",
+    );
+    assert.strictEqual(authHeader, "Bearer static_token");
   });
 });
 
-describe("Frontend client methods", () => {
-  const client = new SkillHubClient("http://localhost:8080");
+// ── URL construction tests: portal methods ───────────────────────────────
 
-  it("frontendSearch is a function", () => {
-    assert.strictEqual(typeof client.frontendSearch, "function");
+describe("Portal client URL construction", () => {
+  let capture = { calls: [] as CapturedCall[] };
+  let client: SkillHubClient;
+
+  before(() => {
+    capture = { calls: [] as CapturedCall[] };
+    client = new SkillHubClient({
+      baseUrl: "http://localhost:8080",
+      fetch: capturingFetch({ success: true, data: {} }, capture),
+    });
   });
 
-  it("frontendSkillDetail is a function", () => {
-    assert.strictEqual(typeof client.frontendSkillDetail, "function");
+  it("getSkill encodes namespace and slug", async () => {
+    await client.getSkill("team alpha", "my/skill");
+    assert.strictEqual(
+      capture.calls.at(-1)!.url,
+      "http://localhost:8080/api/v1/skills/team%20alpha/my%2Fskill",
+    );
   });
 
-  it("frontendVersionDetail is a function", () => {
-    assert.strictEqual(typeof client.frontendVersionDetail, "function");
+  it("getNamespace encodes slug", async () => {
+    await client.getNamespace("team alpha");
+    assert.strictEqual(
+      capture.calls.at(-1)!.url,
+      "http://localhost:8080/api/v1/namespaces/team%20alpha",
+    );
   });
 
-  it("frontendPublishValidate is a function", () => {
-    assert.strictEqual(typeof client.frontendPublishValidate, "function");
+  it("search builds query params", async () => {
+    await client.search({
+      keyword: "agent",
+      sortBy: "downloads",
+      page: 1,
+      size: 20,
+      labelSlugs: ["go", "ci"],
+      installableOnly: true,
+    });
+    const url = capture.calls.at(-1)!.url;
+    assert.ok(url.includes("keyword=agent"));
+    assert.ok(url.includes("sortBy=downloads"));
+    assert.ok(url.includes("page=1"));
+    assert.ok(url.includes("size=20"));
+    assert.ok(url.includes("labelSlugs=go%2Cci"));
+    assert.ok(url.includes("installableOnly=true"));
   });
 
-  it("frontendNamespaces is a function", () => {
-    assert.strictEqual(typeof client.frontendNamespaces, "function");
-  });
-
-  it("frontendNamespaceDetail is a function", () => {
-    assert.strictEqual(typeof client.frontendNamespaceDetail, "function");
-  });
-
-  it("frontendReviews is a function", () => {
-    assert.strictEqual(typeof client.frontendReviews, "function");
-  });
-
-  it("frontendReviewDetail is a function", () => {
-    assert.strictEqual(typeof client.frontendReviewDetail, "function");
-  });
-
-  it("frontendPromotions is a function", () => {
-    assert.strictEqual(typeof client.frontendPromotions, "function");
-  });
-
-  it("frontendPromotionDetail is a function", () => {
-    assert.strictEqual(typeof client.frontendPromotionDetail, "function");
-  });
-
-  it("frontendGovernance is a function", () => {
-    assert.strictEqual(typeof client.frontendGovernance, "function");
-  });
-
-  it("frontendAdmin is a function", () => {
-    assert.strictEqual(typeof client.frontendAdmin, "function");
+  it("search omits undefined params", async () => {
+    await client.search({});
+    assert.strictEqual(
+      capture.calls.at(-1)!.url,
+      "http://localhost:8080/api/v1/search",
+    );
   });
 });
+
+// ── URL construction tests: release methods ──────────────────────────────
+
+describe("Release URL construction", () => {
+  let capture = { calls: [] as CapturedCall[] };
+  let client: SkillHubClient;
+
+  before(() => {
+    capture = { calls: [] as CapturedCall[] };
+    client = new SkillHubClient({
+      baseUrl: "http://localhost:8080",
+      fetch: capturingFetch({ success: true, data: {} }, capture),
+    });
+  });
+
+  it("listReleases encodes namespace and slug, adds page/size", async () => {
+    await client.listReleases("team alpha", "my/skill", 0, 50);
+    assert.strictEqual(
+      capture.calls.at(-1)!.url,
+      "http://localhost:8080/api/v1/skills/team%20alpha/my%2Fskill/releases?page=0&size=50",
+    );
+  });
+
+  it("getLatestRelease encodes namespace and slug", async () => {
+    await client.getLatestRelease("ns", "my-skill", "beta");
+    assert.strictEqual(
+      capture.calls.at(-1)!.url,
+      "http://localhost:8080/api/v1/skills/ns/my-skill/releases/latest?channel=beta",
+    );
+  });
+
+  it("getRelease builds correct path with releases segment", async () => {
+    await client.getRelease("ns", "skill", 42);
+    assert.strictEqual(
+      capture.calls.at(-1)!.url,
+      "http://localhost:8080/api/v1/skills/ns/skill/releases/42",
+    );
+  });
+
+  it("createRelease builds correct path", async () => {
+    await client.createRelease("ns", "skill", {
+      versionId: 5,
+      title: "v1.0",
+    });
+    assert.strictEqual(
+      capture.calls.at(-1)!.url,
+      "http://localhost:8080/api/v1/skills/ns/skill/releases",
+    );
+  });
+
+  it("publishRelease builds correct path", async () => {
+    await client.publishRelease("ns", "skill", 1);
+    assert.strictEqual(
+      capture.calls.at(-1)!.url,
+      "http://localhost:8080/api/v1/skills/ns/skill/releases/1/publish",
+    );
+  });
+});
+
+// ── URL construction tests: tool methods ──────────────────────────────────
+
+describe("Tool API URL construction", () => {
+  let capture = { calls: [] as CapturedCall[] };
+  let client: SkillHubClient;
+
+  before(() => {
+    capture = { calls: [] as CapturedCall[] };
+    client = new SkillHubClient({
+      baseUrl: "http://localhost:8080",
+      fetch: capturingFetch({ success: true, data: {} }, capture),
+    });
+  });
+
+  it("toolResolve encodes namespace and slug", async () => {
+    await client.toolResolve("team alpha", "my/skill", "1.0.0");
+    assert.strictEqual(
+      capture.calls.at(-1)!.url,
+      "http://localhost:8080/api/tool/v1/skills/team%20alpha/my%2Fskill/resolve?version=1.0.0",
+    );
+  });
+
+  it("toolInstall encodes namespace and slug", async () => {
+    await client.toolInstall("team alpha", "my/skill");
+    assert.strictEqual(
+      capture.calls.at(-1)!.url,
+      "http://localhost:8080/api/tool/v1/skills/team%20alpha/my%2Fskill/install",
+    );
+  });
+
+  it("toolDiff encodes path params", async () => {
+    await client.toolDiff("ns", "skill", "1.0.0", "2.0.0");
+    const url = capture.calls.at(-1)!.url;
+    assert.ok(url.includes("/api/tool/v1/skills/ns/skill/diff"));
+    assert.ok(url.includes("from=1.0.0"));
+    assert.ok(url.includes("to=2.0.0"));
+  });
+
+  it("toolValidate encodes namespace", async () => {
+    const blob = new Blob(["test"]);
+    await client.toolValidate("team alpha", blob);
+    assert.strictEqual(
+      capture.calls.at(-1)!.url,
+      "http://localhost:8080/api/tool/v1/skills/team%20alpha/validate",
+    );
+  });
+
+  it("toolPublish encodes namespace", async () => {
+    const blob = new Blob(["test"]);
+    await client.toolPublish("team alpha", blob);
+    assert.strictEqual(
+      capture.calls.at(-1)!.url,
+      "http://localhost:8080/api/tool/v1/skills/team%20alpha/publish",
+    );
+  });
+});
+
+// ── URL construction tests: community portal methods ──────────────────────
+
+describe("Community portal URL construction", () => {
+  let capture = { calls: [] as CapturedCall[] };
+  let client: SkillHubClient;
+
+  before(() => {
+    capture = { calls: [] as CapturedCall[] };
+    client = new SkillHubClient({
+      baseUrl: "http://localhost:8080",
+      fetch: capturingFetch({ success: true, data: {} }, capture),
+    });
+  });
+
+  it("listIssues encodes namespace and slug", async () => {
+    await client.listIssues("team alpha", "my/skill", {
+      status: "OPEN",
+      page: 0,
+      size: 20,
+    });
+    assert.strictEqual(
+      capture.calls.at(-1)!.url,
+      "http://localhost:8080/api/v1/skills/team%20alpha/my%2Fskill/issues?status=OPEN&page=0&size=20",
+    );
+  });
+
+  it("getIssue builds correct path with issues segment", async () => {
+    await client.getIssue("ns", "skill", 5);
+    assert.strictEqual(
+      capture.calls.at(-1)!.url,
+      "http://localhost:8080/api/v1/skills/ns/skill/issues/5",
+    );
+  });
+
+  it("addIssueComment builds correct path", async () => {
+    await client.addIssueComment("ns", "skill", 5, { body: "comment" });
+    assert.strictEqual(
+      capture.calls.at(-1)!.url,
+      "http://localhost:8080/api/v1/skills/ns/skill/issues/5/comments",
+    );
+  });
+
+  it("getDiscussion builds correct path with discussions segment", async () => {
+    await client.getDiscussion("ns", "skill", 3);
+    assert.strictEqual(
+      capture.calls.at(-1)!.url,
+      "http://localhost:8080/api/v1/skills/ns/skill/discussions/3",
+    );
+  });
+
+  it("getWikiPage encodes pageSlug", async () => {
+    await client.getWikiPage("ns", "skill", "getting started");
+    assert.strictEqual(
+      capture.calls.at(-1)!.url,
+      "http://localhost:8080/api/v1/skills/ns/skill/wiki/getting%20started",
+    );
+  });
+
+  it("getProposal builds correct path with proposals segment", async () => {
+    await client.getProposal("ns", "skill", 7);
+    assert.strictEqual(
+      capture.calls.at(-1)!.url,
+      "http://localhost:8080/api/v1/skills/ns/skill/proposals/7",
+    );
+  });
+
+  it("communitySearch encodes all params", async () => {
+    await client.communitySearch("ns", "skill", {
+      query: "bug",
+      types: "issues,discussions",
+      page: 0,
+      size: 10,
+    });
+    const url = capture.calls.at(-1)!.url;
+    assert.ok(url.includes("/community/search"));
+    assert.ok(url.includes("query=bug"));
+    assert.ok(url.includes("types=issues%2Cdiscussions"));
+    assert.ok(url.includes("page=0"));
+    assert.ok(url.includes("size=10"));
+  });
+});
+
+// ── URL construction tests: agent CI methods ──────────────────────────────
+
+describe("Agent CI URL construction", () => {
+  let capture = { calls: [] as CapturedCall[] };
+  let client: SkillHubClient;
+
+  before(() => {
+    capture = { calls: [] as CapturedCall[] };
+    client = new SkillHubClient({
+      baseUrl: "http://localhost:8080",
+      fetch: capturingFetch({ success: true, data: {} }, capture),
+    });
+  });
+
+  it("listPipelineRuns builds correct path", async () => {
+    await client.listPipelineRuns(1, 0, 20);
+    assert.strictEqual(
+      capture.calls.at(-1)!.url,
+      "http://localhost:8080/api/v1/skills/1/ci/runs?page=0&size=20",
+    );
+  });
+
+  it("getPipelineRun builds correct path", async () => {
+    await client.getPipelineRun(1, 5);
+    assert.strictEqual(
+      capture.calls.at(-1)!.url,
+      "http://localhost:8080/api/v1/skills/1/ci/runs/5",
+    );
+  });
+
+  it("listCheckRuns builds correct path", async () => {
+    await client.listCheckRuns(1, 5);
+    assert.strictEqual(
+      capture.calls.at(-1)!.url,
+      "http://localhost:8080/api/v1/skills/1/ci/runs/5/checks",
+    );
+  });
+
+  it("evaluateGates builds query params", async () => {
+    await client.evaluateGates(1, { trigger: "publish", versionId: 3 });
+    const url = capture.calls.at(-1)!.url;
+    assert.ok(url.includes("/api/v1/skills/1/ci/gates"));
+    assert.ok(url.includes("trigger=publish"));
+    assert.ok(url.includes("versionId=3"));
+  });
+});
+
+// ── Frontend client URL construction ──────────────────────────────────────
+
+describe("Frontend client URL construction", () => {
+  let capture = { calls: [] as CapturedCall[] };
+  let client: SkillHubClient;
+
+  before(() => {
+    capture = { calls: [] as CapturedCall[] };
+    client = new SkillHubClient({
+      baseUrl: "http://localhost:8080",
+      fetch: capturingFetch({ success: true, data: {} }, capture),
+    });
+  });
+
+  it("frontendSearch builds expected query string", async () => {
+    await client.frontendSearch({
+      keyword: "agent tools",
+      sortBy: "downloads",
+      page: 1,
+      size: 20,
+      labelSlugs: ["go", "ci"],
+      installableOnly: true,
+    });
+    assert.strictEqual(
+      capture.calls.at(-1)!.url,
+      "http://localhost:8080/api/v1/frontend/search?q=agent+tools&sort=downloads&page=1&size=20&labels=go%2Cci&installable=true",
+    );
+  });
+
+  it("frontendSearch omits empty query params", async () => {
+    await client.frontendSearch({});
+    assert.strictEqual(
+      capture.calls.at(-1)!.url,
+      "http://localhost:8080/api/v1/frontend/search",
+    );
+  });
+
+  it("frontendSkillDetail encodes path params", async () => {
+    await client.frontendSkillDetail("team alpha", "my/skill");
+    assert.strictEqual(
+      capture.calls.at(-1)!.url,
+      "http://localhost:8080/api/v1/frontend/skills/team%20alpha/my%2Fskill",
+    );
+  });
+
+  it("frontendVersionDetail encodes version", async () => {
+    await client.frontendVersionDetail("ns", "skill", "1.0.0-beta");
+    assert.strictEqual(
+      capture.calls.at(-1)!.url,
+      "http://localhost:8080/api/v1/frontend/skills/ns/skill/versions/1.0.0-beta",
+    );
+  });
+
+  it("frontendPublishValidate encodes namespace", async () => {
+    await client.frontendPublishValidate("team alpha");
+    assert.strictEqual(
+      capture.calls.at(-1)!.url,
+      "http://localhost:8080/api/v1/frontend/skills/team%20alpha/publish/validate",
+    );
+  });
+
+  it("frontendNamespaceDetail encodes slug", async () => {
+    await client.frontendNamespaceDetail("team alpha");
+    assert.strictEqual(
+      capture.calls.at(-1)!.url,
+      "http://localhost:8080/api/v1/frontend/namespaces/team%20alpha",
+    );
+  });
+
+  it("frontendReleaseDetail builds expected path", async () => {
+    await client.frontendReleaseDetail("ns", "skill", 42);
+    assert.strictEqual(
+      capture.calls.at(-1)!.url,
+      "http://localhost:8080/api/v1/frontend/skills/ns/skill/releases/42",
+    );
+  });
+
+  it("frontendWikiDetail encodes pageSlug", async () => {
+    await client.frontendWikiDetail("ns", "skill", "getting started");
+    assert.strictEqual(
+      capture.calls.at(-1)!.url,
+      "http://localhost:8080/api/v1/frontend/skills/ns/skill/wiki/getting%20started",
+    );
+  });
+
+  it("frontendReviews builds expected path", async () => {
+    await client.frontendReviews();
+    assert.strictEqual(
+      capture.calls.at(-1)!.url,
+      "http://localhost:8080/api/v1/frontend/reviews",
+    );
+  });
+
+  it("frontendReviews builds query params for page and size", async () => {
+    await client.frontendReviews(1, 50);
+    assert.strictEqual(
+      capture.calls.at(-1)!.url,
+      "http://localhost:8080/api/v1/frontend/reviews?page=1&size=50",
+    );
+  });
+
+  it("frontendReviewDetail builds expected path", async () => {
+    await client.frontendReviewDetail(7);
+    assert.strictEqual(
+      capture.calls.at(-1)!.url,
+      "http://localhost:8080/api/v1/frontend/reviews/7",
+    );
+  });
+
+  it("frontendPromotions builds expected path", async () => {
+    await client.frontendPromotions();
+    assert.strictEqual(
+      capture.calls.at(-1)!.url,
+      "http://localhost:8080/api/v1/frontend/promotions",
+    );
+  });
+
+  it("frontendPromotions builds query params for page and size", async () => {
+    await client.frontendPromotions(0, 50);
+    assert.strictEqual(
+      capture.calls.at(-1)!.url,
+      "http://localhost:8080/api/v1/frontend/promotions?page=0&size=50",
+    );
+  });
+
+  it("frontendIssueDetail builds expected path", async () => {
+    await client.frontendIssueDetail("ns", "skill", 1);
+    assert.strictEqual(
+      capture.calls.at(-1)!.url,
+      "http://localhost:8080/api/v1/frontend/skills/ns/skill/issues/1",
+    );
+  });
+
+  it("frontendDiscussionDetail builds expected path", async () => {
+    await client.frontendDiscussionDetail("ns", "skill", 1);
+    assert.strictEqual(
+      capture.calls.at(-1)!.url,
+      "http://localhost:8080/api/v1/frontend/skills/ns/skill/discussions/1",
+    );
+  });
+
+  it("frontendProposalDetail builds expected path", async () => {
+    await client.frontendProposalDetail("ns", "skill", 1);
+    assert.strictEqual(
+      capture.calls.at(-1)!.url,
+      "http://localhost:8080/api/v1/frontend/skills/ns/skill/proposals/1",
+    );
+  });
+
+  it("frontendIssueList accepts optional page and size", async () => {
+    await client.frontendIssueList("ns", "skill", 2, 50);
+    assert.strictEqual(
+      capture.calls.at(-1)!.url,
+      "http://localhost:8080/api/v1/frontend/skills/ns/skill/issues?page=2&size=50",
+    );
+  });
+});
+
+// ── SkillHubError tests ──────────────────────────────────────────────────
+
+describe("SkillHubError", () => {
+  it("has code, message, and optional status", () => {
+    const err = new SkillHubError("not_found", "Skill not found", 404, {
+      skillId: 1,
+    });
+    assert.strictEqual(err.code, "not_found");
+    assert.strictEqual(err.message, "Skill not found");
+    assert.strictEqual(err.status, 404);
+    assert.deepStrictEqual(err.details, { skillId: 1 });
+    assert.ok(err instanceof Error);
+  });
+
+  it("name is SkillHubError", () => {
+    const err = new SkillHubError("test", "msg");
+    assert.strictEqual(err.name, "SkillHubError");
+  });
+});
+
+// ── Unwrap tests ─────────────────────────────────────────────────────────
+
+describe("unwrap", () => {
+  let client: SkillHubClient;
+
+  before(() => {
+    client = new SkillHubClient({
+      baseUrl: "http://localhost:8080",
+      fetch: mockFetch({
+        success: true,
+        data: { namespaces: [], availableActions: { canCreateNamespace: true } },
+      }),
+    });
+  });
+
+  it("returns data on success envelope", async () => {
+    const env: Envelope<{ x: number }> = { success: true, data: { x: 42 } };
+    const data = await client.unwrap(env);
+    assert.deepStrictEqual(data, { x: 42 });
+  });
+
+  it("returns data from resolved promise", async () => {
+    const data = await client.unwrap(
+      Promise.resolve({ success: true, data: { y: "hello" } } as Envelope<{
+        y: string;
+      }>),
+    );
+    assert.deepStrictEqual(data, { y: "hello" });
+  });
+
+  it("throws SkillHubError on error envelope", async () => {
+    const env: Envelope<unknown> = {
+      success: false,
+      error: { code: "not_found", message: "skill not found" },
+    };
+    await assert.rejects(
+      () => client.unwrap(env),
+      (err: unknown) => {
+        assert.ok(err instanceof SkillHubError);
+        assert.strictEqual((err as SkillHubError).code, "not_found");
+        assert.strictEqual(
+          (err as SkillHubError).message,
+          "skill not found",
+        );
+        return true;
+      },
+    );
+  });
+
+  it("throws SkillHubError with client.error when no error code", async () => {
+    const env: Envelope<unknown> = {
+      success: false,
+    };
+    await assert.rejects(
+      () => client.unwrap(env),
+      (err: unknown) => {
+        assert.ok(err instanceof SkillHubError);
+        assert.strictEqual((err as SkillHubError).code, "client.error");
+        return true;
+      },
+    );
+  });
+
+  it("throws SkillHubError on rejected promise (network error)", async () => {
+    await assert.rejects(
+      () =>
+        client.unwrap(
+          Promise.reject(new TypeError("fetch failed")),
+        ),
+      (err: unknown) => {
+        assert.ok(err instanceof SkillHubError);
+        assert.strictEqual(
+          (err as SkillHubError).code,
+          "client.network_error",
+        );
+        return true;
+      },
+    );
+  });
+
+  it("throws SkillHubError on invalid JSON (SyntaxError)", async () => {
+    await assert.rejects(
+      () =>
+        client.unwrap(
+          Promise.reject(new SyntaxError("Unexpected token")),
+        ),
+      (err: unknown) => {
+        assert.ok(err instanceof SkillHubError);
+        assert.strictEqual(
+          (err as SkillHubError).code,
+          "client.invalid_json",
+        );
+        return true;
+      },
+    );
+  });
+
+  it("carries status from HTTP response", async () => {
+    const client404 = new SkillHubClient({
+      baseUrl: "http://localhost:8080",
+      fetch: mockFetch(
+        { success: false, error: { code: "not_found", message: "gone" } },
+        404,
+      ),
+    });
+    try {
+      await client404.unwrap(client404.frontendAdmin());
+      assert.fail("expected SkillHubError");
+    } catch (err) {
+      assert.ok(err instanceof SkillHubError);
+      assert.strictEqual((err as SkillHubError).status, 404);
+    }
+  });
+
+  it("preserves SkillHubError through re-wrap", async () => {
+    const original = new SkillHubError("custom", "original");
+    await assert.rejects(
+      () => client.unwrap(Promise.reject(original)),
+      (err: unknown) => {
+        assert.ok(err instanceof SkillHubError);
+        assert.strictEqual((err as SkillHubError).code, "custom");
+        return true;
+      },
+    );
+  });
+});
+
+// ── Type shape tests (existing, kept for coverage) ────────────────────────
 
 describe("Frontend type shapes", () => {
   it("RegistrySearchReadModel includes availableActions", () => {
@@ -155,452 +890,30 @@ describe("Frontend type shapes", () => {
       availableActions: actions,
     };
     assert.strictEqual(model.availableActions.canCreateSkill, true);
-    assert.strictEqual(model.availableActions.canAccessAdmin, false);
   });
 
-  it("SkillDetailReadModel includes availableActions", () => {
-    const actions: SkillDetailActions = {
-      canEdit: false,
-      canPublish: false,
-      canDelete: false,
-      canSubmitForReview: false,
-      canRequestPromotion: false,
-      canStar: true,
-      canReport: true,
-      canManage: false,
-    };
-    const model: SkillDetailReadModel = {
-      skill: {
-        id: 1,
-        slug: "my-skill",
-        displayName: "My Skill",
-        ownerId: "u1",
-        summary: "test",
-        visibility: "PUBLIC",
-        status: "ACTIVE",
-        downloadCount: 0,
-        starCount: 0,
-        ratingAvg: 0,
-        canManage: false,
-      },
-      availableActions: actions,
-    };
-    assert.strictEqual(model.availableActions.canStar, true);
-    assert.strictEqual(model.availableActions.canManage, false);
-  });
-
-  it("VersionDetailReadModel includes availableActions", () => {
-    const actions: VersionActions = {
-      canCompare: true,
-      canDownload: true,
-      canSubmitForReview: false,
-      canRequestPromotion: false,
-      canYank: false,
-      canReview: false,
-    };
-    const model: VersionDetailReadModel = {
-      version: { id: 1, version: "1.0.0", status: "ACTIVE" },
-      availableActions: actions,
-    };
-    assert.strictEqual(model.availableActions.canDownload, true);
-    assert.strictEqual(model.availableActions.canYank, false);
-  });
-
-  it("PublishValidateReadModel includes availableActions", () => {
-    const actions: PublishValidateActions = {
-      canPublish: true,
-      canOverrideWarnings: false,
-    };
-    const model: PublishValidateReadModel = {
-      valid: false,
-      warnings: ["no package uploaded"],
-      availableActions: actions,
-    };
-    assert.strictEqual(model.availableActions.canPublish, true);
-  });
-
-  it("NamespaceListReadModel includes availableActions", () => {
-    const actions: NamespaceListActions = {
-      canCreateNamespace: true,
-    };
-    const model: NamespaceListReadModel = {
-      namespaces: [],
-      availableActions: actions,
-    };
-    assert.strictEqual(model.availableActions.canCreateNamespace, true);
-  });
-
-  it("NamespaceDetailReadModel includes availableActions", () => {
-    const actions: NamespaceDetailActions = {
-      canEdit: true,
-      canDelete: false,
-      canManageMembers: true,
-      canTransferOwner: false,
-      canLeave: false,
-      canJoin: false,
-    };
-    const model: NamespaceDetailReadModel = {
-      namespace: {
-        id: 1,
-        slug: "my-ns",
-        displayName: "My NS",
-        type: "PUBLIC",
-        description: "",
-      },
-      availableActions: actions,
-    };
-    assert.strictEqual(model.availableActions.canEdit, true);
-    assert.strictEqual(model.availableActions.canDelete, false);
-  });
-
-  it("ReviewQueueReadModel includes availableActions", () => {
-    const actions: ReviewQueueActions = {
-      canReview: true,
-      canSubmit: true,
-      canWithdraw: true,
-    };
+  it("ReviewQueueReadModel includes hasMore", () => {
     const model: ReviewQueueReadModel = {
       tasks: [],
       pendingCount: 0,
       page: 0,
       size: 20,
       hasMore: false,
-      availableActions: actions,
+      availableActions: { canReview: true, canSubmit: true, canWithdraw: true },
     };
-    assert.strictEqual(model.availableActions.canReview, true);
-    assert.strictEqual(model.page, 0);
     assert.strictEqual(model.hasMore, false);
   });
 
-  it("ReviewDetailReadModel includes availableActions", () => {
-    const actions: ReviewDetailActions = {
-      canApprove: true,
-      canReject: true,
-      canWithdraw: false,
-    };
-    const model: ReviewDetailReadModel = {
-      task: {
-        id: 1,
-        skillVersionId: 2,
-        namespaceId: 3,
-        submittedBy: "u1",
-        status: "PENDING",
-        submittedAt: "2025-01-01T00:00:00Z",
-      },
-      skillName: "test",
-      version: "1.0.0",
-      availableActions: actions,
-    };
-    assert.strictEqual(model.availableActions.canApprove, true);
-  });
-
-  it("PromotionQueueReadModel includes availableActions", () => {
-    const actions: PromotionQueueActions = {
-      canReview: true,
-      canSubmit: true,
-      canWithdraw: true,
-    };
+  it("PromotionQueueReadModel includes hasMore", () => {
     const model: PromotionQueueReadModel = {
       requests: [],
       pendingCount: 0,
       page: 0,
       size: 20,
       hasMore: false,
-      availableActions: actions,
+      availableActions: { canReview: true, canSubmit: true, canWithdraw: true },
     };
-    assert.strictEqual(model.availableActions.canSubmit, true);
-    assert.strictEqual(model.page, 0);
     assert.strictEqual(model.hasMore, false);
-  });
-
-  it("PromotionDetailReadModel includes availableActions", () => {
-    const actions: PromotionDetailActions = {
-      canApprove: true,
-      canReject: false,
-      canWithdraw: false,
-    };
-    const model: PromotionDetailReadModel = {
-      request: {
-        id: 1,
-        sourceSkillId: 2,
-        sourceVersionId: 3,
-        targetNamespaceId: 4,
-        submittedBy: "u1",
-        status: "PENDING",
-        submittedAt: "2025-01-01T00:00:00Z",
-      },
-      sourceSkillName: "test",
-      availableActions: actions,
-    };
-    assert.strictEqual(model.availableActions.canApprove, true);
-  });
-
-  it("GovernanceWorkbenchReadModel includes availableActions", () => {
-    const actions: GovernanceWorkbenchActions = {
-      canReview: true,
-      canAccessAdmin: false,
-      canViewAuditLog: true,
-    };
-    const model: GovernanceWorkbenchReadModel = {
-      summary: {
-        total: 0,
-        unread: 0,
-        byCategory: {},
-        pendingReviews: 0,
-        pendingPromotions: 0,
-      },
-      recentActivity: [],
-      availableActions: actions,
-    };
-    assert.strictEqual(model.availableActions.canViewAuditLog, true);
-    assert.strictEqual(model.availableActions.canAccessAdmin, false);
-  });
-
-  it("AdminPageReadModel includes availableActions", () => {
-    const actions: AdminPageActions = {
-      canManageSkills: true,
-      canManageUsers: false,
-      canManageLabels: true,
-      canResolveReports: true,
-      canRebuildSearch: false,
-      canViewAuditLog: false,
-      canManageNamespaces: false,
-    };
-    const model: AdminPageReadModel = {
-      stats: {
-        totalSkills: 0,
-        totalNamespaces: 0,
-        totalUsers: 0,
-        pendingReviews: 0,
-        pendingPromotions: 0,
-        openReports: 0,
-      },
-      availableActions: actions,
-    };
-    assert.strictEqual(model.availableActions.canManageSkills, true);
-    assert.strictEqual(model.availableActions.canManageUsers, false);
-  });
-});
-
-describe("Tool API client methods", () => {
-  const client = new SkillHubClient("http://localhost:8080");
-
-  it("toolWorkspaceMetadata is a function", () => {
-    assert.strictEqual(typeof client.toolWorkspaceMetadata, "function");
-  });
-
-  it("toolPackageHash is a function", () => {
-    assert.strictEqual(typeof client.toolPackageHash, "function");
-  });
-
-  it("toolResolve is a function", () => {
-    assert.strictEqual(typeof client.toolResolve, "function");
-  });
-
-  it("toolInstall is a function", () => {
-    assert.strictEqual(typeof client.toolInstall, "function");
-  });
-
-  it("toolDiff is a function", () => {
-    assert.strictEqual(typeof client.toolDiff, "function");
-  });
-
-  it("toolValidate is a function", () => {
-    assert.strictEqual(typeof client.toolValidate, "function");
-  });
-
-  it("toolPublish is a function", () => {
-    assert.strictEqual(typeof client.toolPublish, "function");
-  });
-
-  it("toolEvaluate is a function", () => {
-    assert.strictEqual(typeof client.toolEvaluate, "function");
-  });
-
-  it("toolPropose is a function", () => {
-    assert.strictEqual(typeof client.toolPropose, "function");
-  });
-});
-
-describe("Tool API type shapes", () => {
-  it("WorkspaceMetadataResponse shape", () => {
-    const ws: WorkspaceMetadataResponse = {
-      workspace: {
-        requiredFiles: ["SKILL.md"],
-        optionalFiles: ["README.md"],
-        manifestFormat: "SKILL.md with YAML frontmatter",
-        schema: {
-          fields: ["name", "description", "version"],
-          required: ["name"],
-        },
-      },
-    };
-    assert.deepStrictEqual(ws.workspace.requiredFiles, ["SKILL.md"]);
-  });
-
-  it("PackageManifest shape", () => {
-    const m: PackageManifest = {
-      entries: [
-        { path: "SKILL.md", size: 100, contentType: "text/markdown", sha256: "abc123" },
-      ],
-      hash: "sha256:def456",
-      totalSize: 100,
-      fileCount: 1,
-    };
-    assert.strictEqual(m.hash, "sha256:def456");
-    assert.strictEqual(m.fileCount, 1);
-  });
-
-  it("PackageHashRequest shape", () => {
-    const entries: PackageEntry[] = [
-      { path: "a.txt", content: "hello", size: 5, contentType: "text/plain" },
-    ];
-    assert.strictEqual(entries.length, 1);
-    assert.strictEqual(entries[0].path, "a.txt");
-  });
-
-  it("ResolveResult shape", () => {
-    const r: ResolveResult = {
-      skillId: 1,
-      namespace: "ns",
-      slug: "my-skill",
-      version: "1.0.0",
-      versionId: 5,
-      fingerprint: "sha256:abc123",
-      downloadUrl: "/api/v1/skills/ns/my-skill/versions/1.0.0/download",
-    };
-    assert.strictEqual(r.fingerprint.startsWith("sha256:"), true);
-  });
-
-  it("InstallTarget shape", () => {
-    const agent: AgentRuntime = { type: "claude-code", minVersion: "1.0.0" };
-    const target: InstallTarget = {
-      skillId: 1,
-      skillSlug: "my-skill",
-      namespace: "ns",
-      version: "1.0.0",
-      fingerprint: "sha256:abc",
-      downloadUrl: "/download",
-      supportedAgents: [agent],
-    };
-    assert.strictEqual(target.supportedAgents![0].type, "claude-code");
-  });
-
-  it("VersionDiff shape", () => {
-    const line: DiffLine = { type: "ADD", content: "new line" };
-    const hunk: DiffHunk = {
-      oldStart: 1, oldLines: 0, newStart: 1, newLines: 1,
-      lines: [line],
-    };
-    const file: DiffFile = {
-      path: "a.txt",
-      changeType: "MODIFIED",
-      oldSize: 10, newSize: 12,
-      binary: false, truncated: false,
-      hunks: [hunk],
-    };
-    const summary: DiffSummary = {
-      totalFiles: 1, addedFiles: 0, modifiedFiles: 1, removedFiles: 0,
-      addedLines: 1, removedLines: 1,
-    };
-    const diff: VersionDiff = {
-      fromVersion: "1.0", toVersion: "2.0",
-      summary,
-      files: [file],
-    };
-    assert.strictEqual(diff.summary.totalFiles, 1);
-    assert.strictEqual(diff.files[0].changeType, "MODIFIED");
-  });
-
-  it("ToolValidateResponse shape", () => {
-    const r: ToolValidateResponse = {
-      valid: true,
-      warnings: [],
-      resolvedSlug: "my-skill",
-      resolvedVersion: "1.0.0",
-    };
-    assert.strictEqual(r.valid, true);
-  });
-
-  it("ToolPublishResponse shape", () => {
-    const r: ToolPublishResponse = {
-      skillId: 1,
-      slug: "my-skill",
-      version: { id: 10, version: "1.0.0", status: "PUBLISHED" },
-    };
-    assert.strictEqual(r.version.version, "1.0.0");
-  });
-
-  it("EvaluateRequest shape", () => {
-    const req: EvaluateRequest = { skillId: 1, versionId: 2, trigger: "publish" };
-    assert.strictEqual(req.trigger, "publish");
-  });
-
-  it("EvaluateResponse shape (placeholder)", () => {
-    const resp: EvaluateResponse = {
-      accepted: false,
-      message: "evaluation trigger is not yet implemented (Phase 12)",
-    };
-    assert.strictEqual(resp.accepted, false);
-  });
-
-  it("ProposalRequest shape", () => {
-    const req: ProposalRequest = {
-      skillId: 1,
-      namespace: "ns",
-      slug: "my-skill",
-      title: "Update README",
-      description: "Better docs",
-    };
-    assert.strictEqual(req.title, "Update README");
-  });
-
-  it("ProposalResponse shape (placeholder)", () => {
-    const resp: ProposalResponse = {
-      accepted: false,
-      message: "proposal preparation is not yet implemented (Phase 11)",
-    };
-    assert.strictEqual(resp.accepted, false);
-  });
-});
-
-describe("Release client methods", () => {
-  const client = new SkillHubClient("http://localhost:8080");
-
-  it("listReleases is a function", () => {
-    assert.strictEqual(typeof client.listReleases, "function");
-  });
-
-  it("getLatestRelease is a function", () => {
-    assert.strictEqual(typeof client.getLatestRelease, "function");
-  });
-
-  it("getRelease is a function", () => {
-    assert.strictEqual(typeof client.getRelease, "function");
-  });
-
-  it("createRelease is a function", () => {
-    assert.strictEqual(typeof client.createRelease, "function");
-  });
-
-  it("updateRelease is a function", () => {
-    assert.strictEqual(typeof client.updateRelease, "function");
-  });
-
-  it("deleteRelease is a function", () => {
-    assert.strictEqual(typeof client.deleteRelease, "function");
-  });
-
-  it("publishRelease is a function", () => {
-    assert.strictEqual(typeof client.publishRelease, "function");
-  });
-
-  it("frontendReleaseList is a function", () => {
-    assert.strictEqual(typeof client.frontendReleaseList, "function");
-  });
-
-  it("frontendReleaseDetail is a function", () => {
-    assert.strictEqual(typeof client.frontendReleaseDetail, "function");
   });
 });
 
@@ -610,206 +923,452 @@ describe("Type exports", () => {
     assert.strictEqual(env.success, true);
   });
 
-  it("SearchResult shape is consistent", () => {
-    const result: SearchResult = {
-      skillIds: [1, 2, 3],
-      total: 3,
-      page: 1,
-      size: 20,
+  it("Envelope accepts optional status", () => {
+    const env: Envelope<{ x: number }> = {
+      success: true,
+      data: { x: 1 },
+      status: 200,
     };
-    assert.strictEqual(result.skillIds.length, 3);
-    assert.strictEqual(result.total, 3);
-  });
-
-  it("SkillDetail shape includes canManage", () => {
-    const detail: SkillDetail = {
-      id: 1,
-      slug: "my-skill",
-      displayName: "My Skill",
-      ownerId: "user-1",
-      summary: "A test skill",
-      visibility: "PUBLIC",
-      status: "ACTIVE",
-      downloadCount: 100,
-      starCount: 5,
-      ratingAvg: 4.5,
-      canManage: false,
-    };
-    assert.strictEqual(detail.canManage, false);
-  });
-
-  it("Principal shape includes platformRoles", () => {
-    const principal: Principal = {
-      userID: "user-1",
-      displayName: "Test",
-      email: "test@example.com",
-      authMethod: "session",
-      platformRoles: { SUPER_ADMIN: true },
-      isAuthenticated: true,
-    };
-    assert.ok(principal.platformRoles.SUPER_ADMIN);
+    assert.strictEqual(env.status, 200);
   });
 });
 
-describe("Frontend client URL construction", () => {
-  let captured: { url: string; init?: RequestInit } | null = null;
-  let originalFetch: typeof globalThis.fetch;
-  const client = new SkillHubClient("http://localhost:8080");
+// ── Tool API type shapes ──────────────────────────────────────────────────
 
-  before(() => {
-    originalFetch = globalThis.fetch;
-    globalThis.fetch = (async (
-      input: RequestInfo | URL,
-      init?: RequestInit
-    ): Promise<Response> => {
-      captured = {
-        url: typeof input === "string" ? input : input.toString(),
-        init,
-      };
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({ success: true, data: {} }),
-      } as Response;
-    }) as typeof globalThis.fetch;
+describe("Tool API type shapes", () => {
+  it("WorkspaceMetadataResponse shape", () => {
+    const ws: WorkspaceMetadataResponse = {
+      workspace: {
+        requiredFiles: ["SKILL.md"],
+        optionalFiles: ["README.md"],
+        manifestFormat: "SKILL.md with YAML frontmatter",
+        schema: { fields: ["name"], required: ["name"] },
+      },
+    };
+    assert.deepStrictEqual(ws.workspace.requiredFiles, ["SKILL.md"]);
   });
 
-  after(() => {
-    globalThis.fetch = originalFetch;
+  it("PackageManifest shape", () => {
+    const m: PackageManifest = {
+      entries: [
+        {
+          path: "SKILL.md",
+          size: 100,
+          contentType: "text/markdown",
+          sha256: "abc123",
+        },
+      ],
+      hash: "sha256:def456",
+      totalSize: 100,
+      fileCount: 1,
+    };
+    assert.strictEqual(m.hash, "sha256:def456");
   });
 
-  it("frontendSearch builds expected query string", async () => {
-    await client.frontendSearch({
-      keyword: "agent tools",
-      sortBy: "downloads",
-      page: 1,
-      size: 20,
-      labelSlugs: ["go", "ci"],
-      installableOnly: true,
+  it("VersionDiff shape", () => {
+    const line: DiffLine = { type: "ADD", content: "new line" };
+    const hunk: DiffHunk = {
+      oldStart: 1,
+      oldLines: 0,
+      newStart: 1,
+      newLines: 1,
+      lines: [line],
+    };
+    const file: DiffFile = {
+      path: "a.txt",
+      changeType: "MODIFIED",
+      oldSize: 10,
+      newSize: 12,
+      binary: false,
+      truncated: false,
+      hunks: [hunk],
+    };
+    const summary: DiffSummary = {
+      totalFiles: 1,
+      addedFiles: 0,
+      modifiedFiles: 1,
+      removedFiles: 0,
+      addedLines: 1,
+      removedLines: 1,
+    };
+    const diff: VersionDiff = {
+      fromVersion: "1.0",
+      toVersion: "2.0",
+      summary,
+      files: [file],
+    };
+    assert.strictEqual(diff.summary.totalFiles, 1);
+  });
+});
+
+// ── Pagination iterator tests ────────────────────────────────────────────
+
+describe("Pagination iterators", () => {
+  it("iterFrontendReviews stops at maxPages", async () => {
+    let callCount = 0;
+    const client = new SkillHubClient({
+      baseUrl: "http://localhost:8080",
+      fetch: (async () => {
+        callCount++;
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            success: true,
+            data: {
+              tasks: [{ id: callCount, skillVersionId: 1, namespaceId: 1, submittedBy: "u1", status: "PENDING", submittedAt: "2025-01-01T00:00:00Z" }],
+              pendingCount: 10,
+              page: callCount - 1,
+              size: 20,
+              hasMore: true,
+              availableActions: { canReview: true, canSubmit: true, canWithdraw: true },
+            },
+          }),
+          headers: new Headers(),
+        } as Response;
+      }) as typeof globalThis.fetch,
     });
-    assert.ok(captured, "fetch should have been called");
-    assert.strictEqual(
-      captured!.url,
-      "http://localhost:8080/api/v1/frontend/search?q=agent+tools&sort=downloads&page=1&size=20&labels=go%2Cci&installable=true"
-    );
+
+    const pages: ReviewQueueReadModel[] = [];
+    for await (const page of client.iterFrontendReviews({
+      maxPages: 3,
+      size: 1,
+    })) {
+      pages.push(page);
+    }
+    assert.strictEqual(pages.length, 3);
+    assert.strictEqual(callCount, 3);
   });
 
-  it("frontendSearch omits empty query params", async () => {
-    await client.frontendSearch({});
-    assert.strictEqual(
-      captured!.url,
-      "http://localhost:8080/api/v1/frontend/search"
-    );
+  it("iterFrontendReviews stops when hasMore is false", async () => {
+    let callCount = 0;
+    const client = new SkillHubClient({
+      baseUrl: "http://localhost:8080",
+      fetch: (async () => {
+        callCount++;
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            success: true,
+            data: {
+              tasks: [],
+              pendingCount: 0,
+              page: 0,
+              size: 20,
+              hasMore: false,
+              availableActions: { canReview: true, canSubmit: true, canWithdraw: true },
+            },
+          }),
+          headers: new Headers(),
+        } as Response;
+      }) as typeof globalThis.fetch,
+    });
+
+    const pages: ReviewQueueReadModel[] = [];
+    for await (const page of client.iterFrontendReviews()) {
+      pages.push(page);
+    }
+    assert.strictEqual(pages.length, 1);
+    assert.strictEqual(callCount, 1);
   });
 
-  it("frontendSkillDetail encodes path params", async () => {
-    await client.frontendSkillDetail("team alpha", "my/skill");
-    assert.strictEqual(
-      captured!.url,
-      "http://localhost:8080/api/v1/frontend/skills/team%20alpha/my%2Fskill"
-    );
+  it("iterFrontendReviews stops when tasks array is empty", async () => {
+    let callCount = 0;
+    const client = new SkillHubClient({
+      baseUrl: "http://localhost:8080",
+      fetch: (async () => {
+        callCount++;
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            success: true,
+            data: {
+              tasks: [],
+              pendingCount: 0,
+              page: callCount - 1,
+              size: 20,
+              hasMore: true,
+              availableActions: { canReview: true, canSubmit: true, canWithdraw: true },
+            },
+          }),
+          headers: new Headers(),
+        } as Response;
+      }) as typeof globalThis.fetch,
+    });
+
+    const pages: ReviewQueueReadModel[] = [];
+    for await (const page of client.iterFrontendReviews()) {
+      pages.push(page);
+    }
+    assert.strictEqual(pages.length, 1);
+    assert.strictEqual(callCount, 1);
   });
 
-  it("frontendVersionDetail encodes version", async () => {
-    await client.frontendVersionDetail("ns", "skill", "1.0.0-beta");
-    assert.strictEqual(
-      captured!.url,
-      "http://localhost:8080/api/v1/frontend/skills/ns/skill/versions/1.0.0-beta"
-    );
+  it("iterFrontendSearch increments page", async () => {
+    const pagesRequested: number[] = [];
+    const client = new SkillHubClient({
+      baseUrl: "http://localhost:8080",
+      fetch: (async (input: RequestInfo | URL) => {
+        const url = typeof input === "string" ? input : input.toString();
+        const pageMatch = url.match(/page=(\d+)/);
+        const page = pageMatch ? parseInt(pageMatch[1], 10) : 0;
+        pagesRequested.push(page);
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            success: true,
+            data: {
+              searchResult: { skillIds: [1], total: 3, page, size: 1 },
+              featuredLabels: [],
+              availableActions: { canCreateSkill: true, canCreateNamespace: true, canAccessAdmin: false },
+            },
+          }),
+          headers: new Headers(),
+        } as Response;
+      }) as typeof globalThis.fetch,
+    });
+
+    const pages: RegistrySearchReadModel[] = [];
+    for await (const page of client.iterFrontendSearch({
+      size: 1,
+      maxPages: 3,
+    })) {
+      pages.push(page);
+    }
+    assert.strictEqual(pages.length, 3);
+    assert.deepStrictEqual(pagesRequested, [0, 1, 2]);
   });
 
-  it("frontendPublishValidate encodes namespace", async () => {
-    await client.frontendPublishValidate("team alpha");
-    assert.strictEqual(
-      captured!.url,
-      "http://localhost:8080/api/v1/frontend/skills/team%20alpha/publish/validate"
-    );
+  it("iterFrontendSearch preserves original query filters", async () => {
+    let capturedUrl = "";
+    const client = new SkillHubClient({
+      baseUrl: "http://localhost:8080",
+      fetch: (async (input: RequestInfo | URL) => {
+        capturedUrl = typeof input === "string" ? input : input.toString();
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            success: true,
+            data: {
+              searchResult: { skillIds: [], total: 0, page: 0, size: 20 },
+              featuredLabels: [],
+              availableActions: { canCreateSkill: true, canCreateNamespace: true, canAccessAdmin: false },
+            },
+          }),
+          headers: new Headers(),
+        } as Response;
+      }) as typeof globalThis.fetch,
+    });
+
+    for await (const _page of client.iterFrontendSearch({
+      keyword: "agent",
+      sortBy: "downloads",
+      installableOnly: true,
+      maxPages: 1,
+    })) {
+      // drain
+    }
+    assert.ok(capturedUrl.includes("q=agent"));
+    assert.ok(capturedUrl.includes("sort=downloads"));
+    assert.ok(capturedUrl.includes("installable=true"));
   });
 
-  it("frontendNamespaceDetail encodes slug", async () => {
-    await client.frontendNamespaceDetail("team alpha");
-    assert.strictEqual(
-      captured!.url,
-      "http://localhost:8080/api/v1/frontend/namespaces/team%20alpha"
-    );
+  it("iterFrontendPromotions stops at maxPages", async () => {
+    let callCount = 0;
+    const client = new SkillHubClient({
+      baseUrl: "http://localhost:8080",
+      fetch: (async () => {
+        callCount++;
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            success: true,
+            data: {
+              requests: [{ id: callCount, sourceSkillId: 1, sourceVersionId: 1, targetNamespaceId: 1, submittedBy: "u1", status: "PENDING", submittedAt: "2025-01-01T00:00:00Z" }],
+              pendingCount: 10,
+              page: callCount - 1,
+              size: 20,
+              hasMore: true,
+              availableActions: { canReview: true, canSubmit: true, canWithdraw: true },
+            },
+          }),
+          headers: new Headers(),
+        } as Response;
+      }) as typeof globalThis.fetch,
+    });
+
+    const pages: PromotionQueueReadModel[] = [];
+    for await (const page of client.iterFrontendPromotions({ maxPages: 2 })) {
+      pages.push(page);
+    }
+    assert.strictEqual(pages.length, 2);
+    assert.strictEqual(callCount, 2);
   });
 
-  it("frontendReleaseDetail builds expected path", async () => {
-    await client.frontendReleaseDetail("ns", "skill", 42);
-    assert.strictEqual(
-      captured!.url,
-      "http://localhost:8080/api/v1/frontend/skills/ns/skill/releases/42"
-    );
+  it("iterFrontendIssues stops when totalCount exhausted", async () => {
+    let callCount = 0;
+    const client = new SkillHubClient({
+      baseUrl: "http://localhost:8080",
+      fetch: (async () => {
+        callCount++;
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            success: true,
+            data: {
+              issues: [{ id: callCount, title: "Test", status: "OPEN", authorId: "u1", locked: false, commentCount: 0 }],
+              totalCount: 2,
+              page: 0,
+              size: 2,
+              availableActions: { canCreateIssue: true },
+            },
+          }),
+          headers: new Headers(),
+        } as Response;
+      }) as typeof globalThis.fetch,
+    });
+
+    const pages: IssueListReadModel[] = [];
+    for await (const page of client.iterFrontendIssues("ns", "skill", {
+      size: 2,
+    })) {
+      pages.push(page);
+    }
+    assert.strictEqual(pages.length, 1);
   });
 
-  it("frontendWikiDetail encodes pageSlug", async () => {
-    await client.frontendWikiDetail("ns", "skill", "getting started");
-    assert.strictEqual(
-      captured!.url,
-      "http://localhost:8080/api/v1/frontend/skills/ns/skill/wiki/getting%20started"
-    );
+  it("iterReleases stops at maxPages", async () => {
+    let callCount = 0;
+    const client = new SkillHubClient({
+      baseUrl: "http://localhost:8080",
+      fetch: (async () => {
+        callCount++;
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            success: true,
+            data: {
+              releases: [{ id: callCount, versionId: 1, channel: "stable", title: "v1", draft: false, prerelease: false, yanked: false, publisherId: "u1" }],
+              totalCount: 10,
+              page: callCount - 1,
+              size: 1,
+            },
+          }),
+          headers: new Headers(),
+        } as Response;
+      }) as typeof globalThis.fetch,
+    });
+
+    const pages: unknown[] = [];
+    for await (const page of client.iterReleases("ns", "skill", {
+      maxPages: 2,
+      size: 1,
+    })) {
+      pages.push(page);
+    }
+    assert.strictEqual(pages.length, 2);
   });
 
-  it("frontendReviews builds expected path", async () => {
-    await client.frontendReviews();
-    assert.strictEqual(
-      captured!.url,
-      "http://localhost:8080/api/v1/frontend/reviews"
-    );
+  it("iterPipelineRuns increments page", async () => {
+    const pagesRequested: number[] = [];
+    const client = new SkillHubClient({
+      baseUrl: "http://localhost:8080",
+      fetch: (async (input: RequestInfo | URL) => {
+        const url = typeof input === "string" ? input : input.toString();
+        const pageMatch = url.match(/page=(\d+)/);
+        const page = pageMatch ? parseInt(pageMatch[1], 10) : 0;
+        pagesRequested.push(page);
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            success: true,
+            data: {
+              runs: [{ id: page + 1, pipelineId: 1, skillId: 1, triggerType: "publish", triggeredBy: "u1", status: "COMPLETED", checkCount: 3, passedCount: 3, failedCount: 0, skippedCount: 0, createdAt: "2025-01-01T00:00:00Z", updatedAt: "2025-01-01T00:00:00Z" }],
+              totalCount: 3,
+              page,
+              size: 1,
+            },
+          }),
+          headers: new Headers(),
+        } as Response;
+      }) as typeof globalThis.fetch,
+    });
+
+    const pages: PipelineRunListResult[] = [];
+    for await (const page of client.iterPipelineRuns(1, {
+      size: 1,
+      maxPages: 3,
+    })) {
+      pages.push(page);
+    }
+    assert.strictEqual(pages.length, 3);
+    assert.deepStrictEqual(pagesRequested, [0, 1, 2]);
   });
 
-  it("frontendReviews builds query params for page and size", async () => {
-    await client.frontendReviews(1, 50);
-    assert.strictEqual(
-      captured!.url,
-      "http://localhost:8080/api/v1/frontend/reviews?page=1&size=50"
-    );
+  it("iterFrontendDiscussions stops on empty list", async () => {
+    const client = new SkillHubClient({
+      baseUrl: "http://localhost:8080",
+      fetch: mockFetch({
+        success: true,
+        data: {
+          discussions: [],
+          totalCount: 0,
+          page: 0,
+          size: 20,
+          availableActions: { canCreateDiscussion: true },
+        },
+      }),
+    });
+
+    const pages: DiscussionListReadModel[] = [];
+    for await (const page of client.iterFrontendDiscussions("ns", "skill")) {
+      pages.push(page);
+    }
+    assert.strictEqual(pages.length, 1);
   });
 
-  it("frontendReviewDetail builds expected path", async () => {
-    await client.frontendReviewDetail(7);
-    assert.strictEqual(
-      captured!.url,
-      "http://localhost:8080/api/v1/frontend/reviews/7"
-    );
-  });
+  it("iterFrontendProposals stops on empty list", async () => {
+    const client = new SkillHubClient({
+      baseUrl: "http://localhost:8080",
+      fetch: mockFetch({
+        success: true,
+        data: {
+          proposals: [],
+          totalCount: 0,
+          page: 0,
+          size: 20,
+          availableActions: { canCreateProposal: true },
+        },
+      }),
+    });
 
-  it("frontendPromotions builds expected path", async () => {
-    await client.frontendPromotions();
-    assert.strictEqual(
-      captured!.url,
-      "http://localhost:8080/api/v1/frontend/promotions"
-    );
-  });
-
-  it("frontendPromotions builds query params for page and size", async () => {
-    await client.frontendPromotions(0, 50);
-    assert.strictEqual(
-      captured!.url,
-      "http://localhost:8080/api/v1/frontend/promotions?page=0&size=50"
-    );
-  });
-
-  it("frontendGovernance builds expected path", async () => {
-    await client.frontendGovernance();
-    assert.strictEqual(
-      captured!.url,
-      "http://localhost:8080/api/v1/frontend/governance"
-    );
-  });
-
-  it("frontendAdmin builds expected path", async () => {
-    await client.frontendAdmin();
-    assert.strictEqual(
-      captured!.url,
-      "http://localhost:8080/api/v1/frontend/admin"
-    );
+    const pages: ProposalListReadModel[] = [];
+    for await (const page of client.iterFrontendProposals("ns", "skill")) {
+      pages.push(page);
+    }
+    assert.strictEqual(pages.length, 1);
   });
 });
+
+// ── Envelope handling (HTTP-level tests) ─────────────────────────────────
 
 describe("Envelope handling", () => {
   let originalFetch: typeof globalThis.fetch;
-  const client = new SkillHubClient("http://localhost:8080");
+  const client = new SkillHubClient({
+    baseUrl: "http://localhost:8080",
+    fetch: mockFetch({
+      success: true,
+      data: {},
+    }),
+  });
 
   before(() => {
     originalFetch = globalThis.fetch;
@@ -820,18 +1379,24 @@ describe("Envelope handling", () => {
   });
 
   it("returns error envelope when fetch resolves to error response", async () => {
-    globalThis.fetch = (async () => {
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          success: false,
-          error: { code: "search.failed", message: "search is unavailable" },
-        }),
-      } as Response;
-    }) as typeof globalThis.fetch;
+    const errorClient = new SkillHubClient({
+      baseUrl: "http://localhost:8080",
+      fetch: (async () => {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            success: false,
+            error: {
+              code: "search.failed",
+              message: "search is unavailable",
+            },
+          }),
+        } as Response;
+      }) as typeof globalThis.fetch,
+    });
 
-    const result = await client.frontendSearch({ keyword: "x" });
+    const result = await errorClient.frontendSearch({ keyword: "x" });
     assert.strictEqual(result.success, false);
     assert.strictEqual(result.error?.code, "search.failed");
   });

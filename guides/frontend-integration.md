@@ -38,12 +38,41 @@ Use these fixtures to design frontend loading states, TypeScript mocks, and Stor
 | Governance workbench | Real notification summary/activity plus pending review/promotion counts for authorized roles |
 | Admin dashboard | Real aggregate stats for SUPER_ADMIN; zero stats for unauthorized viewers |
 
+### Use the TypeScript SDK
+
+Prefer the `@miqro/skillhub-client` TypeScript SDK over raw `fetch()` calls. It handles auth, URL encoding, error normalization, and pagination:
+
+```typescript
+import { SkillHubClient, SkillHubError } from "@miqro/skillhub-client";
+
+const client = new SkillHubClient({
+  baseUrl: "http://localhost:8080",
+  credentials: "include", // cookie-based session auth
+});
+
+// Envelope mode (compatible)
+const result = await client.frontendSearch({ keyword: "agent" });
+if (result.success && result.data) {
+  // use result.data
+}
+
+// Unwrap mode (throwing)
+try {
+  const data = await client.unwrap(client.frontendSkillDetail("ns", "slug"));
+  console.log(data.availableActions.canEdit);
+} catch (err) {
+  if (err instanceof SkillHubError) {
+    // handle typed error
+  }
+}
+```
+
 ### Loading flow for every page
 
-1. **Check auth** — call `GET /api/v1/auth/me`. If 401, show login.
-2. **Fetch read model** — call the page's frontend endpoint.
+1. **Check auth** — call `client.me()`. If 401, show login.
+2. **Fetch read model** — call the page's frontend SDK method.
 3. **Render** — use data for content, `availableActions` to show/hide controls.
-4. **Mutations** — POST/PATCH/DELETE the corresponding portal route, then re-fetch the read model.
+4. **Mutations** — call the corresponding SDK portal method, then re-fetch the read model.
 
 ### Button visibility
 
@@ -75,6 +104,30 @@ if (data.availableActions.canEdit) {
 - **403 Forbidden** — Show "You don't have permission to do that."
 - **404 Not Found** — Show "Not found" page.
 - **409 Conflict** — Show the conflict reason (e.g., "Gate enforcement failed: manifest-validation did not pass").
+
+### Pagination
+
+Use the SDK's bounded async iterators for user-driven paging or bounded background prefetch. Every iterator defaults to `maxPages: 10` and stops when no more data is available:
+
+```typescript
+// User-driven review queue browsing
+for await (const page of client.iterFrontendReviews({ size: 50, maxPages: 5 })) {
+  for (const task of page.tasks) {
+    renderTask(task);
+  }
+}
+
+// Bounded community issue prefetch
+for await (const page of client.iterFrontendIssues("ns", "skill", { maxPages: 3 })) {
+  cacheIssues(page.issues);
+}
+```
+
+Do not use iterators without `maxPages` for unbounded background prefetch. For manual paging, call the underlying SDK method directly with `page` and `size` parameters.
+
+### Review/promotion mutation endpoints
+
+Review and promotion frontend endpoints are read-model only. There are currently no HTTP endpoints to approve, reject, or withdraw reviews or promotions. If the frontend needs mutation buttons, implement separate HTTP routes backed by the SDK `review` and `promotion` services. Do not assume `POST /api/v1/frontend/reviews/{id}/approve` or similar routes exist.
 
 ---
 
