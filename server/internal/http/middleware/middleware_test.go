@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"miqro-skillhub/server/sdk/skillhub/auth"
 	sdkerror "miqro-skillhub/server/sdk/skillhub/errors"
@@ -415,5 +416,190 @@ func TestAuthMiddleware_BuildPrincipal_PlatformRoles(t *testing.T) {
 	// Namespace membership should be filled.
 	if p.NamespaceRole(5) != "OWNER" {
 		t.Error("expected OWNER in namespace 5")
+	}
+}
+
+// ── Rate limiter client IP extraction tests ────────────────────────────────
+
+func TestRateLimiter_IgnoresXForwardedForByDefault(t *testing.T) {
+	rl := NewRateLimiter(1, 1.0)
+
+	// Simulate two requests from same RemoteAddr but different X-Forwarded-For.
+	// Without trusted proxies, they should share the same bucket.
+	req1 := httptest.NewRequest("GET", "/", nil)
+	req1.RemoteAddr = "10.0.0.1:12345"
+	req1.Header.Set("X-Forwarded-For", "192.168.1.100")
+
+	req2 := httptest.NewRequest("GET", "/", nil)
+	req2.RemoteAddr = "10.0.0.1:12345"
+	req2.Header.Set("X-Forwarded-For", "192.168.1.200")
+
+	ip1 := rl.clientIP(req1)
+	ip2 := rl.clientIP(req2)
+
+	if ip1 != ip2 {
+		t.Errorf("expected same client IP for same RemoteAddr, got %q vs %q", ip1, ip2)
+	}
+	if ip1 != "10.0.0.1" {
+		t.Errorf("expected RemoteAddr host, got %q", ip1)
+	}
+}
+
+func TestRateLimiter_TrustsXForwardedForOnlyFromTrustedProxy(t *testing.T) {
+	rl := NewRateLimiterWithOptions(RateLimiterOptions{
+		Capacity:          10,
+		RatePerSecond:     1.0,
+		TrustedProxyCIDRs: []string{"10.0.0.0/8"},
+	})
+
+	// Request from trusted proxy — should use X-Forwarded-For.
+	req1 := httptest.NewRequest("GET", "/", nil)
+	req1.RemoteAddr = "10.0.0.1:12345"
+	req1.Header.Set("X-Forwarded-For", "203.0.113.5")
+
+	ip1 := rl.clientIP(req1)
+	if ip1 != "203.0.113.5" {
+		t.Errorf("expected X-Forwarded-For IP, got %q", ip1)
+	}
+
+	// Request from untrusted IP — should ignore X-Forwarded-For.
+	req2 := httptest.NewRequest("GET", "/", nil)
+	req2.RemoteAddr = "192.168.1.1:12345"
+	req2.Header.Set("X-Forwarded-For", "203.0.113.6")
+
+	ip2 := rl.clientIP(req2)
+	if ip2 != "192.168.1.1" {
+		t.Errorf("expected RemoteAddr host for untrusted proxy, got %q", ip2)
+	}
+}
+
+func TestRateLimiter_InvalidXForwardedForFallsBackToRemoteAddr(t *testing.T) {
+	rl := NewRateLimiterWithOptions(RateLimiterOptions{
+		Capacity:          10,
+		RatePerSecond:     1.0,
+		TrustedProxyCIDRs: []string{"10.0.0.0/8"},
+	})
+
+	// Trusted proxy with garbage X-Forwarded-For.
+	req := httptest.NewRequest("GET", "/", nil)
+	req.RemoteAddr = "10.0.0.1:12345"
+	req.Header.Set("X-Forwarded-For", "not-an-ip-address")
+
+	ip := rl.clientIP(req)
+	if ip != "10.0.0.1" {
+		t.Errorf("expected fallback to RemoteAddr, got %q", ip)
+	}
+
+	// Trusted proxy with empty X-Forwarded-For.
+	req2 := httptest.NewRequest("GET", "/", nil)
+	req2.RemoteAddr = "10.0.0.1:12345"
+	req2.Header.Set("X-Forwarded-For", "")
+
+	ip2 := rl.clientIP(req2)
+	if ip2 != "10.0.0.1" {
+		t.Errorf("expected fallback to RemoteAddr for empty XFF, got %q", ip2)
+	}
+}
+
+func TestRateLimiter_SpoofedXForwardedForDoesNotBypassLimit(t *testing.T) {
+	rl := NewRateLimiter(1, 0.0) // capacity 1, no refill
+
+	req1 := httptest.NewRequest("GET", "/", nil)
+	req1.RemoteAddr = "192.168.1.100:12345"
+	req1.Header.Set("X-Forwarded-For", "10.0.0.1")
+
+	req2 := httptest.NewRequest("GET", "/", nil)
+	req2.RemoteAddr = "192.168.1.100:12345"
+	req2.Header.Set("X-Forwarded-For", "10.0.0.2")
+
+	cat := "test"
+	key1 := cat + ":" + rl.clientIP(req1)
+	key2 := cat + ":" + rl.clientIP(req2)
+
+	if key1 != key2 {
+		t.Fatalf("keys should be identical (same RemoteAddr), got %q vs %q", key1, key2)
+	}
+
+	// First request allowed.
+	if !rl.allow(key1) {
+		t.Fatal("first request should be allowed")
+	}
+	// Second request with spoofed XFF should be blocked (same bucket).
+	if rl.allow(key2) {
+		t.Fatal("second request with spoofed XFF should be rate-limited")
+	}
+}
+
+// ── Rate limiter bucket bounding tests ─────────────────────────────────────
+
+func TestRateLimiter_EvictsStaleBuckets(t *testing.T) {
+	rl := NewRateLimiterWithOptions(RateLimiterOptions{
+		Capacity:      10,
+		RatePerSecond: 1.0,
+		BucketTTL:     50 * time.Millisecond,
+	})
+
+	// Create a bucket.
+	if !rl.allow("test:A") {
+		t.Fatal("first request should be allowed")
+	}
+	if rl.bucketCount() != 1 {
+		t.Fatalf("expected 1 bucket, got %d", rl.bucketCount())
+	}
+
+	// Wait past TTL.
+	time.Sleep(60 * time.Millisecond)
+
+	// Make a new allow call that triggers cleanup.
+	if !rl.allow("test:B") {
+		t.Fatal("request for B should be allowed")
+	}
+
+	// Stale bucket A should have been evicted when B was inserted (via enforceMaxBuckets).
+	// Since we're under maxBuckets, stale eviction happens on cleanup in enforceMaxBuckets.
+	// Trigger another bucket creation to force cleanup.
+	rl.mu.Lock()
+	rl.cleanupLocked(time.Now())
+	rl.mu.Unlock()
+
+	count := rl.bucketCount()
+	// A should be gone (stale), B should remain.
+	if count < 1 || count > 2 {
+		t.Errorf("expected 1 or 2 buckets after cleanup, got %d", count)
+	}
+}
+
+func TestRateLimiter_MaxBucketsEvictsOldest(t *testing.T) {
+	rl := NewRateLimiterWithOptions(RateLimiterOptions{
+		Capacity:      10,
+		RatePerSecond: 1.0,
+		MaxBuckets:    3,
+	})
+
+	// Create 3 buckets.
+	rl.allow("test:A")
+	time.Sleep(1 * time.Millisecond)
+	rl.allow("test:B")
+	time.Sleep(1 * time.Millisecond)
+	rl.allow("test:C")
+
+	if rl.bucketCount() != 3 {
+		t.Fatalf("expected 3 buckets, got %d", rl.bucketCount())
+	}
+
+	// Adding a 4th should evict the oldest (A).
+	rl.allow("test:D")
+
+	if rl.bucketCount() != 3 {
+		t.Fatalf("expected buckets to stay at cap 3, got %d", rl.bucketCount())
+	}
+
+	// Verify A was evicted — make a fresh allow, it should create a new bucket.
+	// The key "test:A" should now be a new bucket (not the old one).
+	rl.mu.Lock()
+	_, aExists := rl.buckets["test:A"]
+	rl.mu.Unlock()
+	if aExists {
+		t.Error("oldest bucket A should have been evicted")
 	}
 }

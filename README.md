@@ -147,6 +147,12 @@ cd clients/typescript/skillhub && npm install && npm run build && npm test
 | `skillhub-worker` | `server/cmd/skillhub-worker/` | Background CI worker |
 | `skillhub-migrate` | `server/cmd/skillhub-migrate/` | Database migration runner |
 
+## Production safety
+
+- Set `SKILLHUB_LOCAL_MODE=false` in production. This rejects known weak defaults (`minioadmin` credentials, localhost database URL).
+- `SKILLHUB_TRUSTED_PROXY_CIDRS` must only list your actual reverse proxy / load balancer CIDRs. When empty (default), `X-Forwarded-For` is never trusted — spoofed headers cannot bypass rate limiting.
+- Rate limiter buckets are bounded (10000 max, 15min TTL) to prevent unbounded memory growth.
+
 ## OpenAPI
 
 The OpenAPI 3.0.3 specification is at `server/openapi/openapi.yaml`. It documents all portal, tool, CLI, frontend, release, community, and agent CI routes.

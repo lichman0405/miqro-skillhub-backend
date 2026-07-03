@@ -260,6 +260,7 @@ func main() {
 				eventbus.NewNoopBus(true),
 				governanceNotificationSvc,
 			)
+			promotionSvc.SetTransactor(postgres.NewTransactor(db.Pool))
 		}
 
 		// Auth middleware with full namespace projection.
@@ -273,7 +274,13 @@ func main() {
 	}
 
 	// Rate limiter — always available.
-	limiter = middleware.NewRateLimiter(100, 10.0)
+	limiter = middleware.NewRateLimiterWithOptions(middleware.RateLimiterOptions{
+		Capacity:          100,
+		RatePerSecond:     10.0,
+		TrustedProxyCIDRs: cfg.TrustedProxyCIDRsList(),
+		BucketTTL:         15 * time.Minute,
+		MaxBuckets:        10000,
+	})
 
 	// ── HTTP route groups ─────────────────────────────────────────────────
 	var (

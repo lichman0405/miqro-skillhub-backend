@@ -9,6 +9,7 @@ import (
 	"miqro-skillhub/server/sdk/skillhub/namespace"
 	"miqro-skillhub/server/sdk/skillhub/review"
 	"miqro-skillhub/server/sdk/skillhub/skill"
+	"miqro-skillhub/server/sdk/skillhub/uow"
 )
 
 // PromotionNotifier sends governance notifications for promotion events.
@@ -28,6 +29,20 @@ type PromotionService struct {
 	permissionChecker    *review.ReviewPermissionChecker
 	eventBus             eventbus.Bus
 	notifier             PromotionNotifier
+	transactor           uow.Transactor
+}
+
+// SetTransactor injects an optional transaction boundary.  When non-nil,
+// ApprovePromotion wraps all database writes inside a single WithinTx call.
+func (svc *PromotionService) SetTransactor(tx uow.Transactor) {
+	svc.transactor = tx
+}
+
+func (svc *PromotionService) withinTx(ctx context.Context, fn func(context.Context) error) error {
+	if svc.transactor == nil {
+		return fn(ctx)
+	}
+	return svc.transactor.WithinTx(ctx, fn)
 }
 
 // NewPromotionService creates a PromotionService.
@@ -179,141 +194,161 @@ func (svc *PromotionService) ApprovePromotion(
 		return nil, fmt.Errorf("promotion.no_permission")
 	}
 
-	updated, err := svc.promotionRequestRepo.UpdateStatusWithVersion(
-		ctx, promotionID, string(review.ReviewStatusApproved), reviewerID, comment, nil, req.Version)
-	if err != nil {
-		return nil, fmt.Errorf("promotion: update status: %w", err)
-	}
-	if updated == 0 {
-		return nil, fmt.Errorf("promotion: concurrent modification")
-	}
+	// Capture values needed outside the transaction for events/notifications.
+	var savedReq *review.PromotionRequest
+	var publishedSkillID int64
+	var publishedVersionID int64
+	var submittedBy string
+	var sourceSkillBefore int64
 
-	// Re-fetch after update.
-	approvedReq, err := svc.promotionRequestRepo.FindByID(ctx, promotionID)
-	if err != nil || approvedReq == nil {
-		return nil, fmt.Errorf("promotion.not_found %d", promotionID)
-	}
-
-	sourceSkill, err := svc.skillRepo.FindByID(ctx, approvedReq.SourceSkillID)
-	if err != nil {
-		return nil, fmt.Errorf("promotion: find source skill: %w", err)
-	}
-	if sourceSkill == nil {
-		return nil, fmt.Errorf("skill.not_found %d", approvedReq.SourceSkillID)
-	}
-
-	sourceVersion, err := svc.skillVersionRepo.FindByID(ctx, approvedReq.SourceVersionID)
-	if err != nil {
-		return nil, fmt.Errorf("promotion: find source version: %w", err)
-	}
-	if sourceVersion == nil {
-		return nil, fmt.Errorf("skill_version.not_found %d", approvedReq.SourceVersionID)
-	}
-
-	// Check target skill doesn't already exist for this owner+slug.
-	existing, _ := svc.skillRepo.FindByNamespaceIDSlugOwner(ctx, approvedReq.TargetNamespaceID, sourceSkill.Slug, sourceSkill.OwnerID)
-	if existing != nil {
-		return nil, fmt.Errorf("promotion.target_skill_conflict %s", sourceSkill.Slug)
-	}
-
-	// Create new skill in global namespace.
-	now := time.Now()
-	newSkill := skill.Skill{
-		NamespaceID:      approvedReq.TargetNamespaceID,
-		Slug:             sourceSkill.Slug,
-		DisplayName:      sourceSkill.DisplayName,
-		Summary:          sourceSkill.Summary,
-		OwnerID:          sourceSkill.OwnerID,
-		SourceSkillID:    &sourceSkill.ID,
-		Visibility:       "PUBLIC",
-		Status:           "ACTIVE",
-		CreatedBy:        &reviewerID,
-		UpdatedBy:        &reviewerID,
-		LatestVersionID:  nil, // set after version creation
-		CreatedAt:        now,
-		UpdatedAt:        now,
-	}
-	newSkill, err = svc.skillRepo.Save(ctx, newSkill)
-	if err != nil {
-		return nil, fmt.Errorf("promotion.target_skill_conflict %s: %w", sourceSkill.Slug, err)
-	}
-
-	// Create new version copying metadata from source.
-	newVersion := skill.SkillVersion{
-		SkillID:             newSkill.ID,
-		Version:             sourceVersion.Version,
-		Status:              "PUBLISHED",
-		PublishedAt:         &now,
-		RequestedVisibility: strPtr("PUBLIC"),
-		Changelog:           sourceVersion.Changelog,
-		ParsedMetadataJSON:  sourceVersion.ParsedMetadataJSON,
-		ManifestJSON:        sourceVersion.ManifestJSON,
-		FileCount:           sourceVersion.FileCount,
-		TotalSize:           sourceVersion.TotalSize,
-		BundleReady:         sourceVersion.BundleReady,
-		DownloadReady:       sourceVersion.DownloadReady,
-		CreatedBy:           sourceVersion.CreatedBy,
-		CreatedAt:           now,
-	}
-	newVersion, err = svc.skillVersionRepo.Save(ctx, newVersion)
-	if err != nil {
-		return nil, fmt.Errorf("promotion: save new version: %w", err)
-	}
-
-	// Update skill's latest version.
-	newSkill.LatestVersionID = &newVersion.ID
-	if _, err := svc.skillRepo.Save(ctx, newSkill); err != nil {
-		return nil, fmt.Errorf("promotion: save new skill: %w", err)
-	}
-
-	// Copy file records (reuse storageKey).
-	sourceFiles, err := svc.skillFileRepo.FindByVersionID(ctx, approvedReq.SourceVersionID)
-	if err != nil {
-		return nil, fmt.Errorf("promotion: find source files: %w", err)
-	}
-	copiedFiles := make([]skill.SkillFile, 0, len(sourceFiles))
-	for _, f := range sourceFiles {
-		copiedFiles = append(copiedFiles, skill.SkillFile{
-			VersionID:   newVersion.ID,
-			FilePath:    f.FilePath,
-			FileSize:    f.FileSize,
-			ContentType: f.ContentType,
-			SHA256:      f.SHA256,
-			StorageKey:  f.StorageKey,
-			CreatedAt:   now,
-		})
-	}
-	if len(copiedFiles) > 0 {
-		if _, err := svc.skillFileRepo.SaveAll(ctx, copiedFiles); err != nil {
-			return nil, fmt.Errorf("promotion: save files: %w", err)
+	err = svc.withinTx(ctx, func(txCtx context.Context) error {
+		updated, uErr := svc.promotionRequestRepo.UpdateStatusWithVersion(
+			txCtx, promotionID, string(review.ReviewStatusApproved), reviewerID, comment, nil, req.Version)
+		if uErr != nil {
+			return fmt.Errorf("promotion: update status: %w", uErr)
 		}
-	}
+		if updated == 0 {
+			return fmt.Errorf("promotion: concurrent modification")
+		}
 
-	// Update promotion request with target skill id.
-	approvedReq.TargetSkillID = &newSkill.ID
-	savedReq, err := svc.promotionRequestRepo.Save(ctx, *approvedReq)
+		// Re-fetch after update.
+		approvedReq, uErr := svc.promotionRequestRepo.FindByID(txCtx, promotionID)
+		if uErr != nil || approvedReq == nil {
+			return fmt.Errorf("promotion.not_found %d", promotionID)
+		}
+
+		sourceSkill, uErr := svc.skillRepo.FindByID(txCtx, approvedReq.SourceSkillID)
+		if uErr != nil {
+			return fmt.Errorf("promotion: find source skill: %w", uErr)
+		}
+		if sourceSkill == nil {
+			return fmt.Errorf("skill.not_found %d", approvedReq.SourceSkillID)
+		}
+
+		sourceVersion, uErr := svc.skillVersionRepo.FindByID(txCtx, approvedReq.SourceVersionID)
+		if uErr != nil {
+			return fmt.Errorf("promotion: find source version: %w", uErr)
+		}
+		if sourceVersion == nil {
+			return fmt.Errorf("skill_version.not_found %d", approvedReq.SourceVersionID)
+		}
+
+		// Check target skill doesn't already exist for this owner+slug.
+		existing, _ := svc.skillRepo.FindByNamespaceIDSlugOwner(txCtx, approvedReq.TargetNamespaceID, sourceSkill.Slug, sourceSkill.OwnerID)
+		if existing != nil {
+			return fmt.Errorf("promotion.target_skill_conflict %s", sourceSkill.Slug)
+		}
+
+		// Create new skill in global namespace.
+		now := time.Now()
+		newSkill := skill.Skill{
+			NamespaceID:      approvedReq.TargetNamespaceID,
+			Slug:             sourceSkill.Slug,
+			DisplayName:      sourceSkill.DisplayName,
+			Summary:          sourceSkill.Summary,
+			OwnerID:          sourceSkill.OwnerID,
+			SourceSkillID:    &sourceSkill.ID,
+			Visibility:       "PUBLIC",
+			Status:           "ACTIVE",
+			CreatedBy:        &reviewerID,
+			UpdatedBy:        &reviewerID,
+			LatestVersionID:  nil, // set after version creation
+			CreatedAt:        now,
+			UpdatedAt:        now,
+		}
+		newSkill, uErr = svc.skillRepo.Save(txCtx, newSkill)
+		if uErr != nil {
+			return fmt.Errorf("promotion.target_skill_conflict %s: %w", sourceSkill.Slug, uErr)
+		}
+
+		// Create new version copying metadata from source.
+		newVersion := skill.SkillVersion{
+			SkillID:             newSkill.ID,
+			Version:             sourceVersion.Version,
+			Status:              "PUBLISHED",
+			PublishedAt:         &now,
+			RequestedVisibility: strPtr("PUBLIC"),
+			Changelog:           sourceVersion.Changelog,
+			ParsedMetadataJSON:  sourceVersion.ParsedMetadataJSON,
+			ManifestJSON:        sourceVersion.ManifestJSON,
+			FileCount:           sourceVersion.FileCount,
+			TotalSize:           sourceVersion.TotalSize,
+			BundleReady:         sourceVersion.BundleReady,
+			DownloadReady:       sourceVersion.DownloadReady,
+			CreatedBy:           sourceVersion.CreatedBy,
+			CreatedAt:           now,
+		}
+		newVersion, uErr = svc.skillVersionRepo.Save(txCtx, newVersion)
+		if uErr != nil {
+			return fmt.Errorf("promotion: save new version: %w", uErr)
+		}
+
+		// Update skill's latest version.
+		newSkill.LatestVersionID = &newVersion.ID
+		if _, uErr := svc.skillRepo.Save(txCtx, newSkill); uErr != nil {
+			return fmt.Errorf("promotion: save new skill: %w", uErr)
+		}
+
+		// Copy file records (reuse storageKey).
+		sourceFiles, uErr := svc.skillFileRepo.FindByVersionID(txCtx, approvedReq.SourceVersionID)
+		if uErr != nil {
+			return fmt.Errorf("promotion: find source files: %w", uErr)
+		}
+		copiedFiles := make([]skill.SkillFile, 0, len(sourceFiles))
+		for _, f := range sourceFiles {
+			copiedFiles = append(copiedFiles, skill.SkillFile{
+				VersionID:   newVersion.ID,
+				FilePath:    f.FilePath,
+				FileSize:    f.FileSize,
+				ContentType: f.ContentType,
+				SHA256:      f.SHA256,
+				StorageKey:  f.StorageKey,
+				CreatedAt:   now,
+			})
+		}
+		if len(copiedFiles) > 0 {
+			if _, uErr := svc.skillFileRepo.SaveAll(txCtx, copiedFiles); uErr != nil {
+				return fmt.Errorf("promotion: save files: %w", uErr)
+			}
+		}
+
+		// Update promotion request with target skill id.
+		approvedReq.TargetSkillID = &newSkill.ID
+		reqToReturn, uErr := svc.promotionRequestRepo.Save(txCtx, *approvedReq)
+		if uErr != nil {
+			return fmt.Errorf("promotion: save request: %w", uErr)
+		}
+
+		savedReq = &reqToReturn
+		publishedSkillID = newSkill.ID
+		publishedVersionID = newVersion.ID
+		submittedBy = approvedReq.SubmittedBy
+		sourceSkillBefore = approvedReq.SourceSkillID
+		return nil
+	})
 	if err != nil {
-		return nil, fmt.Errorf("promotion: save request: %w", err)
+		return nil, err
 	}
 
+	// Emit events and notifications only after the transaction commits.
 	svc.publishEvent(ctx, SkillPublishedEvent{
-		SkillID:        newSkill.ID,
-		SkillVersionID: newVersion.ID,
+		SkillID:        publishedSkillID,
+		SkillVersionID: publishedVersionID,
 		PublishedBy:    reviewerID,
 	})
 	svc.publishEvent(ctx, PromotionApprovedEvent{
-		RequestID:     approvedReq.ID,
-		SourceSkillID: approvedReq.SourceSkillID,
+		RequestID:     savedReq.ID,
+		SourceSkillID: sourceSkillBefore,
 		ReviewedBy:    reviewerID,
-		SubmittedBy:   approvedReq.SubmittedBy,
+		SubmittedBy:   submittedBy,
 	})
 
 	if svc.notifier != nil {
-		_ = svc.notifier.NotifyUser(ctx, approvedReq.SubmittedBy, "PROMOTION", "PROMOTION_REQUEST", promotionID,
+		_ = svc.notifier.NotifyUser(ctx, submittedBy, "PROMOTION", "PROMOTION_REQUEST", promotionID,
 			"Promotion approved", `{"status":"APPROVED"}`)
 	}
 
-	return &savedReq, nil
+	return savedReq, nil
 }
 
 // RejectPromotion rejects a pending promotion request without changing the source skill.

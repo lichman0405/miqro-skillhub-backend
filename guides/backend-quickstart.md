@@ -84,7 +84,8 @@ go run ./cmd/skillhub-worker
 | `SKILLHUB_CORS_ALLOWED_ORIGINS` | empty | Comma-separated browser origins allowed to call the API |
 | `REDIS_URL` | (optional) | Redis URL for sessions and rate limiting |
 | `STORAGE_ROOT` | `./data/storage` | Local filesystem storage root for package files |
-| `SKILLHUB_LOCAL_MODE` | `true` | When `true`, the server auto-creates a local admin user and uses permissive auth |
+| `SKILLHUB_LOCAL_MODE` | `true` | When `true`, the server auto-creates a local admin user and uses permissive auth. Production must set `false`. |
+| `SKILLHUB_TRUSTED_PROXY_CIDRS` | empty | Comma-separated CIDR blocks (e.g. `10.0.0.0/8`) for reverse proxies whose `X-Forwarded-For` header should be trusted. Leave empty to never trust `X-Forwarded-For`. |
 | `AGENTCI_LLM_BASE_URL` | (optional) | LLM API base URL for agent CI LLM checks |
 | `AGENTCI_LLM_API_KEY` | (optional) | LLM API key |
 | `AGENTCI_LLM_MODEL` | (optional) | LLM model name |

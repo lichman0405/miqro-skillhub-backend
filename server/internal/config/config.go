@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 )
 
 // Config holds all runtime configuration for the server process.
@@ -36,10 +37,35 @@ type Config struct {
 
 	// CORSAllowedOrigins is a comma-separated allowlist for browser clients.
 	CORSAllowedOrigins string
+
+	// TrustedProxyCIDRs is a comma-separated list of CIDR blocks for reverse
+	// proxies whose X-Forwarded-For header should be trusted.
+	TrustedProxyCIDRs string
+}
+
+// TrustedProxyCIDRsList parses the comma-separated CIDR list.
+func (c *Config) TrustedProxyCIDRsList() []string {
+	if c.TrustedProxyCIDRs == "" {
+		return nil
+	}
+	parts := strings.Split(c.TrustedProxyCIDRs, ",")
+	var out []string
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // Load reads configuration from the environment with sensible defaults.
 func Load() (*Config, error) {
+	localMode, err := parseBoolEnv("SKILLHUB_LOCAL_MODE", true)
+	if err != nil {
+		return nil, fmt.Errorf("config: SKILLHUB_LOCAL_MODE: %w", err)
+	}
+
 	cfg := &Config{
 		APIAddr:            envOrDefault("SKILLHUB_API_ADDR", ":8080"),
 		DatabaseURL:        envOrDefault("SKILLHUB_DATABASE_URL", "postgres://skillhub:skillhub@localhost:5432/skillhub?sslmode=disable"),
@@ -48,8 +74,9 @@ func Load() (*Config, error) {
 		StorageBucket:      envOrDefault("SKILLHUB_STORAGE_BUCKET", "skillhub"),
 		StorageAccessKey:   envOrDefault("SKILLHUB_STORAGE_ACCESS_KEY", "minioadmin"),
 		StorageSecretKey:   envOrDefault("SKILLHUB_STORAGE_SECRET_KEY", "minioadmin"),
-		LocalMode:          parseBoolEnv("SKILLHUB_LOCAL_MODE", true),
+		LocalMode:          localMode,
 		CORSAllowedOrigins: os.Getenv("SKILLHUB_CORS_ALLOWED_ORIGINS"),
+		TrustedProxyCIDRs:  os.Getenv("SKILLHUB_TRUSTED_PROXY_CIDRS"),
 	}
 
 	if err := cfg.validate(); err != nil {
@@ -76,6 +103,23 @@ func (c *Config) validate() error {
 	if c.StorageBucket == "" {
 		return fmt.Errorf("SKILLHUB_STORAGE_BUCKET is required")
 	}
+
+	// Production mode: reject known local-development defaults.
+	return c.validateProduction()
+}
+
+// validateProduction rejects known weak defaults that must not reach production.
+func (c *Config) validateProduction() error {
+	defaultDB := "postgres://skillhub:skillhub@localhost:5432/skillhub?sslmode=disable"
+	if c.DatabaseURL == defaultDB {
+		return fmt.Errorf("production mode: SKILLHUB_DATABASE_URL must not be the local development default")
+	}
+	if c.StorageAccessKey == "minioadmin" {
+		return fmt.Errorf("production mode: SKILLHUB_STORAGE_ACCESS_KEY must not be the local development default (minioadmin)")
+	}
+	if c.StorageSecretKey == "minioadmin" {
+		return fmt.Errorf("production mode: SKILLHUB_STORAGE_SECRET_KEY must not be the local development default (minioadmin)")
+	}
 	return nil
 }
 
@@ -86,14 +130,14 @@ func envOrDefault(key, defaultVal string) string {
 	return defaultVal
 }
 
-func parseBoolEnv(key string, defaultVal bool) bool {
+func parseBoolEnv(key string, defaultVal bool) (bool, error) {
 	v := os.Getenv(key)
 	if v == "" {
-		return defaultVal
+		return defaultVal, nil
 	}
 	b, err := strconv.ParseBool(v)
 	if err != nil {
-		return defaultVal
+		return false, fmt.Errorf("invalid boolean value %q for %s", v, key)
 	}
-	return b
+	return b, nil
 }
