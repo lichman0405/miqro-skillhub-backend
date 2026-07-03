@@ -1747,6 +1747,95 @@ func TestFrontend_PromotionDetail_NotFound(t *testing.T) {
 	}
 }
 
+func TestFrontend_PromotionDetail_SubmitterCanViewOwnDetail(t *testing.T) {
+	deps := PromotionFrontendDeps{
+		PromotionRequests: &fakePromotionRequestRepo{requests: []review.PromotionRequest{
+			{ID: 1, SourceSkillID: 201, SourceVersionID: 101, TargetNamespaceID: 1, Status: "PENDING", SubmittedBy: "user-1", SubmittedAt: time.Now()},
+		}},
+		Versions: &fakeSkillVersionRepo{versions: []skill.SkillVersion{
+			{ID: 101, SkillID: 201, Version: "1.0.0"},
+		}},
+		Skills: &fakeSkillRepo{skills: []skill.Skill{
+			{ID: 201, NamespaceID: 5, Slug: "my-skill", DisplayName: "My Skill"},
+		}},
+	}
+
+	req := httptest.NewRequest("GET", "/api/v1/frontend/promotions/1", nil)
+	req.SetPathValue("id", "1")
+	req = middleware.SetPrincipal(req, middleware.Principal{
+		UserID:          "user-1",
+		IsAuthenticated: true,
+	})
+	w := httptest.NewRecorder()
+	handlePromotionDetail(w, req, deps)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 for submitter viewing own promotion, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Success bool                     `json:"success"`
+		Data    PromotionDetailReadModel `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.Data.Request.ID != 1 {
+		t.Errorf("expected request id 1, got %d", resp.Data.Request.ID)
+	}
+	if resp.Data.AvailableActions.CanApprove {
+		t.Error("submitter should NOT be able to approve own promotion")
+	}
+	if !resp.Data.AvailableActions.CanWithdraw {
+		t.Error("submitter should be able to withdraw own promotion")
+	}
+}
+
+func TestFrontend_PromotionDetail_UnrelatedUserDenied(t *testing.T) {
+	deps := PromotionFrontendDeps{
+		PromotionRequests: &fakePromotionRequestRepo{requests: []review.PromotionRequest{
+			{ID: 1, SourceSkillID: 201, SourceVersionID: 101, TargetNamespaceID: 1, Status: "PENDING", SubmittedBy: "user-1", SubmittedAt: time.Now()},
+		}},
+	}
+
+	req := httptest.NewRequest("GET", "/api/v1/frontend/promotions/1", nil)
+	req.SetPathValue("id", "1")
+	req = middleware.SetPrincipal(req, middleware.Principal{
+		UserID:          "unrelated-user",
+		IsAuthenticated: true,
+		PlatformRoles:   map[string]bool{"USER": true},
+	})
+	w := httptest.NewRecorder()
+	handlePromotionDetail(w, req, deps)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for unrelated user, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestFrontend_PromotionDetail_NamespaceOwnerDenied(t *testing.T) {
+	deps := PromotionFrontendDeps{
+		PromotionRequests: &fakePromotionRequestRepo{requests: []review.PromotionRequest{
+			{ID: 1, SourceSkillID: 201, SourceVersionID: 101, TargetNamespaceID: 1, Status: "PENDING", SubmittedBy: "user-1", SubmittedAt: time.Now()},
+		}},
+	}
+
+	req := httptest.NewRequest("GET", "/api/v1/frontend/promotions/1", nil)
+	req.SetPathValue("id", "1")
+	req = middleware.SetPrincipal(req, middleware.Principal{
+		UserID:             "ns-owner",
+		IsAuthenticated:    true,
+		NamespaceRoles:     map[int64]string{5: "OWNER"},
+		MemberNamespaceIDs: []int64{5},
+	})
+	w := httptest.NewRecorder()
+	handlePromotionDetail(w, req, deps)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for namespace owner without SUPER_ADMIN, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 // ── Governance workbench tests ───────────────────────────────────────────
 
 func TestFrontend_GovernanceWorkbench_UsesRealNotifications(t *testing.T) {

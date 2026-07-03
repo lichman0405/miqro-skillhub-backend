@@ -372,6 +372,29 @@ func TestFrontendCommunity_WikiDetail_NotFound(t *testing.T) {
 	}
 }
 
+func TestFrontendCommunity_WikiDetail_WrongPathSkill(t *testing.T) {
+	// Wiki page belongs to skill 999 but path resolves to skill 100.
+	wikiRepo := &ftStubWikiRepo{pages: map[int64]community.WikiPage{
+		1: {ID: 1, SkillID: 999, Slug: "getting-started", Title: "Other Skill Wiki"},
+	}}
+	svc := community.NewService(
+		nil, nil, nil, nil, wikiRepo, nil, nil, nil, nil, nil, nil,
+	)
+	h := newFrontendCommunityHandler(svc)
+
+	req := httptest.NewRequest("GET", "/api/v1/frontend/skills/ns1/myskill/wiki/getting-started", nil)
+	req.SetPathValue("namespace", "ns1")
+	req.SetPathValue("slug", "myskill")
+	req.SetPathValue("pageSlug", "getting-started")
+	req = middleware.SetPrincipal(req, authUser("u1"))
+	w := httptest.NewRecorder()
+	h.HandleWikiDetail(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for wrong-path wiki, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestFrontendCommunity_ProposalDetail_WrongPathSkill(t *testing.T) {
 	propRepo := &ftStubPropRepo{proposals: map[int64]community.ChangeProposal{
 		1: {ID: 1, SkillID: 999, Title: "Other Skill Proposal", Status: "OPEN", AuthorID: "u1"},

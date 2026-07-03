@@ -1017,6 +1017,62 @@ func TestGetMemberRole_SelfQueryAllowed(t *testing.T) {
 	}
 }
 
+func TestListMembers_OwnerCanListMembers(t *testing.T) {
+	ns := activeTeam(1)
+	nsRepo := newMockNamespaceRepo(ns)
+	memberRepo := makeMember(ns.ID, "owner", "OWNER")
+	memberRepo.Save(context.Background(), namespace.NamespaceMember{
+		NamespaceID: ns.ID, UserID: "member-1", Role: "MEMBER",
+	})
+	svc := makeMemberService(memberRepo, nsRepo, nil)
+
+	members, err := svc.ListMembers(context.Background(), ns.ID, "owner")
+	if err != nil {
+		t.Fatalf("unexpected error for owner listing members: %v", err)
+	}
+	if len(members) != 2 {
+		t.Fatalf("expected 2 members, got %d", len(members))
+	}
+}
+
+func TestListMembers_AdminCanListMembers(t *testing.T) {
+	ns := activeTeam(1)
+	nsRepo := newMockNamespaceRepo(ns)
+	memberRepo := makeMember(ns.ID, "owner", "OWNER")
+	memberRepo.Save(context.Background(), namespace.NamespaceMember{
+		NamespaceID: ns.ID, UserID: "admin", Role: "ADMIN",
+	})
+	svc := makeMemberService(memberRepo, nsRepo, nil)
+
+	members, err := svc.ListMembers(context.Background(), ns.ID, "admin")
+	if err != nil {
+		t.Fatalf("unexpected error for admin listing members: %v", err)
+	}
+	if len(members) != 2 {
+		t.Fatalf("expected 2 members, got %d", len(members))
+	}
+}
+
+func TestListMembers_MemberCanListMembers(t *testing.T) {
+	// Current semantics: any namespace member (including MEMBER role) can list
+	// members of their own namespace. Only non-members are denied.
+	ns := activeTeam(1)
+	nsRepo := newMockNamespaceRepo(ns)
+	memberRepo := makeMember(ns.ID, "owner", "OWNER")
+	memberRepo.Save(context.Background(), namespace.NamespaceMember{
+		NamespaceID: ns.ID, UserID: "member-1", Role: "MEMBER",
+	})
+	svc := makeMemberService(memberRepo, nsRepo, nil)
+
+	members, err := svc.ListMembers(context.Background(), ns.ID, "member-1")
+	if err != nil {
+		t.Fatalf("unexpected error for MEMBER caller listing members: %v", err)
+	}
+	if len(members) != 2 {
+		t.Fatalf("expected 2 members, got %d", len(members))
+	}
+}
+
 func TestGetMemberRole_CrossUserQueryRequiresMembership(t *testing.T) {
 	ns := activeTeam(1)
 	nsRepo := newMockNamespaceRepo(ns)

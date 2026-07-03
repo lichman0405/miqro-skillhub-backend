@@ -180,6 +180,36 @@ func TestAuditLog_Query_NonAdminOnlySeesOwnLogs(t *testing.T) {
 	}
 }
 
+func TestAuditLog_Query_AuditorRoleNotSufficientForAuditAccess(t *testing.T) {
+	repo := newMockAuditLogRepo()
+	writeSvc := audit.NewAuditLogService(repo)
+	querySvc := audit.NewAuditLogQueryService(repo)
+
+	writeSvc.Record(context.Background(), "user-1", "HIDE_SKILL", "SKILL", 1, "", "", "", "")
+	writeSvc.Record(context.Background(), "user-2", "ARCHIVE_SKILL", "SKILL", 2, "", "", "", "")
+
+	// AUDITOR platform role alone does NOT grant access to all audit logs.
+	// The AuditLogQueryService checks for SKILL_ADMIN or SUPER_ADMIN only.
+	auditorRoles := map[string]bool{"AUDITOR": true}
+	logs, _, err := querySvc.List(context.Background(), 0, 10, "auditor-user", auditorRoles, "", "")
+	if err != nil {
+		t.Fatalf("List failed: %v", err)
+	}
+	if len(logs) != 0 {
+		t.Errorf("AUDITOR role alone should not see any logs (only sees own, none recorded by auditor-user), got %d logs", len(logs))
+	}
+
+	// Verify AUDITOR can see own logs.
+	writeSvc.Record(context.Background(), "auditor-user", "VIEW_AUDIT", "AUDIT", 3, "", "", "", "")
+	logs, _, err = querySvc.List(context.Background(), 0, 10, "auditor-user", auditorRoles, "", "")
+	if err != nil {
+		t.Fatalf("List failed: %v", err)
+	}
+	if len(logs) != 1 {
+		t.Errorf("AUDITOR should see own logs, got %d", len(logs))
+	}
+}
+
 func TestAuditLog_Query_Pagination(t *testing.T) {
 	repo := newMockAuditLogRepo()
 	writeSvc := audit.NewAuditLogService(repo)
