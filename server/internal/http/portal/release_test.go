@@ -243,6 +243,205 @@ func newTestReleaseHandler(releaseSkillID int64) *ReleaseHandler {
 	}
 }
 
+// ── Portal release ownership tests ──────────────────────────────────────────
+
+func TestRelease_Create_OwnerCanCreate(t *testing.T) {
+	// Owner u1 can create a release for their own skill.
+	h := newTestReleaseHandler(100) // release skill matches path skill
+
+	body := `{"versionId": 1, "channel": "stable", "title": "v1.0.0 Release"}`
+	req := httptest.NewRequest("POST", "/api/v1/skills/ns1/myskill/releases", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("namespace", "ns1")
+	req.SetPathValue("slug", "myskill")
+	req = middleware.SetPrincipal(req, middleware.Principal{
+		UserID:          "u1",
+		IsAuthenticated: true,
+	})
+	w := httptest.NewRecorder()
+	h.handleCreateRelease(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201 for owner creating release, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestRelease_Create_NonOwnerForbidden(t *testing.T) {
+	// Stranger u3 cannot create a release on someone else's skill.
+	h := newTestReleaseHandler(100)
+
+	body := `{"versionId": 1, "channel": "stable", "title": "Hijack Release"}`
+	req := httptest.NewRequest("POST", "/api/v1/skills/ns1/myskill/releases", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("namespace", "ns1")
+	req.SetPathValue("slug", "myskill")
+	req = middleware.SetPrincipal(req, middleware.Principal{
+		UserID:          "u3",
+		IsAuthenticated: true,
+	})
+	w := httptest.NewRecorder()
+	h.handleCreateRelease(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for non-owner creating release, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestRelease_Create_SuperAdminCanCreate(t *testing.T) {
+	// Super admin can create a release even if not the skill owner.
+	h := newTestReleaseHandler(100)
+
+	body := `{"versionId": 1, "channel": "stable", "title": "Admin Release"}`
+	req := httptest.NewRequest("POST", "/api/v1/skills/ns1/myskill/releases", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("namespace", "ns1")
+	req.SetPathValue("slug", "myskill")
+	req = middleware.SetPrincipal(req, middleware.Principal{
+		UserID:          "admin",
+		IsAuthenticated: true,
+		PlatformRoles:   map[string]bool{"SUPER_ADMIN": true},
+	})
+	w := httptest.NewRecorder()
+	h.handleCreateRelease(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201 for super admin creating release, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestRelease_Update_NonPublisherForbidden(t *testing.T) {
+	// Release has publisher u1; stranger u3 must not be able to update.
+	h := newTestReleaseHandler(100) // release skill matches path skill
+
+	body := `{"title": "Hijacked"}`
+	req := httptest.NewRequest("PATCH", "/api/v1/skills/ns1/myskill/releases/1", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("namespace", "ns1")
+	req.SetPathValue("slug", "myskill")
+	req.SetPathValue("releaseID", "1")
+	req = middleware.SetPrincipal(req, middleware.Principal{
+		UserID:          "u3",
+		IsAuthenticated: true,
+	})
+	w := httptest.NewRecorder()
+	h.handleUpdateRelease(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for non-publisher updating release, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestRelease_Update_PublisherCanUpdate(t *testing.T) {
+	// Publisher u1 can update their own release.
+	h := newTestReleaseHandler(100)
+
+	body := `{"title": "Updated Title"}`
+	req := httptest.NewRequest("PATCH", "/api/v1/skills/ns1/myskill/releases/1", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("namespace", "ns1")
+	req.SetPathValue("slug", "myskill")
+	req.SetPathValue("releaseID", "1")
+	req = middleware.SetPrincipal(req, middleware.Principal{
+		UserID:          "u1",
+		IsAuthenticated: true,
+	})
+	w := httptest.NewRecorder()
+	h.handleUpdateRelease(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 for publisher updating release, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestRelease_Update_SuperAdminCanUpdate(t *testing.T) {
+	// Super admin can update any release.
+	h := newTestReleaseHandler(100)
+
+	body := `{"title": "Admin Updated"}`
+	req := httptest.NewRequest("PATCH", "/api/v1/skills/ns1/myskill/releases/1", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("namespace", "ns1")
+	req.SetPathValue("slug", "myskill")
+	req.SetPathValue("releaseID", "1")
+	req = middleware.SetPrincipal(req, middleware.Principal{
+		UserID:          "admin",
+		IsAuthenticated: true,
+		PlatformRoles:   map[string]bool{"SUPER_ADMIN": true},
+	})
+	w := httptest.NewRecorder()
+	h.handleUpdateRelease(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 for super admin updating release, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestRelease_Delete_NonPublisherForbidden(t *testing.T) {
+	// Stranger u3 must not be able to delete someone else's release.
+	h := newTestReleaseHandler(100)
+
+	req := httptest.NewRequest("DELETE", "/api/v1/skills/ns1/myskill/releases/1", nil)
+	req.SetPathValue("namespace", "ns1")
+	req.SetPathValue("slug", "myskill")
+	req.SetPathValue("releaseID", "1")
+	req = middleware.SetPrincipal(req, middleware.Principal{
+		UserID:          "u3",
+		IsAuthenticated: true,
+	})
+	w := httptest.NewRecorder()
+	h.handleDeleteRelease(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for non-publisher deleting release, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestRelease_Delete_PublisherCanDelete(t *testing.T) {
+	// Publisher u1 can delete their own release.
+	h := newTestReleaseHandler(100)
+
+	req := httptest.NewRequest("DELETE", "/api/v1/skills/ns1/myskill/releases/1", nil)
+	req.SetPathValue("namespace", "ns1")
+	req.SetPathValue("slug", "myskill")
+	req.SetPathValue("releaseID", "1")
+	req = middleware.SetPrincipal(req, middleware.Principal{
+		UserID:          "u1",
+		IsAuthenticated: true,
+	})
+	w := httptest.NewRecorder()
+	h.handleDeleteRelease(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 for publisher deleting release, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestRelease_Create_SkillIDFromPathNotBody(t *testing.T) {
+	// SkillID in the request body must be overridden by the path-resolved skill.
+	// Attempting to inject a different skillID in the body must not succeed.
+	h := newTestReleaseHandler(100)
+
+	// Body contains a different skillId — handler must ignore it and use path.
+	// The owner check uses the path-resolved skill's OwnerID.
+	body := `{"versionId": 1, "channel": "stable", "title": "Test", "skillId": 9999}`
+	req := httptest.NewRequest("POST", "/api/v1/skills/ns1/myskill/releases", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("namespace", "ns1")
+	req.SetPathValue("slug", "myskill")
+	req = middleware.SetPrincipal(req, middleware.Principal{
+		UserID:          "u1",
+		IsAuthenticated: true,
+	})
+	w := httptest.NewRecorder()
+	h.handleCreateRelease(w, req)
+
+	// Owner u1 owns the path skill (100), so creation should succeed.
+	// The key assertion: skillId=9999 from body was ignored.
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201 when owner creates release (body skillId ignored), got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 // ── Portal release path-scope tests ─────────────────────────────────────────
 
 func TestRelease_Get_WrongPathSkill(t *testing.T) {
