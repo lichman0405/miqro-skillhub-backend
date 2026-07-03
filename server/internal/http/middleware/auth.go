@@ -74,7 +74,7 @@ func RequireAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		p := GetPrincipal(r)
 		if !p.IsAuthenticated {
-			WriteError(w, &authError{msg: "authentication required"})
+			WriteError(w, &authError{msg: "authentication required", status: http.StatusUnauthorized, code: "unauthorized"})
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -87,7 +87,7 @@ func RequirePlatformRole(role string) func(http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			p := GetPrincipal(r)
 			if !p.HasPlatformRole(role) {
-				WriteError(w, &authError{msg: "forbidden: requires " + role})
+				WriteError(w, &authError{msg: "forbidden: requires " + role, status: http.StatusForbidden, code: "forbidden"})
 				return
 			}
 			next.ServeHTTP(w, r)
@@ -190,7 +190,11 @@ func isTokenActive(t *auth.ApiToken) bool {
 }
 
 type authError struct {
-	msg string
+	msg    string
+	status int
+	code   string
 }
 
-func (e *authError) Error() string { return e.msg }
+func (e *authError) Error() string  { return e.msg }
+func (e *authError) Status() int    { return e.status }
+func (e *authError) Code() string   { return e.code }

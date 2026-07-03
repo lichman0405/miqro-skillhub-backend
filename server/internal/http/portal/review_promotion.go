@@ -2,6 +2,7 @@ package portal
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"strconv"
 
@@ -60,8 +61,9 @@ func (h *ReviewPromotionHandler) handleApproveReview(w http.ResponseWriter, r *h
 	var req struct {
 		Comment string `json:"comment"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		req.Comment = ""
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+		middleware.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		return
 	}
 
 	p := middleware.GetPrincipal(r)
@@ -89,8 +91,9 @@ func (h *ReviewPromotionHandler) handleRejectReview(w http.ResponseWriter, r *ht
 	var req struct {
 		Comment string `json:"comment"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		req.Comment = ""
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+		middleware.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		return
 	}
 
 	p := middleware.GetPrincipal(r)
@@ -155,8 +158,9 @@ func (h *ReviewPromotionHandler) handleApprovePromotion(w http.ResponseWriter, r
 	var req struct {
 		Comment string `json:"comment"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		req.Comment = ""
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+		middleware.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		return
 	}
 
 	p := middleware.GetPrincipal(r)
@@ -184,8 +188,9 @@ func (h *ReviewPromotionHandler) handleRejectPromotion(w http.ResponseWriter, r 
 	var req struct {
 		Comment string `json:"comment"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		req.Comment = ""
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+		middleware.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		return
 	}
 
 	p := middleware.GetPrincipal(r)

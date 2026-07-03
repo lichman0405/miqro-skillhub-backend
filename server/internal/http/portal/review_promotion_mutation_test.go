@@ -760,3 +760,121 @@ func TestHTTP_WithdrawPromotion_UnauthenticatedReturnsError(t *testing.T) {
 		t.Fatal("expected non-200 for unauthenticated promotion withdraw")
 	}
 }
+
+// ============================================================================
+// Malformed JSON tests — must return 400, not silently treat as empty comment
+// ============================================================================
+
+func TestHTTP_ApproveReview_MalformedJSONReturns400(t *testing.T) {
+	h := newReviewTestHarness()
+	task := h.submitReview(t, "owner-1", rpOwnerRoles, nil)
+
+	req := h.newRequest("POST", "/api/v1/reviews/"+strconv.FormatInt(task.ID, 10)+"/approve",
+		strings.NewReader(`{bad json}`),
+		rpAuthd("admin-user", nil, rpPlatformAdmin))
+	w := h.do(req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for malformed JSON, got %d: %s", w.Code, w.Body.String())
+	}
+	// The task should NOT have been approved.
+	task2, _ := h.reviewTaskRepo.FindByID(context.Background(), task.ID)
+	if task2 != nil && task2.Status == "APPROVED" {
+		t.Fatal("task should not have been approved after malformed JSON request")
+	}
+}
+
+func TestHTTP_RejectReview_MalformedJSONReturns400(t *testing.T) {
+	h := newReviewTestHarness()
+	task := h.submitReview(t, "owner-1", rpOwnerRoles, nil)
+
+	req := h.newRequest("POST", "/api/v1/reviews/"+strconv.FormatInt(task.ID, 10)+"/reject",
+		strings.NewReader(`not json`),
+		rpAuthd("admin-user", nil, rpPlatformAdmin))
+	w := h.do(req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for malformed JSON, got %d: %s", w.Code, w.Body.String())
+	}
+	// The task should NOT have been rejected.
+	task2, _ := h.reviewTaskRepo.FindByID(context.Background(), task.ID)
+	if task2 != nil && task2.Status == "REJECTED" {
+		t.Fatal("task should not have been rejected after malformed JSON request")
+	}
+}
+
+func TestHTTP_ApprovePromotion_MalformedJSONReturns400(t *testing.T) {
+	h := newReviewTestHarness()
+	pr := h.submitPromotion(t, "owner-1", rpOwnerRoles)
+
+	req := h.newRequest("POST", "/api/v1/promotions/"+strconv.FormatInt(pr.ID, 10)+"/approve",
+		strings.NewReader(`{bad}`),
+		rpAuthd("plat-admin", nil, rpPlatformAdmin))
+	w := h.do(req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for malformed JSON, got %d: %s", w.Code, w.Body.String())
+	}
+	// The promotion should NOT have been approved.
+	pr2, _ := h.promotionReqRepo.FindByID(context.Background(), pr.ID)
+	if pr2 != nil && pr2.Status == "APPROVED" {
+		t.Fatal("promotion should not have been approved after malformed JSON request")
+	}
+}
+
+func TestHTTP_RejectPromotion_MalformedJSONReturns400(t *testing.T) {
+	h := newReviewTestHarness()
+	pr := h.submitPromotion(t, "owner-1", rpOwnerRoles)
+
+	req := h.newRequest("POST", "/api/v1/promotions/"+strconv.FormatInt(pr.ID, 10)+"/reject",
+		strings.NewReader(`{{{`),
+		rpAuthd("plat-admin", nil, rpPlatformAdmin))
+	w := h.do(req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for malformed JSON, got %d: %s", w.Code, w.Body.String())
+	}
+	// The promotion should NOT have been rejected.
+	pr2, _ := h.promotionReqRepo.FindByID(context.Background(), pr.ID)
+	if pr2 != nil && pr2.Status == "REJECTED" {
+		t.Fatal("promotion should not have been rejected after malformed JSON request")
+	}
+}
+
+// ============================================================================
+// Empty body tests — must still succeed (no body = no comment)
+// ============================================================================
+
+func TestHTTP_ApproveReview_EmptyBodyAllowed(t *testing.T) {
+	h := newReviewTestHarness()
+	task := h.submitReview(t, "owner-1", rpOwnerRoles, nil)
+
+	req := h.newRequest("POST", "/api/v1/reviews/"+strconv.FormatInt(task.ID, 10)+"/approve",
+		http.NoBody,
+		rpAuthd("admin-user", nil, rpPlatformAdmin))
+	w := h.do(req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 for empty body approve, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"APPROVED"`) {
+		t.Errorf("expected APPROVED in response body, got: %s", w.Body.String())
+	}
+}
+
+func TestHTTP_ApprovePromotion_EmptyBodyAllowed(t *testing.T) {
+	h := newReviewTestHarness()
+	pr := h.submitPromotion(t, "owner-1", rpOwnerRoles)
+
+	req := h.newRequest("POST", "/api/v1/promotions/"+strconv.FormatInt(pr.ID, 10)+"/approve",
+		http.NoBody,
+		rpAuthd("plat-admin", nil, rpPlatformAdmin))
+	w := h.do(req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 for empty body promotion approve, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"APPROVED"`) {
+		t.Errorf("expected APPROVED in response body, got: %s", w.Body.String())
+	}
+}

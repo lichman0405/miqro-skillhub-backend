@@ -52,6 +52,12 @@ func WriteError(w http.ResponseWriter, err error) {
 
 // mapError translates SDK errors to HTTP status codes.
 func mapError(err error) (status int, code string) {
+	// Auth middleware errors carry explicit status/code.
+	var ae *authError
+	if errors.As(err, &ae) {
+		return ae.status, ae.code
+	}
+
 	var se *sdkerror.Error
 	if errors.As(err, &se) {
 		switch se.Code {

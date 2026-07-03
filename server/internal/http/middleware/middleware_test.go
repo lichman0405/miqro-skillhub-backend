@@ -102,8 +102,16 @@ func TestRequireAuth_Anonymous(t *testing.T) {
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
-	if w.Code != http.StatusUnauthorized && w.Code != http.StatusInternalServerError {
-		t.Errorf("expected 401 or 500 for anonymous, got %d", w.Code)
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 for anonymous, got %d", w.Code)
+	}
+	// Verify error envelope code is "unauthorized".
+	var env Envelope
+	if err := json.NewDecoder(w.Body).Decode(&env); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if env.Error == nil || env.Error.Code != "unauthorized" {
+		t.Errorf("expected error code unauthorized, got %+v", env.Error)
 	}
 }
 
@@ -112,13 +120,21 @@ func TestRequirePlatformRole(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	// Without role → blocked.
+	// Without role → 403 forbidden.
 	req := httptest.NewRequest("GET", "/", nil)
 	req = SetPrincipal(req, Principal{UserID: "u1", IsAuthenticated: true, PlatformRoles: map[string]bool{"USER": true}})
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
-	if w.Code == http.StatusOK {
-		t.Error("expected non-200 when lacking SUPER_ADMIN")
+	if w.Code != http.StatusForbidden {
+		t.Errorf("expected 403 when lacking SUPER_ADMIN, got %d", w.Code)
+	}
+	// Verify error envelope code is "forbidden".
+	var env Envelope
+	if err := json.NewDecoder(w.Body).Decode(&env); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if env.Error == nil || env.Error.Code != "forbidden" {
+		t.Errorf("expected error code forbidden, got %+v", env.Error)
 	}
 
 	// With role → allowed.
