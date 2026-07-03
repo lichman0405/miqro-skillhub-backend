@@ -171,6 +171,20 @@ go vet ./...         # static analysis
 go test ./openapi/ -v  # OpenAPI spec validation
 ```
 
+### PostgreSQL integration tests
+
+Integration tests under `server/tests/integration/` require a real PostgreSQL database. By default they use the same connection as `SKILLHUB_DATABASE_URL`, but you can override it with `SKILLHUB_TEST_DATABASE_URL`:
+
+```powershell
+$env:SKILLHUB_TEST_DATABASE_URL="postgres://skillhub:skillhub@localhost:5432/skillhub_test?sslmode=disable"
+cd server
+go test ./tests/integration/... -v
+```
+
+**Important:** Integration tests reset the target schema (`DROP TABLE … CASCADE` + re-migrate) on every run. Never point `SKILLHUB_TEST_DATABASE_URL` at a database that contains data you care about. A dedicated test database (e.g. `skillhub_test`) is recommended.
+
+If PostgreSQL is not available, integration tests skip with a clear message. CI environments should run integration tests against a real PostgreSQL instance.
+
 For the TypeScript SDK:
 
 ```bash
