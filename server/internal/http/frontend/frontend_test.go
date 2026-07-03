@@ -2073,6 +2073,16 @@ func (r *fakeReviewTaskRepo) FindByVersionIDAndStatus(ctx context.Context, versi
 	return nil, nil
 }
 
+func (r *fakeReviewTaskRepo) CountByStatus(ctx context.Context, status string) (int64, error) {
+	var count int64
+	for _, t := range r.tasks {
+		if t.Status == status {
+			count++
+		}
+	}
+	return count, nil
+}
+
 func (r *fakeReviewTaskRepo) FindByStatus(ctx context.Context, status string) ([]review.ReviewTask, error) {
 	out := []review.ReviewTask{}
 	for _, t := range r.tasks {
@@ -2175,6 +2185,16 @@ func (r *fakePromotionRequestRepo) FindBySourceVersionIDAndStatus(ctx context.Co
 
 func (r *fakePromotionRequestRepo) FindBySourceSkillIDAndStatus(ctx context.Context, skillID int64, status string) (*review.PromotionRequest, error) {
 	return nil, nil
+}
+
+func (r *fakePromotionRequestRepo) CountByStatus(ctx context.Context, status string) (int64, error) {
+	var count int64
+	for _, req := range r.requests {
+		if req.Status == status {
+			count++
+		}
+	}
+	return count, nil
 }
 
 func (r *fakePromotionRequestRepo) FindByStatus(ctx context.Context, status string) ([]review.PromotionRequest, error) {

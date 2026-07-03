@@ -45,6 +45,15 @@ func (m *mockReviewTaskRepo) FindByVersionIDAndStatus(_ context.Context, version
 	}
 	return nil, nil
 }
+func (m *mockReviewTaskRepo) CountByStatus(_ context.Context, status string) (int64, error) {
+	var count int64
+	for _, t := range m.tasks {
+		if t.Status == status {
+			count++
+		}
+	}
+	return count, nil
+}
 func (m *mockReviewTaskRepo) FindByStatus(_ context.Context, status string) ([]review.ReviewTask, error) {
 	var out []review.ReviewTask
 	for _, t := range m.tasks {

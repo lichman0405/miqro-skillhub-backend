@@ -1,0 +1,29 @@
+{
+  "success": true,
+  "data": {
+    "issues": [
+      {
+        "id": 501,
+        "title": "Sample issue",
+        "status": "OPEN",
+        "authorId": "user-1",
+        "locked": false,
+        "commentCount": 1
+      },
+      {
+        "id": 502,
+        "title": "Another issue",
+        "status": "CLOSED",
+        "authorId": "user-2",
+        "locked": false,
+        "commentCount": 0
+      }
+    ],
+    "totalCount": 2,
+    "page": 0,
+    "size": 20,
+    "availableActions": {
+      "canCreateIssue": true
+    }
+  }
+}

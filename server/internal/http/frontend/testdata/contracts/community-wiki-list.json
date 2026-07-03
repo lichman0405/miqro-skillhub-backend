@@ -1,0 +1,22 @@
+{
+  "success": true,
+  "data": {
+    "pages": [
+      {
+        "id": 801,
+        "title": "Getting Started",
+        "slug": "getting-started",
+        "orderIndex": 0
+      },
+      {
+        "id": 802,
+        "title": "Configuration Guide",
+        "slug": "configuration",
+        "orderIndex": 1
+      }
+    ],
+    "availableActions": {
+      "canCreatePage": true
+    }
+  }
+}

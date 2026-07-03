@@ -8,6 +8,7 @@ type ReviewTaskRepository interface {
 	FindByID(ctx context.Context, id int64) (*ReviewTask, error)
 	FindByVersionIDAndStatus(ctx context.Context, versionID int64, status string) (*ReviewTask, error)
 	FindByStatus(ctx context.Context, status string) ([]ReviewTask, error)
+	CountByStatus(ctx context.Context, status string) (int64, error)
 	FindByStatusPaged(ctx context.Context, status string, page int, size int) ([]ReviewTask, bool, error)
 	FindByNamespaceIDsAndStatusPaged(ctx context.Context, namespaceIDs []int64, status string, page int, size int) ([]ReviewTask, bool, error)
 	FindByNamespaceIDAndStatus(ctx context.Context, namespaceID int64, status string) ([]ReviewTask, error)
@@ -25,6 +26,7 @@ type PromotionRequestRepository interface {
 	FindBySourceVersionIDAndStatus(ctx context.Context, versionID int64, status string) (*PromotionRequest, error)
 	FindBySourceSkillIDAndStatus(ctx context.Context, skillID int64, status string) (*PromotionRequest, error)
 	FindByStatus(ctx context.Context, status string) ([]PromotionRequest, error)
+	CountByStatus(ctx context.Context, status string) (int64, error)
 	FindByStatusPaged(ctx context.Context, status string, page int, size int) ([]PromotionRequest, bool, error)
 	ExistsByTargetNamespaceID(ctx context.Context, namespaceID int64) (bool, error)
 	Delete(ctx context.Context, id int64) error

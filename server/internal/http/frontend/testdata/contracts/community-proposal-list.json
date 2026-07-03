@@ -1,0 +1,25 @@
+{
+  "success": true,
+  "data": {
+    "proposals": [
+      {
+        "id": 901,
+        "title": "Refactor module X",
+        "status": "OPEN",
+        "authorId": "user-1"
+      },
+      {
+        "id": 902,
+        "title": "Add new runtime support",
+        "status": "ACCEPTED",
+        "authorId": "user-2"
+      }
+    ],
+    "totalCount": 2,
+    "page": 0,
+    "size": 20,
+    "availableActions": {
+      "canCreateProposal": true
+    }
+  }
+}

@@ -56,6 +56,14 @@ func (r *ReviewTaskRepo) FindByVersionIDAndStatus(ctx context.Context, versionID
 	return &t, nil
 }
 
+func (r *ReviewTaskRepo) CountByStatus(ctx context.Context, status string) (int64, error) {
+	var count int64
+	err := r.queryRow(ctx,
+		`SELECT COUNT(*) FROM review_task WHERE status = $1`, status,
+	).Scan(&count)
+	return count, err
+}
+
 func (r *ReviewTaskRepo) FindByStatus(ctx context.Context, status string) ([]review.ReviewTask, error) {
 	rows, err := r.query(ctx,
 		`SELECT id, skill_version_id, namespace_id, status, version, submitted_by, reviewed_by, review_comment, submitted_at, reviewed_at
@@ -243,6 +251,14 @@ func (r *PromotionRequestRepo) FindBySourceSkillIDAndStatus(ctx context.Context,
 		return nil, err
 	}
 	return &req, nil
+}
+
+func (r *PromotionRequestRepo) CountByStatus(ctx context.Context, status string) (int64, error) {
+	var count int64
+	err := r.queryRow(ctx,
+		`SELECT COUNT(*) FROM promotion_request WHERE status = $1`, status,
+	).Scan(&count)
+	return count, err
 }
 
 func (r *PromotionRequestRepo) FindByStatus(ctx context.Context, status string) ([]review.PromotionRequest, error) {

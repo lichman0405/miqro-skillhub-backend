@@ -156,11 +156,11 @@ func pendingReviewsCount(ctx context.Context, deps GovernanceFrontendDeps, p mid
 	if deps.ReviewTasks == nil {
 		return 0
 	}
-	tasks, err := deps.ReviewTasks.FindByStatus(ctx, string(review.ReviewStatusPending))
+	count, err := deps.ReviewTasks.CountByStatus(ctx, string(review.ReviewStatusPending))
 	if err != nil {
 		return 0
 	}
-	return int64(len(tasks))
+	return count
 }
 
 func pendingPromotionsCount(ctx context.Context, deps GovernanceFrontendDeps, p middleware.Principal) int64 {
@@ -170,9 +170,9 @@ func pendingPromotionsCount(ctx context.Context, deps GovernanceFrontendDeps, p 
 	if deps.PromotionRequests == nil {
 		return 0
 	}
-	requests, err := deps.PromotionRequests.FindByStatus(ctx, string(review.ReviewStatusPending))
+	count, err := deps.PromotionRequests.CountByStatus(ctx, string(review.ReviewStatusPending))
 	if err != nil {
 		return 0
 	}
-	return int64(len(requests))
+	return count
 }

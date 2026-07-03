@@ -1,0 +1,31 @@
+{
+  "success": true,
+  "data": {
+    "discussions": [
+      {
+        "id": 701,
+        "title": "Feature idea: better search",
+        "category": "IDEAS",
+        "authorId": "user-1",
+        "pinned": false,
+        "locked": false,
+        "commentCount": 3
+      },
+      {
+        "id": 702,
+        "title": "How to configure CI?",
+        "category": "QA",
+        "authorId": "user-2",
+        "pinned": true,
+        "locked": false,
+        "commentCount": 1
+      }
+    ],
+    "totalCount": 2,
+    "page": 0,
+    "size": 20,
+    "availableActions": {
+      "canCreateDiscussion": true
+    }
+  }
+}

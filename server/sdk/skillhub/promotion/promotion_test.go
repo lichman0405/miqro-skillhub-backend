@@ -54,6 +54,15 @@ func (m *mockPromotionRequestRepo) FindBySourceSkillIDAndStatus(_ context.Contex
 	}
 	return nil, nil
 }
+func (m *mockPromotionRequestRepo) CountByStatus(_ context.Context, status string) (int64, error) {
+	var count int64
+	for _, r := range m.reqs {
+		if r.Status == status {
+			count++
+		}
+	}
+	return count, nil
+}
 func (m *mockPromotionRequestRepo) FindByStatus(_ context.Context, status string) ([]review.PromotionRequest, error) {
 	var out []review.PromotionRequest
 	for _, r := range m.reqs {
