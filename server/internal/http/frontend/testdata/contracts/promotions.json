@@ -1,0 +1,30 @@
+{
+  "success": true,
+  "data": {
+    "requests": [
+      {
+        "id": 901,
+        "sourceSkillId": 101,
+        "sourceSkillSlug": "example-skill",
+        "sourceSkillName": "Example Skill",
+        "sourceVersionId": 201,
+        "sourceVersion": "1.0.0",
+        "targetNamespaceId": 6,
+        "targetNamespaceSlug": "global",
+        "targetSkillId": null,
+        "submittedBy": "user-1",
+        "status": "PENDING",
+        "submittedAt": "2025-06-11T10:00:00Z",
+        "canApprove": true,
+        "canReject": true,
+        "canWithdraw": false
+      }
+    ],
+    "pendingCount": 1,
+    "availableActions": {
+      "canReview": true,
+      "canSubmit": true,
+      "canWithdraw": true
+    }
+  }
+}

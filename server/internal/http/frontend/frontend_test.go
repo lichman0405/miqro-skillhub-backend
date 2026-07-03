@@ -1987,3 +1987,75 @@ type fakeAdminStatsQuery struct {
 func (q *fakeAdminStatsQuery) Stats(ctx context.Context) (AdminStatsView, error) {
 	return q.stats, q.err
 }
+
+// ── Path/query regression tests ──────────────────────────────────────────
+
+func TestFrontend_SearchPage_CapsPageSize(t *testing.T) {
+	stub := &stubSearchQueryService{}
+	searchH := &portal.SearchHandler{SearchSvc: &search.Service{Query: stub}}
+
+	req := httptest.NewRequest("GET", "/api/v1/frontend/search?size=200", nil)
+	req = middleware.SetPrincipal(req, middleware.Anonymous())
+	w := httptest.NewRecorder()
+	handleRegistrySearch(w, req, searchH)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if stub.got.Size != 100 {
+		t.Errorf("expected size capped to 100, got %d", stub.got.Size)
+	}
+}
+
+func TestFrontend_ReleaseList_CapsPageSize(t *testing.T) {
+	req := httptest.NewRequest("GET", "/api/v1/frontend/skills/ns1/myskill/releases?size=200", nil)
+	req = middleware.SetPrincipal(req, middleware.Anonymous())
+	w := httptest.NewRecorder()
+	handleReleaseList(w, req, nil, nil)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	var resp struct {
+		Success bool                 `json:"success"`
+		Data    ReleaseListReadModel `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.Data.Size != 100 {
+		t.Errorf("expected release list size capped to 100, got %d", resp.Data.Size)
+	}
+}
+
+func TestFrontend_ReviewDetail_InvalidID(t *testing.T) {
+	req := httptest.NewRequest("GET", "/api/v1/frontend/reviews/abc", nil)
+	req.SetPathValue("id", "abc")
+	req = middleware.SetPrincipal(req, middleware.Principal{
+		UserID:          "reviewer-1",
+		IsAuthenticated: true,
+		PlatformRoles:   map[string]bool{"SKILL_ADMIN": true},
+	})
+	w := httptest.NewRecorder()
+	handleReviewDetail(w, req, ReviewFrontendDeps{})
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for invalid review id, got %d", w.Code)
+	}
+}
+
+func TestFrontend_PromotionDetail_InvalidID(t *testing.T) {
+	req := httptest.NewRequest("GET", "/api/v1/frontend/promotions/abc", nil)
+	req.SetPathValue("id", "abc")
+	req = middleware.SetPrincipal(req, middleware.Principal{
+		UserID:          "super-1",
+		IsAuthenticated: true,
+		PlatformRoles:   map[string]bool{"SUPER_ADMIN": true},
+	})
+	w := httptest.NewRecorder()
+	handlePromotionDetail(w, req, PromotionFrontendDeps{})
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for invalid promotion id, got %d", w.Code)
+	}
+}

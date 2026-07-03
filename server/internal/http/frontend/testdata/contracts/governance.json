@@ -1,0 +1,29 @@
+{
+  "success": true,
+  "data": {
+    "summary": {
+      "total": 5,
+      "unread": 2,
+      "byCategory": {
+        "REVIEW": 3,
+        "PROMOTION": 2
+      },
+      "pendingReviews": 1,
+      "pendingPromotions": 1
+    },
+    "recentActivity": [
+      {
+        "id": 1001,
+        "category": "REVIEW",
+        "title": "Review submitted for Example Skill",
+        "createdAt": "2025-06-11T10:00:00Z",
+        "isRead": false
+      }
+    ],
+    "availableActions": {
+      "canReview": true,
+      "canAccessAdmin": false,
+      "canViewAuditLog": true
+    }
+  }
+}

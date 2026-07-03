@@ -1,0 +1,37 @@
+{
+  "success": true,
+  "data": {
+    "release": {
+      "id": 301,
+      "skillId": 101,
+      "versionId": 201,
+      "channel": "stable",
+      "title": "v1.0.0",
+      "notes": "First stable release.",
+      "draft": false,
+      "prerelease": false,
+      "yanked": false,
+      "publishedAt": "2025-06-01T12:00:00Z",
+      "publisherId": "user-1",
+      "reviewerId": "reviewer-1",
+      "packageHash": "sha256:abc123",
+      "ciCheckRunId": "run-1"
+    },
+    "assets": [
+      {
+        "id": 401,
+        "name": "example-skill-1.0.0.zip",
+        "label": "Package",
+        "contentType": "application/zip",
+        "size": 4096,
+        "downloadCount": 12
+      }
+    ],
+    "availableActions": {
+      "canEdit": true,
+      "canDelete": false,
+      "canYank": true,
+      "canUnYank": false
+    }
+  }
+}

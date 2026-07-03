@@ -1,0 +1,22 @@
+{
+  "success": true,
+  "data": {
+    "stats": {
+      "totalSkills": 120,
+      "totalNamespaces": 15,
+      "totalUsers": 83,
+      "pendingReviews": 4,
+      "pendingPromotions": 1,
+      "openReports": 0
+    },
+    "availableActions": {
+      "canManageSkills": true,
+      "canManageUsers": true,
+      "canManageLabels": true,
+      "canResolveReports": true,
+      "canRebuildSearch": true,
+      "canViewAuditLog": true,
+      "canManageNamespaces": true
+    }
+  }
+}

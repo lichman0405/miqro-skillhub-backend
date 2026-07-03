@@ -14,6 +14,16 @@ SKILLHUB_CORS_ALLOWED_ORIGINS=http://localhost:5173
 
 Use explicit origins for authenticated browser requests. Do not rely on wildcard CORS for session cookies or bearer-token based UI traffic.
 
+### Contract fixtures
+
+Representative frontend read-model response fixtures live under:
+
+```text
+server/internal/http/frontend/testdata/contracts/
+```
+
+Use these fixtures to design frontend loading states, TypeScript mocks, and Storybook/demo data. They are examples of current response envelopes, not a replacement for API tests. Each fixture is a full `{ success: true, data: ... }` envelope covering one of the ready frontend read-model routes.
+
 ### Read-model implementation status
 
 | Area | Current status |

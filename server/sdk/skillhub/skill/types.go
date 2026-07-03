@@ -52,14 +52,14 @@ type SkillVersion struct {
 
 // SkillFile represents stored file metadata for a version.
 type SkillFile struct {
-	ID          int64
-	VersionID   int64
-	FilePath    string
-	FileSize    int64
-	ContentType string
-	SHA256      string
-	StorageKey  string
-	CreatedAt   time.Time
+	ID          int64     `json:"id,omitempty"`
+	VersionID   int64     `json:"versionId,omitempty"`
+	FilePath    string    `json:"path"`
+	FileSize    int64     `json:"size"`
+	ContentType string    `json:"contentType,omitempty"`
+	SHA256      string    `json:"sha256,omitempty"`
+	StorageKey  string    `json:"storageKey,omitempty"`
+	CreatedAt   time.Time `json:"createdAt,omitempty"`
 }
 
 // SkillTag represents a tag on a skill.

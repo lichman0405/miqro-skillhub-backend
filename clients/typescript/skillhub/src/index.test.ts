@@ -5,7 +5,7 @@
  * coverage — every /api/v1/frontend/* route exposed by the Go handlers
  * must have a corresponding typed client method.
  */
-import { describe, it } from "node:test";
+import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import {
   SkillHubClient,
@@ -638,5 +638,175 @@ describe("Type exports", () => {
       isAuthenticated: true,
     };
     assert.ok(principal.platformRoles.SUPER_ADMIN);
+  });
+});
+
+describe("Frontend client URL construction", () => {
+  let captured: { url: string; init?: RequestInit } | null = null;
+  let originalFetch: typeof globalThis.fetch;
+  const client = new SkillHubClient("http://localhost:8080");
+
+  before(() => {
+    originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (
+      input: RequestInfo | URL,
+      init?: RequestInit
+    ): Promise<Response> => {
+      captured = {
+        url: typeof input === "string" ? input : input.toString(),
+        init,
+      };
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ success: true, data: {} }),
+      } as Response;
+    }) as typeof globalThis.fetch;
+  });
+
+  after(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it("frontendSearch builds expected query string", async () => {
+    await client.frontendSearch({
+      keyword: "agent tools",
+      sortBy: "downloads",
+      page: 1,
+      size: 20,
+      labelSlugs: ["go", "ci"],
+      installableOnly: true,
+    });
+    assert.ok(captured, "fetch should have been called");
+    assert.strictEqual(
+      captured!.url,
+      "http://localhost:8080/api/v1/frontend/search?q=agent+tools&sort=downloads&page=1&size=20&labels=go%2Cci&installable=true"
+    );
+  });
+
+  it("frontendSearch omits empty query params", async () => {
+    await client.frontendSearch({});
+    assert.strictEqual(
+      captured!.url,
+      "http://localhost:8080/api/v1/frontend/search"
+    );
+  });
+
+  it("frontendSkillDetail encodes path params", async () => {
+    await client.frontendSkillDetail("team alpha", "my/skill");
+    assert.strictEqual(
+      captured!.url,
+      "http://localhost:8080/api/v1/frontend/skills/team%20alpha/my%2Fskill"
+    );
+  });
+
+  it("frontendVersionDetail encodes version", async () => {
+    await client.frontendVersionDetail("ns", "skill", "1.0.0-beta");
+    assert.strictEqual(
+      captured!.url,
+      "http://localhost:8080/api/v1/frontend/skills/ns/skill/versions/1.0.0-beta"
+    );
+  });
+
+  it("frontendPublishValidate encodes namespace", async () => {
+    await client.frontendPublishValidate("team alpha");
+    assert.strictEqual(
+      captured!.url,
+      "http://localhost:8080/api/v1/frontend/skills/team%20alpha/publish/validate"
+    );
+  });
+
+  it("frontendNamespaceDetail encodes slug", async () => {
+    await client.frontendNamespaceDetail("team alpha");
+    assert.strictEqual(
+      captured!.url,
+      "http://localhost:8080/api/v1/frontend/namespaces/team%20alpha"
+    );
+  });
+
+  it("frontendReleaseDetail builds expected path", async () => {
+    await client.frontendReleaseDetail("ns", "skill", 42);
+    assert.strictEqual(
+      captured!.url,
+      "http://localhost:8080/api/v1/frontend/skills/ns/skill/releases/42"
+    );
+  });
+
+  it("frontendWikiDetail encodes pageSlug", async () => {
+    await client.frontendWikiDetail("ns", "skill", "getting started");
+    assert.strictEqual(
+      captured!.url,
+      "http://localhost:8080/api/v1/frontend/skills/ns/skill/wiki/getting%20started"
+    );
+  });
+
+  it("frontendReviews builds expected path", async () => {
+    await client.frontendReviews();
+    assert.strictEqual(
+      captured!.url,
+      "http://localhost:8080/api/v1/frontend/reviews"
+    );
+  });
+
+  it("frontendReviewDetail builds expected path", async () => {
+    await client.frontendReviewDetail(7);
+    assert.strictEqual(
+      captured!.url,
+      "http://localhost:8080/api/v1/frontend/reviews/7"
+    );
+  });
+
+  it("frontendPromotions builds expected path", async () => {
+    await client.frontendPromotions();
+    assert.strictEqual(
+      captured!.url,
+      "http://localhost:8080/api/v1/frontend/promotions"
+    );
+  });
+
+  it("frontendGovernance builds expected path", async () => {
+    await client.frontendGovernance();
+    assert.strictEqual(
+      captured!.url,
+      "http://localhost:8080/api/v1/frontend/governance"
+    );
+  });
+
+  it("frontendAdmin builds expected path", async () => {
+    await client.frontendAdmin();
+    assert.strictEqual(
+      captured!.url,
+      "http://localhost:8080/api/v1/frontend/admin"
+    );
+  });
+});
+
+describe("Envelope handling", () => {
+  let originalFetch: typeof globalThis.fetch;
+  const client = new SkillHubClient("http://localhost:8080");
+
+  before(() => {
+    originalFetch = globalThis.fetch;
+  });
+
+  after(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it("returns error envelope when fetch resolves to error response", async () => {
+    globalThis.fetch = (async () => {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          success: false,
+          error: { code: "search.failed", message: "search is unavailable" },
+        }),
+      } as Response;
+    }) as typeof globalThis.fetch;
+
+    const result = await client.frontendSearch({ keyword: "x" });
+    assert.strictEqual(result.success, false);
+    assert.strictEqual(result.error?.code, "search.failed");
   });
 });

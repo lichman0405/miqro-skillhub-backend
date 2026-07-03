@@ -1,0 +1,26 @@
+{
+  "success": true,
+  "data": {
+    "namespaces": [
+      {
+        "id": 5,
+        "slug": "team-alpha",
+        "displayName": "Team Alpha",
+        "type": "TEAM",
+        "description": "Alpha team namespace",
+        "status": "ACTIVE"
+      },
+      {
+        "id": 6,
+        "slug": "global",
+        "displayName": "Global",
+        "type": "GLOBAL",
+        "description": "Global public namespace",
+        "status": "ACTIVE"
+      }
+    ],
+    "availableActions": {
+      "canCreateNamespace": true
+    }
+  }
+}

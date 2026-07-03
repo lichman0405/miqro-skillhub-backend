@@ -1,0 +1,17 @@
+{
+  "success": true,
+  "data": {
+    "searchResult": {
+      "skillIds": [101, 102, 103],
+      "total": 3,
+      "page": 1,
+      "size": 20
+    },
+    "featuredLabels": ["go", "agent", "ci"],
+    "availableActions": {
+      "canCreateSkill": true,
+      "canCreateNamespace": true,
+      "canAccessAdmin": false
+    }
+  }
+}

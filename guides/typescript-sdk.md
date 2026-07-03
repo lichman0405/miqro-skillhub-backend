@@ -234,6 +234,68 @@ if (result.success && result.data) {
 }
 ```
 
+## Frontend read-model methods
+
+All `/api/v1/frontend/*` methods return a typed `Envelope<T>` with `availableActions` computed for the authenticated viewer. Path parameters are URL-encoded automatically, so namespaces, slugs, version strings, and wiki page slugs can contain spaces or slashes.
+
+```typescript
+// Home / discover
+const { data: home } = await client.frontendSearch({
+  keyword: "agent",
+  sortBy: "downloads",
+  page: 0,
+  size: 20,
+  labelSlugs: ["go"],
+  installableOnly: true,
+});
+
+// Skill detail page
+const { data: skillPage } = await client.frontendSkillDetail("team-alpha", "example-skill");
+if (skillPage.availableActions.canEdit) {
+  // show edit button
+}
+
+// Version detail page
+const { data: versionPage } = await client.frontendVersionDetail(
+  "team-alpha", "example-skill", "1.0.0"
+);
+
+// Namespace detail page
+const { data: nsPage } = await client.frontendNamespaceDetail("team-alpha");
+
+// Release list/detail pages
+const { data: releaseList } = await client.frontendReleaseList("team-alpha", "example-skill");
+const { data: releaseDetail } = await client.frontendReleaseDetail(
+  "team-alpha", "example-skill", 1
+);
+
+// Review and promotion queues (read-model only)
+const { data: reviews } = await client.frontendReviews();
+const { data: review } = await client.frontendReviewDetail(1);
+const { data: promotions } = await client.frontendPromotions();
+const { data: promotion } = await client.frontendPromotionDetail(1);
+
+// Governance workbench and admin dashboard
+const { data: governance } = await client.frontendGovernance();
+const { data: admin } = await client.frontendAdmin();
+
+// Community pages
+const { data: issues } = await client.frontendIssueList("team-alpha", "example-skill");
+const { data: issue } = await client.frontendIssueDetail("team-alpha", "example-skill", 1);
+const { data: discussions } = await client.frontendDiscussionList("team-alpha", "example-skill");
+const { data: discussion } = await client.frontendDiscussionDetail(
+  "team-alpha", "example-skill", 1
+);
+const { data: wikiPages } = await client.frontendWikiList("team-alpha", "example-skill");
+const { data: wikiPage } = await client.frontendWikiDetail(
+  "team-alpha", "example-skill", "getting-started"
+);
+const { data: proposals } = await client.frontendProposalList("team-alpha", "example-skill");
+const { data: proposal } = await client.frontendProposalDetail("team-alpha", "example-skill", 1);
+```
+
+These frontend methods are read-only. The SDK and guides still do not expose HTTP endpoints to approve, reject, or withdraw reviews or promotions; those mutations must be added as separate routes when the frontend needs them.
+
 ## Tool API (miqro CLI)
 
 ```typescript

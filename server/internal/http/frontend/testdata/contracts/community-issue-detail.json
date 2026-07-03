@@ -1,0 +1,26 @@
+{
+  "success": true,
+  "data": {
+    "issue": {
+      "id": 501,
+      "title": "Sample issue",
+      "body": "This is a fixture issue body.",
+      "status": "OPEN",
+      "assigneeId": "user-2",
+      "linkedVersionId": 201,
+      "linkedReleaseId": 301,
+      "authorId": "user-1",
+      "locked": false,
+      "commentCount": 1
+    },
+    "comments": [
+      { "id": 601, "authorId": "user-2", "body": "Looking into it." }
+    ],
+    "availableActions": {
+      "canEdit": true,
+      "canDelete": false,
+      "canClose": true,
+      "canReopen": false
+    }
+  }
+}

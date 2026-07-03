@@ -1259,7 +1259,12 @@ paths:
         - { name: namespace, in: path, required: true, schema: { type: string } }
         - { name: slug, in: path, required: true, schema: { type: string } }
       responses:
-        "200": { description: Issue list read model }
+        "200":
+          description: Issue list read model
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IssueListReadModel"
 
   /api/v1/frontend/skills/{namespace}/{slug}/issues/{issueID}:
     get:
@@ -1270,7 +1275,12 @@ paths:
         - { name: slug, in: path, required: true, schema: { type: string } }
         - { name: issueID, in: path, required: true, schema: { type: integer, format: int64 } }
       responses:
-        "200": { description: Issue detail read model }
+        "200":
+          description: Issue detail read model
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IssueDetailReadModel"
 
   /api/v1/frontend/skills/{namespace}/{slug}/discussions:
     get:
@@ -1280,7 +1290,12 @@ paths:
         - { name: namespace, in: path, required: true, schema: { type: string } }
         - { name: slug, in: path, required: true, schema: { type: string } }
       responses:
-        "200": { description: Discussion list read model }
+        "200":
+          description: Discussion list read model
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiscussionListReadModel"
 
   /api/v1/frontend/skills/{namespace}/{slug}/discussions/{discussionID}:
     get:
@@ -1291,7 +1306,12 @@ paths:
         - { name: slug, in: path, required: true, schema: { type: string } }
         - { name: discussionID, in: path, required: true, schema: { type: integer, format: int64 } }
       responses:
-        "200": { description: Discussion detail read model }
+        "200":
+          description: Discussion detail read model
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiscussionDetailReadModel"
 
   /api/v1/frontend/skills/{namespace}/{slug}/wiki:
     get:
@@ -1301,7 +1321,12 @@ paths:
         - { name: namespace, in: path, required: true, schema: { type: string } }
         - { name: slug, in: path, required: true, schema: { type: string } }
       responses:
-        "200": { description: Wiki page list read model }
+        "200":
+          description: Wiki page list read model
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WikiPageListReadModel"
 
   /api/v1/frontend/skills/{namespace}/{slug}/wiki/{pageSlug}:
     get:
@@ -1312,7 +1337,12 @@ paths:
         - { name: slug, in: path, required: true, schema: { type: string } }
         - { name: pageSlug, in: path, required: true, schema: { type: string } }
       responses:
-        "200": { description: Wiki page detail read model }
+        "200":
+          description: Wiki page detail read model
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WikiPageDetailReadModel"
 
   /api/v1/frontend/skills/{namespace}/{slug}/proposals:
     get:
@@ -1322,7 +1352,12 @@ paths:
         - { name: namespace, in: path, required: true, schema: { type: string } }
         - { name: slug, in: path, required: true, schema: { type: string } }
       responses:
-        "200": { description: Proposal list read model }
+        "200":
+          description: Proposal list read model
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProposalListReadModel"
 
   /api/v1/frontend/skills/{namespace}/{slug}/proposals/{proposalID}:
     get:
@@ -1333,7 +1368,12 @@ paths:
         - { name: slug, in: path, required: true, schema: { type: string } }
         - { name: proposalID, in: path, required: true, schema: { type: integer, format: int64 } }
       responses:
-        "200": { description: Proposal detail read model }
+        "200":
+          description: Proposal detail read model
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProposalDetailReadModel"
 
 components:
   securitySchemes:
@@ -1740,10 +1780,12 @@ components:
         displayName: { type: string }
         type: { type: string }
         description: { type: string }
+        status: { type: string }
 
     NamespaceMember:
       type: object
       properties:
+        id: { type: integer, format: int64 }
         namespaceId: { type: integer, format: int64 }
         userId: { type: string }
         role: { type: string }
@@ -2036,15 +2078,19 @@ components:
     ReleaseListReadModel:
       type: object
       properties:
-        releases:
-          type: array
-          items:
-            $ref: "#/components/schemas/ReleaseListView"
-        totalCount: { type: integer, format: int64 }
-        page: { type: integer }
-        size: { type: integer }
-        availableActions:
-          $ref: "#/components/schemas/ReleaseListActions"
+        success: { type: boolean }
+        data:
+          type: object
+          properties:
+            releases:
+              type: array
+              items:
+                $ref: "#/components/schemas/ReleaseListView"
+            totalCount: { type: integer, format: int64 }
+            page: { type: integer }
+            size: { type: integer }
+            availableActions:
+              $ref: "#/components/schemas/ReleaseListActions"
 
     ReleaseListView:
       type: object
@@ -2067,14 +2113,18 @@ components:
     ReleaseDetailReadModel:
       type: object
       properties:
-        release:
-          $ref: "#/components/schemas/ReleaseDetailView"
-        assets:
-          type: array
-          items:
-            $ref: "#/components/schemas/ReleaseAssetView"
-        availableActions:
-          $ref: "#/components/schemas/ReleaseDetailActions"
+        success: { type: boolean }
+        data:
+          type: object
+          properties:
+            release:
+              $ref: "#/components/schemas/ReleaseDetailView"
+            assets:
+              type: array
+              items:
+                $ref: "#/components/schemas/ReleaseAssetView"
+            availableActions:
+              $ref: "#/components/schemas/ReleaseDetailActions"
 
     ReleaseDetailView:
       type: object
@@ -2226,11 +2276,15 @@ components:
     IssueListReadModel:
       type: object
       properties:
-        issues: { type: array, items: { $ref: "#/components/schemas/IssueListView" } }
-        totalCount: { type: integer, format: int64 }
-        page: { type: integer }
-        size: { type: integer }
-        availableActions: { $ref: "#/components/schemas/IssueListActions" }
+        success: { type: boolean }
+        data:
+          type: object
+          properties:
+            issues: { type: array, items: { $ref: "#/components/schemas/IssueListView" } }
+            totalCount: { type: integer, format: int64 }
+            page: { type: integer }
+            size: { type: integer }
+            availableActions: { $ref: "#/components/schemas/IssueListActions" }
 
     IssueListView:
       type: object
@@ -2250,9 +2304,13 @@ components:
     IssueDetailReadModel:
       type: object
       properties:
-        issue: { $ref: "#/components/schemas/IssueDetailView" }
-        comments: { type: array, items: { $ref: "#/components/schemas/CommentView" } }
-        availableActions: { $ref: "#/components/schemas/IssueDetailActions" }
+        success: { type: boolean }
+        data:
+          type: object
+          properties:
+            issue: { $ref: "#/components/schemas/IssueDetailView" }
+            comments: { type: array, items: { $ref: "#/components/schemas/CommentView" } }
+            availableActions: { $ref: "#/components/schemas/IssueDetailActions" }
 
     IssueDetailView:
       type: object
@@ -2261,8 +2319,12 @@ components:
         title: { type: string }
         body: { type: string }
         status: { type: string }
+        assigneeId: { type: string }
+        linkedVersionId: { type: integer, format: int64 }
+        linkedReleaseId: { type: integer, format: int64 }
         authorId: { type: string }
         locked: { type: boolean }
+        commentCount: { type: integer }
 
     IssueDetailActions:
       type: object
@@ -2282,11 +2344,15 @@ components:
     DiscussionListReadModel:
       type: object
       properties:
-        discussions: { type: array, items: { $ref: "#/components/schemas/DiscussionListView" } }
-        totalCount: { type: integer, format: int64 }
-        page: { type: integer }
-        size: { type: integer }
-        availableActions: { $ref: "#/components/schemas/DiscussionListActions" }
+        success: { type: boolean }
+        data:
+          type: object
+          properties:
+            discussions: { type: array, items: { $ref: "#/components/schemas/DiscussionListView" } }
+            totalCount: { type: integer, format: int64 }
+            page: { type: integer }
+            size: { type: integer }
+            availableActions: { $ref: "#/components/schemas/DiscussionListActions" }
 
     DiscussionListView:
       type: object
@@ -2307,9 +2373,13 @@ components:
     DiscussionDetailReadModel:
       type: object
       properties:
-        discussion: { $ref: "#/components/schemas/DiscussionDetailView" }
-        comments: { type: array, items: { $ref: "#/components/schemas/CommentView" } }
-        availableActions: { $ref: "#/components/schemas/DiscussionDetailActions" }
+        success: { type: boolean }
+        data:
+          type: object
+          properties:
+            discussion: { $ref: "#/components/schemas/DiscussionDetailView" }
+            comments: { type: array, items: { $ref: "#/components/schemas/CommentView" } }
+            availableActions: { $ref: "#/components/schemas/DiscussionDetailActions" }
 
     DiscussionDetailView:
       type: object
@@ -2318,9 +2388,11 @@ components:
         title: { type: string }
         body: { type: string }
         category: { type: string }
+        acceptedAnswerId: { type: integer, format: int64 }
         authorId: { type: string }
         pinned: { type: boolean }
         locked: { type: boolean }
+        commentCount: { type: integer }
 
     DiscussionDetailActions:
       type: object
@@ -2334,8 +2406,12 @@ components:
     WikiPageListReadModel:
       type: object
       properties:
-        pages: { type: array, items: { $ref: "#/components/schemas/WikiPageListView" } }
-        availableActions: { $ref: "#/components/schemas/WikiPageListActions" }
+        success: { type: boolean }
+        data:
+          type: object
+          properties:
+            pages: { type: array, items: { $ref: "#/components/schemas/WikiPageListView" } }
+            availableActions: { $ref: "#/components/schemas/WikiPageListActions" }
 
     WikiPageListView:
       type: object
@@ -2353,9 +2429,13 @@ components:
     WikiPageDetailReadModel:
       type: object
       properties:
-        page: { $ref: "#/components/schemas/WikiPageDetailView" }
-        versions: { type: array, items: { $ref: "#/components/schemas/WikiVersionView" } }
-        availableActions: { $ref: "#/components/schemas/WikiPageDetailActions" }
+        success: { type: boolean }
+        data:
+          type: object
+          properties:
+            page: { $ref: "#/components/schemas/WikiPageDetailView" }
+            versions: { type: array, items: { $ref: "#/components/schemas/WikiVersionView" } }
+            availableActions: { $ref: "#/components/schemas/WikiPageDetailActions" }
 
     WikiPageDetailView:
       type: object
@@ -2383,11 +2463,15 @@ components:
     ProposalListReadModel:
       type: object
       properties:
-        proposals: { type: array, items: { $ref: "#/components/schemas/ProposalListView" } }
-        totalCount: { type: integer, format: int64 }
-        page: { type: integer }
-        size: { type: integer }
-        availableActions: { $ref: "#/components/schemas/ProposalListActions" }
+        success: { type: boolean }
+        data:
+          type: object
+          properties:
+            proposals: { type: array, items: { $ref: "#/components/schemas/ProposalListView" } }
+            totalCount: { type: integer, format: int64 }
+            page: { type: integer }
+            size: { type: integer }
+            availableActions: { $ref: "#/components/schemas/ProposalListActions" }
 
     ProposalListView:
       type: object
@@ -2405,8 +2489,12 @@ components:
     ProposalDetailReadModel:
       type: object
       properties:
-        proposal: { $ref: "#/components/schemas/ProposalDetailView" }
-        availableActions: { $ref: "#/components/schemas/ProposalDetailActions" }
+        success: { type: boolean }
+        data:
+          type: object
+          properties:
+            proposal: { $ref: "#/components/schemas/ProposalDetailView" }
+            availableActions: { $ref: "#/components/schemas/ProposalDetailActions" }
 
     ProposalDetailView:
       type: object

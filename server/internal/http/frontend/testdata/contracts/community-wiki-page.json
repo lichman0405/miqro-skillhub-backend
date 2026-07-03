@@ -1,0 +1,20 @@
+{
+  "success": true,
+  "data": {
+    "page": {
+      "id": 503,
+      "title": "Getting Started",
+      "slug": "getting-started",
+      "version": 3,
+      "body": "# Getting Started\n\nWelcome to the fixture wiki page."
+    },
+    "versions": [
+      { "id": 701, "version": 3, "changeSummary": "Added fixture content", "authorId": "user-1" },
+      { "id": 702, "version": 2, "changeSummary": "Initial draft", "authorId": "user-1" }
+    ],
+    "availableActions": {
+      "canEdit": true,
+      "canDelete": false
+    }
+  }
+}

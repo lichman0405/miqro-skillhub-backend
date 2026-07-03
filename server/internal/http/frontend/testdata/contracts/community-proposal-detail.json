@@ -1,0 +1,19 @@
+{
+  "success": true,
+  "data": {
+    "proposal": {
+      "id": 504,
+      "title": "Refactor module X",
+      "summary": "Proposal to refactor the fixture module.",
+      "status": "OPEN",
+      "authorId": "user-1",
+      "reviewerId": "reviewer-1",
+      "sourceGitRef": "refs/heads/feature-x"
+    },
+    "availableActions": {
+      "canAccept": true,
+      "canReject": true,
+      "canWithdraw": false
+    }
+  }
+}

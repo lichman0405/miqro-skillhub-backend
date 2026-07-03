@@ -1,0 +1,29 @@
+{
+  "success": true,
+  "data": {
+    "tasks": [
+      {
+        "id": 801,
+        "skillVersionId": 201,
+        "skillId": 101,
+        "namespaceId": 5,
+        "namespaceSlug": "team-alpha",
+        "skillSlug": "example-skill",
+        "skillName": "Example Skill",
+        "version": "1.0.0",
+        "submittedBy": "user-1",
+        "status": "PENDING",
+        "submittedAt": "2025-06-10T09:00:00Z",
+        "canApprove": true,
+        "canReject": true,
+        "canWithdraw": false
+      }
+    ],
+    "pendingCount": 1,
+    "availableActions": {
+      "canReview": true,
+      "canSubmit": true,
+      "canWithdraw": true
+    }
+  }
+}

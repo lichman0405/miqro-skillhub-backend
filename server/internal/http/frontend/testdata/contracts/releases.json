@@ -1,0 +1,24 @@
+{
+  "success": true,
+  "data": {
+    "releases": [
+      {
+        "id": 301,
+        "versionId": 201,
+        "channel": "stable",
+        "title": "v1.0.0",
+        "draft": false,
+        "prerelease": false,
+        "yanked": false,
+        "publishedAt": "2025-06-01T12:00:00Z",
+        "publisherId": "user-1"
+      }
+    ],
+    "totalCount": 1,
+    "page": 0,
+    "size": 20,
+    "availableActions": {
+      "canCreateRelease": true
+    }
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "success": true,
+  "data": {
+    "skill": {
+      "id": 101,
+      "slug": "example-skill",
+      "displayName": "Example Skill",
+      "ownerId": "user-1",
+      "summary": "A representative skill for fixture consumers.",
+      "visibility": "PUBLIC",
+      "status": "ACTIVE",
+      "downloadCount": 42,
+      "starCount": 7,
+      "ratingAvg": 4.5,
+      "canManage": false
+    },
+    "versions": [
+      { "id": 201, "version": "1.0.0", "status": "PUBLISHED" },
+      { "id": 202, "version": "1.1.0", "status": "PUBLISHED" }
+    ],
+    "files": [
+      { "path": "SKILL.md", "size": 1200 },
+      { "path": "README.md", "size": 800 }
+    ],
+    "availableActions": {
+      "canEdit": true,
+      "canPublish": true,
+      "canDelete": false,
+      "canSubmitForReview": true,
+      "canRequestPromotion": true,
+      "canStar": true,
+      "canReport": true,
+      "canManage": true
+    }
+  }
+}

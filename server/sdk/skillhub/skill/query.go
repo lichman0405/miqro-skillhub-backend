@@ -55,33 +55,33 @@ func NewSkillQueryService(
 
 // SkillDetail contains the visible fields of a skill.
 type SkillDetail struct {
-	ID              int64
-	Slug            string
-	DisplayName     string
-	OwnerID         string
-	Summary         string
-	Visibility      string
-	Status          string
-	DownloadCount   int64
-	StarCount       int
-	SubscriptionCount int
-	RatingAvg       float64
-	RatingCount     int
-	Hidden          bool
-	NamespaceID     int64
-	CanManage       bool
+	ID                int64   `json:"id"`
+	Slug              string  `json:"slug"`
+	DisplayName       string  `json:"displayName"`
+	OwnerID           string  `json:"ownerId"`
+	Summary           string  `json:"summary"`
+	Visibility        string  `json:"visibility"`
+	Status            string  `json:"status"`
+	DownloadCount     int64   `json:"downloadCount"`
+	StarCount         int     `json:"starCount"`
+	SubscriptionCount int     `json:"-"`
+	RatingAvg         float64 `json:"ratingAvg"`
+	RatingCount       int     `json:"-"`
+	Hidden            bool    `json:"-"`
+	NamespaceID       int64   `json:"-"`
+	CanManage         bool    `json:"canManage"`
 }
 
 // VersionDetail contains the visible fields of a version.
 type VersionDetail struct {
-	ID                 int64
-	Version            string
-	Status             string
-	FileCount          int
-	TotalSize          int64
-	PublishedAt        string
-	ParsedMetadataJSON string
-	ManifestJSON       string
+	ID                 int64  `json:"id"`
+	Version            string `json:"version"`
+	Status             string `json:"status"`
+	FileCount          int    `json:"-"`
+	TotalSize          int64  `json:"-"`
+	PublishedAt        string `json:"publishedAt,omitempty"`
+	ParsedMetadataJSON string `json:"-"`
+	ManifestJSON       string `json:"-"`
 }
 
 // ---------------------------------------------------------------------------

@@ -1,0 +1,13 @@
+{
+  "success": true,
+  "data": {
+    "valid": false,
+    "warnings": ["no package uploaded"],
+    "errors": [],
+    "metadata": {},
+    "availableActions": {
+      "canPublish": true,
+      "canOverrideWarnings": true
+    }
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "success": true,
+  "data": {
+    "discussion": {
+      "id": 502,
+      "title": "Sample discussion",
+      "body": "Fixture discussion body.",
+      "category": "GENERAL",
+      "acceptedAnswerId": 602,
+      "authorId": "user-1",
+      "pinned": true,
+      "locked": false,
+      "commentCount": 2
+    },
+    "comments": [
+      { "id": 602, "authorId": "user-2", "body": "Here is an answer." }
+    ],
+    "availableActions": {
+      "canEdit": true,
+      "canDelete": false,
+      "canLock": true,
+      "canPin": true,
+      "canAcceptAnswer": true
+    }
+  }
+}

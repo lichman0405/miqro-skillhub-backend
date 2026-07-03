@@ -952,7 +952,9 @@ export class SkillHubClient {
     namespace: string,
     slug: string
   ): Promise<Envelope<SkillDetailReadModel>> {
-    return this.fetch(`/api/v1/frontend/skills/${namespace}/${slug}`);
+    return this.fetch(
+      `/api/v1/frontend/skills/${encodeURIComponent(namespace)}/${encodeURIComponent(slug)}`
+    );
   }
 
   /** Get version detail/compare page read model. */
@@ -962,7 +964,7 @@ export class SkillHubClient {
     version: string
   ): Promise<Envelope<VersionDetailReadModel>> {
     return this.fetch(
-      `/api/v1/frontend/skills/${namespace}/${slug}/versions/${version}`
+      `/api/v1/frontend/skills/${encodeURIComponent(namespace)}/${encodeURIComponent(slug)}/versions/${encodeURIComponent(version)}`
     );
   }
 
@@ -971,7 +973,7 @@ export class SkillHubClient {
     namespace: string
   ): Promise<Envelope<PublishValidateReadModel>> {
     return this.fetch(
-      `/api/v1/frontend/skills/${namespace}/publish/validate`
+      `/api/v1/frontend/skills/${encodeURIComponent(namespace)}/publish/validate`
     );
   }
 
@@ -984,7 +986,7 @@ export class SkillHubClient {
   async frontendNamespaceDetail(
     slug: string
   ): Promise<Envelope<NamespaceDetailReadModel>> {
-    return this.fetch(`/api/v1/frontend/namespaces/${slug}`);
+    return this.fetch(`/api/v1/frontend/namespaces/${encodeURIComponent(slug)}`);
   }
 
   /** Get review queue page read model. */
@@ -996,7 +998,7 @@ export class SkillHubClient {
   async frontendReviewDetail(
     id: number
   ): Promise<Envelope<ReviewDetailReadModel>> {
-    return this.fetch(`/api/v1/frontend/reviews/${id}`);
+    return this.fetch(`/api/v1/frontend/reviews/${encodeURIComponent(String(id))}`);
   }
 
   /** Get promotion queue page read model. */
@@ -1008,7 +1010,7 @@ export class SkillHubClient {
   async frontendPromotionDetail(
     id: number
   ): Promise<Envelope<PromotionDetailReadModel>> {
-    return this.fetch(`/api/v1/frontend/promotions/${id}`);
+    return this.fetch(`/api/v1/frontend/promotions/${encodeURIComponent(String(id))}`);
   }
 
   /** Get governance workbench page read model. */
@@ -1221,7 +1223,7 @@ export class SkillHubClient {
     slug: string
   ): Promise<Envelope<ReleaseListReadModel>> {
     return this.fetch(
-      `/api/v1/frontend/skills/${namespace}/${slug}/releases`
+      `/api/v1/frontend/skills/${encodeURIComponent(namespace)}/${encodeURIComponent(slug)}/releases`
     );
   }
 
@@ -1232,7 +1234,7 @@ export class SkillHubClient {
     releaseId: number
   ): Promise<Envelope<ReleaseDetailReadModel>> {
     return this.fetch(
-      `/api/v1/frontend/skills/${namespace}/${slug}/releases/${releaseId}`
+      `/api/v1/frontend/skills/${encodeURIComponent(namespace)}/${encodeURIComponent(slug)}/releases/${encodeURIComponent(String(releaseId))}`
     );
   }
 
@@ -1447,35 +1449,35 @@ export class SkillHubClient {
   // ── Community frontend methods ────────────────────────────────────
 
   async frontendIssueList(namespace: string, slug: string): Promise<Envelope<IssueListReadModel>> {
-    return this.fetch(`/api/v1/frontend/skills/${namespace}/${slug}/issues`);
+    return this.fetch(`/api/v1/frontend/skills/${encodeURIComponent(namespace)}/${encodeURIComponent(slug)}/issues`);
   }
 
   async frontendIssueDetail(namespace: string, slug: string, issueId: number): Promise<Envelope<IssueDetailReadModel>> {
-    return this.fetch(`/api/v1/frontend/skills/${namespace}/${slug}/issues/${issueId}`);
+    return this.fetch(`/api/v1/frontend/skills/${encodeURIComponent(namespace)}/${encodeURIComponent(slug)}/issues/${encodeURIComponent(String(issueId))}`);
   }
 
   async frontendDiscussionList(namespace: string, slug: string): Promise<Envelope<DiscussionListReadModel>> {
-    return this.fetch(`/api/v1/frontend/skills/${namespace}/${slug}/discussions`);
+    return this.fetch(`/api/v1/frontend/skills/${encodeURIComponent(namespace)}/${encodeURIComponent(slug)}/discussions`);
   }
 
   async frontendDiscussionDetail(namespace: string, slug: string, discussionId: number): Promise<Envelope<DiscussionDetailReadModel>> {
-    return this.fetch(`/api/v1/frontend/skills/${namespace}/${slug}/discussions/${discussionId}`);
+    return this.fetch(`/api/v1/frontend/skills/${encodeURIComponent(namespace)}/${encodeURIComponent(slug)}/discussions/${encodeURIComponent(String(discussionId))}`);
   }
 
   async frontendWikiList(namespace: string, slug: string): Promise<Envelope<WikiPageListReadModel>> {
-    return this.fetch(`/api/v1/frontend/skills/${namespace}/${slug}/wiki`);
+    return this.fetch(`/api/v1/frontend/skills/${encodeURIComponent(namespace)}/${encodeURIComponent(slug)}/wiki`);
   }
 
   async frontendWikiDetail(namespace: string, slug: string, pageSlug: string): Promise<Envelope<WikiPageDetailReadModel>> {
-    return this.fetch(`/api/v1/frontend/skills/${namespace}/${slug}/wiki/${pageSlug}`);
+    return this.fetch(`/api/v1/frontend/skills/${encodeURIComponent(namespace)}/${encodeURIComponent(slug)}/wiki/${encodeURIComponent(pageSlug)}`);
   }
 
   async frontendProposalList(namespace: string, slug: string): Promise<Envelope<ProposalListReadModel>> {
-    return this.fetch(`/api/v1/frontend/skills/${namespace}/${slug}/proposals`);
+    return this.fetch(`/api/v1/frontend/skills/${encodeURIComponent(namespace)}/${encodeURIComponent(slug)}/proposals`);
   }
 
   async frontendProposalDetail(namespace: string, slug: string, proposalId: number): Promise<Envelope<ProposalDetailReadModel>> {
-    return this.fetch(`/api/v1/frontend/skills/${namespace}/${slug}/proposals/${proposalId}`);
+    return this.fetch(`/api/v1/frontend/skills/${encodeURIComponent(namespace)}/${encodeURIComponent(slug)}/proposals/${encodeURIComponent(String(proposalId))}`);
   }
 }
 

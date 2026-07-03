@@ -1,0 +1,19 @@
+{
+  "success": true,
+  "data": {
+    "version": {
+      "id": 201,
+      "version": "1.0.0",
+      "status": "PUBLISHED",
+      "publishedAt": "2025-06-01T12:00:00Z"
+    },
+    "availableActions": {
+      "canCompare": true,
+      "canDownload": true,
+      "canSubmitForReview": true,
+      "canRequestPromotion": true,
+      "canYank": false,
+      "canReview": false
+    }
+  }
+}
