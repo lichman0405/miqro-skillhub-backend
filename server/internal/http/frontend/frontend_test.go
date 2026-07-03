@@ -1285,6 +1285,189 @@ func TestFrontend_ReviewDetail_SubmitterCanViewButNotApprove(t *testing.T) {
 	}
 }
 
+func TestFrontend_ReviewQueue_UsesPageAndSize(t *testing.T) {
+	deps := ReviewFrontendDeps{
+		ReviewTasks: &fakeReviewTaskRepo{tasks: []review.ReviewTask{
+			{ID: 1, SkillVersionID: 101, NamespaceID: 5, Status: "PENDING", SubmittedBy: "user-1", SubmittedAt: time.Now()},
+			{ID: 2, SkillVersionID: 102, NamespaceID: 5, Status: "PENDING", SubmittedBy: "user-2", SubmittedAt: time.Now()},
+			{ID: 3, SkillVersionID: 103, NamespaceID: 5, Status: "PENDING", SubmittedBy: "user-3", SubmittedAt: time.Now()},
+		}},
+		Versions: &fakeSkillVersionRepo{versions: []skill.SkillVersion{
+			{ID: 101, SkillID: 201, Version: "1.0.0"},
+			{ID: 102, SkillID: 201, Version: "1.1.0"},
+			{ID: 103, SkillID: 201, Version: "1.2.0"},
+		}},
+		Skills: &fakeSkillRepo{skills: []skill.Skill{
+			{ID: 201, NamespaceID: 5, Slug: "my-skill", DisplayName: "My Skill"},
+		}},
+		Namespaces: &fakeNamespaceRepo{namespaces: []namespace.Namespace{
+			{ID: 5, Slug: "team-alpha", Type: "TEAM"},
+		}},
+	}
+
+	req := httptest.NewRequest("GET", "/api/v1/frontend/reviews?page=1&size=2", nil)
+	req = middleware.SetPrincipal(req, middleware.Principal{
+		UserID:          "reviewer-1",
+		IsAuthenticated: true,
+		PlatformRoles:   map[string]bool{"SKILL_ADMIN": true},
+	})
+	w := httptest.NewRecorder()
+	handleReviewQueue(w, req, deps)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	var resp struct {
+		Success bool                 `json:"success"`
+		Data    ReviewQueueReadModel `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.Data.Page != 1 {
+		t.Errorf("expected page 1, got %d", resp.Data.Page)
+	}
+	if resp.Data.Size != 2 {
+		t.Errorf("expected size 2, got %d", resp.Data.Size)
+	}
+	if len(resp.Data.Tasks) != 1 {
+		t.Errorf("expected 1 task on page 1, got %d", len(resp.Data.Tasks))
+	}
+}
+
+func TestFrontend_ReviewQueue_CapsSize(t *testing.T) {
+	deps := ReviewFrontendDeps{
+		ReviewTasks: &fakeReviewTaskRepo{tasks: []review.ReviewTask{
+			{ID: 1, SkillVersionID: 101, NamespaceID: 5, Status: "PENDING", SubmittedBy: "user-1", SubmittedAt: time.Now()},
+		}},
+		Namespaces: &fakeNamespaceRepo{namespaces: []namespace.Namespace{
+			{ID: 5, Slug: "team-alpha", Type: "TEAM"},
+		}},
+	}
+
+	req := httptest.NewRequest("GET", "/api/v1/frontend/reviews?size=200", nil)
+	req = middleware.SetPrincipal(req, middleware.Principal{
+		UserID:          "reviewer-1",
+		IsAuthenticated: true,
+		PlatformRoles:   map[string]bool{"SKILL_ADMIN": true},
+	})
+	w := httptest.NewRecorder()
+	handleReviewQueue(w, req, deps)
+
+	var resp struct {
+		Success bool                 `json:"success"`
+		Data    ReviewQueueReadModel `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.Data.Size != 100 {
+		t.Errorf("expected size capped to 100, got %d", resp.Data.Size)
+	}
+}
+
+func TestFrontend_ReviewQueue_HasMore(t *testing.T) {
+	deps := ReviewFrontendDeps{
+		ReviewTasks: &fakeReviewTaskRepo{tasks: []review.ReviewTask{
+			{ID: 1, SkillVersionID: 101, NamespaceID: 5, Status: "PENDING", SubmittedBy: "user-1", SubmittedAt: time.Now()},
+			{ID: 2, SkillVersionID: 102, NamespaceID: 5, Status: "PENDING", SubmittedBy: "user-2", SubmittedAt: time.Now()},
+			{ID: 3, SkillVersionID: 103, NamespaceID: 5, Status: "PENDING", SubmittedBy: "user-3", SubmittedAt: time.Now()},
+		}},
+		Namespaces: &fakeNamespaceRepo{namespaces: []namespace.Namespace{
+			{ID: 5, Slug: "team-alpha", Type: "TEAM"},
+		}},
+	}
+
+	req := httptest.NewRequest("GET", "/api/v1/frontend/reviews?size=2", nil)
+	req = middleware.SetPrincipal(req, middleware.Principal{
+		UserID:          "reviewer-1",
+		IsAuthenticated: true,
+		PlatformRoles:   map[string]bool{"SKILL_ADMIN": true},
+	})
+	w := httptest.NewRecorder()
+	handleReviewQueue(w, req, deps)
+
+	var resp struct {
+		Success bool                 `json:"success"`
+		Data    ReviewQueueReadModel `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if !resp.Data.HasMore {
+		t.Error("expected hasMore=true when more rows exist")
+	}
+	if len(resp.Data.Tasks) != 2 {
+		t.Errorf("expected 2 tasks returned, got %d", len(resp.Data.Tasks))
+	}
+}
+
+func TestFrontend_ReviewQueue_NamespaceReviewerFiltersRows(t *testing.T) {
+	deps := ReviewFrontendDeps{
+		ReviewTasks: &fakeReviewTaskRepo{tasks: []review.ReviewTask{
+			{ID: 1, SkillVersionID: 101, NamespaceID: 5, Status: "PENDING", SubmittedBy: "user-1", SubmittedAt: time.Now()},
+			{ID: 2, SkillVersionID: 102, NamespaceID: 6, Status: "PENDING", SubmittedBy: "user-2", SubmittedAt: time.Now()},
+		}},
+		Namespaces: &fakeNamespaceRepo{namespaces: []namespace.Namespace{
+			{ID: 5, Slug: "team-alpha", Type: "TEAM"},
+			{ID: 6, Slug: "team-beta", Type: "TEAM"},
+		}},
+	}
+
+	req := httptest.NewRequest("GET", "/api/v1/frontend/reviews", nil)
+	req = middleware.SetPrincipal(req, middleware.Principal{
+		UserID:             "owner-1",
+		IsAuthenticated:    true,
+		NamespaceRoles:     map[int64]string{5: "OWNER"},
+		MemberNamespaceIDs: []int64{5},
+	})
+	w := httptest.NewRecorder()
+	handleReviewQueue(w, req, deps)
+
+	var resp struct {
+		Success bool                 `json:"success"`
+		Data    ReviewQueueReadModel `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(resp.Data.Tasks) != 1 {
+		t.Errorf("expected 1 visible task for namespace OWNER, got %d", len(resp.Data.Tasks))
+	}
+	if resp.Data.Tasks[0].NamespaceID != 5 {
+		t.Errorf("expected only namespace 5 task, got namespace %d", resp.Data.Tasks[0].NamespaceID)
+	}
+}
+
+func TestFrontend_ReviewQueue_DoesNotRepeatNamespaceLookupForSameNamespace(t *testing.T) {
+	nsRepo := &fakeNamespaceRepo{namespaces: []namespace.Namespace{
+		{ID: 5, Slug: "team-alpha", Type: "TEAM"},
+	}}
+	deps := ReviewFrontendDeps{
+		ReviewTasks: &fakeReviewTaskRepo{tasks: []review.ReviewTask{
+			{ID: 1, SkillVersionID: 101, NamespaceID: 5, Status: "PENDING", SubmittedBy: "user-1", SubmittedAt: time.Now()},
+			{ID: 2, SkillVersionID: 102, NamespaceID: 5, Status: "PENDING", SubmittedBy: "user-2", SubmittedAt: time.Now()},
+		}},
+		Namespaces: nsRepo,
+	}
+
+	req := httptest.NewRequest("GET", "/api/v1/frontend/reviews", nil)
+	req = middleware.SetPrincipal(req, middleware.Principal{
+		UserID:          "reviewer-1",
+		IsAuthenticated: true,
+		PlatformRoles:   map[string]bool{"SKILL_ADMIN": true},
+	})
+	w := httptest.NewRecorder()
+	handleReviewQueue(w, req, deps)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if nsRepo.namespaceLookups != 1 {
+		t.Errorf("expected 1 namespace lookup for 2 same-namespace tasks, got %d", nsRepo.namespaceLookups)
+	}
+}
+
 // ── Promotion read-model tests ───────────────────────────────────────────
 
 func TestFrontend_PromotionQueue_UsesRealPromotionRequests(t *testing.T) {
@@ -1678,6 +1861,25 @@ func (r *fakeReviewTaskRepo) FindByStatus(ctx context.Context, status string) ([
 	return out, nil
 }
 
+func (r *fakeReviewTaskRepo) FindByStatusPaged(ctx context.Context, status string, page int, size int) ([]review.ReviewTask, bool, error) {
+	out := []review.ReviewTask{}
+	for _, t := range r.tasks {
+		if t.Status == status {
+			out = append(out, t)
+		}
+	}
+	offset := page * size
+	if offset >= len(out) {
+		return nil, false, nil
+	}
+	result := out[offset:]
+	hasMore := len(result) > size
+	if hasMore {
+		result = result[:size]
+	}
+	return result, hasMore, nil
+}
+
 func (r *fakeReviewTaskRepo) FindByNamespaceIDAndStatus(ctx context.Context, namespaceID int64, status string) ([]review.ReviewTask, error) {
 	return nil, nil
 }
@@ -1737,6 +1939,25 @@ func (r *fakePromotionRequestRepo) FindByStatus(ctx context.Context, status stri
 	return out, nil
 }
 
+func (r *fakePromotionRequestRepo) FindByStatusPaged(ctx context.Context, status string, page int, size int) ([]review.PromotionRequest, bool, error) {
+	out := []review.PromotionRequest{}
+	for _, req := range r.requests {
+		if req.Status == status {
+			out = append(out, req)
+		}
+	}
+	offset := page * size
+	if offset >= len(out) {
+		return nil, false, nil
+	}
+	result := out[offset:]
+	hasMore := len(result) > size
+	if hasMore {
+		result = result[:size]
+	}
+	return result, hasMore, nil
+}
+
 func (r *fakePromotionRequestRepo) ExistsByTargetNamespaceID(ctx context.Context, namespaceID int64) (bool, error) {
 	return false, nil
 }
@@ -1754,10 +1975,12 @@ func (r *fakePromotionRequestRepo) UpdateStatusWithVersion(ctx context.Context, 
 }
 
 type fakeSkillVersionRepo struct {
-	versions []skill.SkillVersion
+	versions        []skill.SkillVersion
+	versionLookups  int
 }
 
 func (r *fakeSkillVersionRepo) FindByID(ctx context.Context, id int64) (*skill.SkillVersion, error) {
+	r.versionLookups++
 	for i := range r.versions {
 		if r.versions[i].ID == id {
 			return &r.versions[i], nil
@@ -1795,10 +2018,12 @@ func (r *fakeSkillVersionRepo) DeleteBySkillID(ctx context.Context, skillID int6
 }
 
 type fakeSkillRepo struct {
-	skills []skill.Skill
+	skills       []skill.Skill
+	skillLookups int
 }
 
 func (r *fakeSkillRepo) FindByID(ctx context.Context, id int64) (*skill.Skill, error) {
+	r.skillLookups++
 	for i := range r.skills {
 		if r.skills[i].ID == id {
 			return &r.skills[i], nil
@@ -1860,10 +2085,12 @@ func (r *fakeSkillRepo) DecrementSubscriptionCount(ctx context.Context, skillID 
 }
 
 type fakeNamespaceRepo struct {
-	namespaces []namespace.Namespace
+	namespaces       []namespace.Namespace
+	namespaceLookups int
 }
 
 func (r *fakeNamespaceRepo) FindByID(ctx context.Context, id int64) (*namespace.Namespace, error) {
+	r.namespaceLookups++
 	for i := range r.namespaces {
 		if r.namespaces[i].ID == id {
 			return &r.namespaces[i], nil
@@ -1988,6 +2215,173 @@ func (q *fakeAdminStatsQuery) Stats(ctx context.Context) (AdminStatsView, error)
 	return q.stats, q.err
 }
 
+// ── Promotion queue pagination tests ────────────────────────────────────
+
+func TestFrontend_PromotionQueue_UsesPageAndSize(t *testing.T) {
+	deps := PromotionFrontendDeps{
+		PromotionRequests: &fakePromotionRequestRepo{requests: []review.PromotionRequest{
+			{ID: 1, SourceSkillID: 101, SourceVersionID: 201, TargetNamespaceID: 5, Status: "PENDING", SubmittedBy: "user-1", SubmittedAt: time.Now()},
+			{ID: 2, SourceSkillID: 102, SourceVersionID: 202, TargetNamespaceID: 5, Status: "PENDING", SubmittedBy: "user-2", SubmittedAt: time.Now()},
+			{ID: 3, SourceSkillID: 103, SourceVersionID: 203, TargetNamespaceID: 5, Status: "PENDING", SubmittedBy: "user-3", SubmittedAt: time.Now()},
+		}},
+		Versions: &fakeSkillVersionRepo{versions: []skill.SkillVersion{
+			{ID: 201, SkillID: 101, Version: "1.0.0"},
+			{ID: 202, SkillID: 102, Version: "1.1.0"},
+			{ID: 203, SkillID: 103, Version: "1.2.0"},
+		}},
+		Skills: &fakeSkillRepo{skills: []skill.Skill{
+			{ID: 101, Slug: "skill-a", DisplayName: "Skill A"},
+			{ID: 102, Slug: "skill-b", DisplayName: "Skill B"},
+			{ID: 103, Slug: "skill-c", DisplayName: "Skill C"},
+		}},
+		Namespaces: &fakeNamespaceRepo{namespaces: []namespace.Namespace{
+			{ID: 5, Slug: "team-alpha", Type: "TEAM"},
+		}},
+	}
+
+	req := httptest.NewRequest("GET", "/api/v1/frontend/promotions?page=1&size=2", nil)
+	req = middleware.SetPrincipal(req, middleware.Principal{
+		UserID:          "super-1",
+		IsAuthenticated: true,
+		PlatformRoles:   map[string]bool{"SUPER_ADMIN": true},
+	})
+	w := httptest.NewRecorder()
+	handlePromotionQueue(w, req, deps)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	var resp struct {
+		Success bool                     `json:"success"`
+		Data    PromotionQueueReadModel  `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.Data.Page != 1 {
+		t.Errorf("expected page 1, got %d", resp.Data.Page)
+	}
+	if resp.Data.Size != 2 {
+		t.Errorf("expected size 2, got %d", resp.Data.Size)
+	}
+	if len(resp.Data.Requests) != 1 {
+		t.Errorf("expected 1 request on page 1, got %d", len(resp.Data.Requests))
+	}
+}
+
+func TestFrontend_PromotionQueue_CapsSize(t *testing.T) {
+	deps := PromotionFrontendDeps{
+		PromotionRequests: &fakePromotionRequestRepo{requests: []review.PromotionRequest{
+			{ID: 1, SourceSkillID: 101, SourceVersionID: 201, TargetNamespaceID: 5, Status: "PENDING", SubmittedBy: "user-1", SubmittedAt: time.Now()},
+		}},
+		Namespaces: &fakeNamespaceRepo{namespaces: []namespace.Namespace{
+			{ID: 5, Slug: "team-alpha", Type: "TEAM"},
+		}},
+	}
+
+	req := httptest.NewRequest("GET", "/api/v1/frontend/promotions?size=200", nil)
+	req = middleware.SetPrincipal(req, middleware.Principal{
+		UserID:          "super-1",
+		IsAuthenticated: true,
+		PlatformRoles:   map[string]bool{"SUPER_ADMIN": true},
+	})
+	w := httptest.NewRecorder()
+	handlePromotionQueue(w, req, deps)
+
+	var resp struct {
+		Success bool                     `json:"success"`
+		Data    PromotionQueueReadModel  `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.Data.Size != 100 {
+		t.Errorf("expected size capped to 100, got %d", resp.Data.Size)
+	}
+}
+
+func TestFrontend_PromotionQueue_HasMore(t *testing.T) {
+	deps := PromotionFrontendDeps{
+		PromotionRequests: &fakePromotionRequestRepo{requests: []review.PromotionRequest{
+			{ID: 1, SourceSkillID: 101, SourceVersionID: 201, TargetNamespaceID: 5, Status: "PENDING", SubmittedBy: "user-1", SubmittedAt: time.Now()},
+			{ID: 2, SourceSkillID: 102, SourceVersionID: 202, TargetNamespaceID: 5, Status: "PENDING", SubmittedBy: "user-2", SubmittedAt: time.Now()},
+			{ID: 3, SourceSkillID: 103, SourceVersionID: 203, TargetNamespaceID: 5, Status: "PENDING", SubmittedBy: "user-3", SubmittedAt: time.Now()},
+		}},
+		Namespaces: &fakeNamespaceRepo{namespaces: []namespace.Namespace{
+			{ID: 5, Slug: "team-alpha", Type: "TEAM"},
+		}},
+	}
+
+	req := httptest.NewRequest("GET", "/api/v1/frontend/promotions?size=2", nil)
+	req = middleware.SetPrincipal(req, middleware.Principal{
+		UserID:          "super-1",
+		IsAuthenticated: true,
+		PlatformRoles:   map[string]bool{"SUPER_ADMIN": true},
+	})
+	w := httptest.NewRecorder()
+	handlePromotionQueue(w, req, deps)
+
+	var resp struct {
+		Success bool                     `json:"success"`
+		Data    PromotionQueueReadModel  `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if !resp.Data.HasMore {
+		t.Error("expected hasMore=true when more rows exist")
+	}
+	if len(resp.Data.Requests) != 2 {
+		t.Errorf("expected 2 requests returned, got %d", len(resp.Data.Requests))
+	}
+}
+
+func TestFrontend_PromotionQueue_DoesNotRepeatEnrichmentLookupForSameIDs(t *testing.T) {
+	verRepo := &fakeSkillVersionRepo{versions: []skill.SkillVersion{
+		{ID: 201, SkillID: 101, Version: "1.0.0"},
+		{ID: 202, SkillID: 101, Version: "1.1.0"},
+	}}
+	skillRepo := &fakeSkillRepo{skills: []skill.Skill{
+		{ID: 101, Slug: "my-skill", DisplayName: "My Skill"},
+	}}
+	nsRepo := &fakeNamespaceRepo{namespaces: []namespace.Namespace{
+		{ID: 5, Slug: "team-alpha", Type: "TEAM"},
+		{ID: 6, Slug: "global", Type: "GLOBAL"},
+	}}
+
+	deps := PromotionFrontendDeps{
+		PromotionRequests: &fakePromotionRequestRepo{requests: []review.PromotionRequest{
+			{ID: 1, SourceSkillID: 101, SourceVersionID: 201, TargetNamespaceID: 5, Status: "PENDING", SubmittedBy: "user-1", SubmittedAt: time.Now()},
+			{ID: 2, SourceSkillID: 101, SourceVersionID: 202, TargetNamespaceID: 5, Status: "PENDING", SubmittedBy: "user-2", SubmittedAt: time.Now()},
+		}},
+		Versions:   verRepo,
+		Skills:     skillRepo,
+		Namespaces: nsRepo,
+	}
+
+	req := httptest.NewRequest("GET", "/api/v1/frontend/promotions", nil)
+	req = middleware.SetPrincipal(req, middleware.Principal{
+		UserID:          "super-1",
+		IsAuthenticated: true,
+		PlatformRoles:   map[string]bool{"SUPER_ADMIN": true},
+	})
+	w := httptest.NewRecorder()
+	handlePromotionQueue(w, req, deps)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if verRepo.versionLookups > 2 {
+		t.Errorf("expected at most 2 version lookups (one per unique version ID), got %d", verRepo.versionLookups)
+	}
+	if skillRepo.skillLookups > 1 {
+		t.Errorf("expected at most 1 skill lookup (same skill ID 101), got %d", skillRepo.skillLookups)
+	}
+	if nsRepo.namespaceLookups > 1 {
+		t.Errorf("expected at most 1 namespace lookup (same namespace ID 5), got %d", nsRepo.namespaceLookups)
+	}
+}
+
 // ── Path/query regression tests ──────────────────────────────────────────
 
 func TestFrontend_SearchPage_CapsPageSize(t *testing.T) {
@@ -2057,5 +2451,27 @@ func TestFrontend_PromotionDetail_InvalidID(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("expected 400 for invalid promotion id, got %d", w.Code)
+	}
+}
+
+func TestPageParams_DefaultsAndCaps(t *testing.T) {
+	cases := []struct {
+		query    string
+		wantPage int
+		wantSize int
+	}{
+		{"", 0, 20},
+		{"page=2", 2, 20},
+		{"size=50", 0, 50},
+		{"page=1&size=200", 1, 100},
+		{"page=-1&size=0", 0, 20},
+		{"page=abc&size=xyz", 0, 20},
+	}
+	for _, tc := range cases {
+		req := httptest.NewRequest("GET", "/x?"+tc.query, nil)
+		gotPage, gotSize := pageParams(req)
+		if gotPage != tc.wantPage || gotSize != tc.wantSize {
+			t.Errorf("query %q: got page=%d size=%d, want page=%d size=%d", tc.query, gotPage, gotSize, tc.wantPage, tc.wantSize)
+		}
 	}
 }

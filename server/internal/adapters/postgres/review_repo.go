@@ -67,6 +67,25 @@ func (r *ReviewTaskRepo) FindByStatus(ctx context.Context, status string) ([]rev
 	return scanReviewTasks(rows)
 }
 
+func (r *ReviewTaskRepo) FindByStatusPaged(ctx context.Context, status string, page int, size int) ([]review.ReviewTask, bool, error) {
+	rows, err := r.query(ctx,
+		`SELECT id, skill_version_id, namespace_id, status, version, submitted_by, reviewed_by, review_comment, submitted_at, reviewed_at
+		 FROM review_task WHERE status = $1 ORDER BY submitted_at DESC, id DESC LIMIT $2 OFFSET $3`,
+		status, size+1, page*size)
+	if err != nil {
+		return nil, false, err
+	}
+	defer rows.Close()
+	tasks, err := scanReviewTasks(rows)
+	if err != nil {
+		return nil, false, err
+	}
+	if len(tasks) > size {
+		return tasks[:size], true, nil
+	}
+	return tasks, false, nil
+}
+
 func (r *ReviewTaskRepo) FindByNamespaceIDAndStatus(ctx context.Context, namespaceID int64, status string) ([]review.ReviewTask, error) {
 	rows, err := r.query(ctx,
 		`SELECT id, skill_version_id, namespace_id, status, version, submitted_by, reviewed_by, review_comment, submitted_at, reviewed_at
@@ -213,6 +232,25 @@ func (r *PromotionRequestRepo) FindByStatus(ctx context.Context, status string) 
 	}
 	defer rows.Close()
 	return scanPromotionRequests(rows)
+}
+
+func (r *PromotionRequestRepo) FindByStatusPaged(ctx context.Context, status string, page int, size int) ([]review.PromotionRequest, bool, error) {
+	rows, err := r.query(ctx,
+		`SELECT id, source_skill_id, source_version_id, target_namespace_id, target_skill_id, status, version, submitted_by, reviewed_by, review_comment, submitted_at, reviewed_at
+		 FROM promotion_request WHERE status = $1 ORDER BY submitted_at DESC, id DESC LIMIT $2 OFFSET $3`,
+		status, size+1, page*size)
+	if err != nil {
+		return nil, false, err
+	}
+	defer rows.Close()
+	reqs, err := scanPromotionRequests(rows)
+	if err != nil {
+		return nil, false, err
+	}
+	if len(reqs) > size {
+		return reqs[:size], true, nil
+	}
+	return reqs, false, nil
 }
 
 func (r *PromotionRequestRepo) Delete(ctx context.Context, id int64) error {

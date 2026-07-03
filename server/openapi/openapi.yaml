@@ -1546,6 +1546,9 @@ components:
               items:
                 $ref: "#/components/schemas/ReviewTaskView"
             pendingCount: { type: integer, format: int64 }
+            page: { type: integer }
+            size: { type: integer }
+            hasMore: { type: boolean }
             availableActions:
               $ref: "#/components/schemas/ReviewQueueActions"
 
@@ -1607,6 +1610,9 @@ components:
               items:
                 $ref: "#/components/schemas/PromotionRequestView"
             pendingCount: { type: integer, format: int64 }
+            page: { type: integer }
+            size: { type: integer }
+            hasMore: { type: boolean }
             availableActions:
               $ref: "#/components/schemas/PromotionQueueActions"
 

@@ -252,7 +252,11 @@ The community section groups issues, discussions, wiki, and change proposals for
 
 **Endpoint:** `GET /api/v1/frontend/reviews`
 
-**Data:** `tasks[]`, `pendingCount`, `availableActions.canReview/canSubmit/canWithdraw`
+**Query:** `?page=0&size=20` (defaults shown; `size` capped at 100)
+
+**Data:** `tasks[]`, `pendingCount`, `page`, `size`, `hasMore`, `availableActions.canReview/canSubmit/canWithdraw`
+
+**Pagination:** Returns at most `size` tasks. When `hasMore` is true, increment `page` to load the next window.
 
 ### Review detail
 
@@ -268,7 +272,11 @@ The community section groups issues, discussions, wiki, and change proposals for
 - `GET /api/v1/frontend/promotions`
 - `GET /api/v1/frontend/promotions/{id}`
 
-**Data:** `requests[]`, `pendingCount`, `availableActions.canReview/canSubmit/canWithdraw` (queue); `request`, `sourceSkillName`, `availableActions.canApprove/canReject/canWithdraw` (detail)
+**Query (queue):** `?page=0&size=20` (defaults shown; `size` capped at 100)
+
+**Data:** `requests[]`, `pendingCount`, `page`, `size`, `hasMore`, `availableActions.canReview/canSubmit/canWithdraw` (queue); `request`, `sourceSkillName`, `availableActions.canApprove/canReject/canWithdraw` (detail)
+
+**Pagination:** Returns at most `size` requests. When `hasMore` is true, increment `page` to load the next window.
 
 **Read-model only:** promotion frontend endpoints are also read-model only. There are currently no HTTP endpoints to approve, reject, or withdraw a promotion request. Promotion mutations must be implemented as separate HTTP routes backed by the SDK `promotion` service.
 

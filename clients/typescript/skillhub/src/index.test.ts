@@ -262,9 +262,14 @@ describe("Frontend type shapes", () => {
     const model: ReviewQueueReadModel = {
       tasks: [],
       pendingCount: 0,
+      page: 0,
+      size: 20,
+      hasMore: false,
       availableActions: actions,
     };
     assert.strictEqual(model.availableActions.canReview, true);
+    assert.strictEqual(model.page, 0);
+    assert.strictEqual(model.hasMore, false);
   });
 
   it("ReviewDetailReadModel includes availableActions", () => {
@@ -298,9 +303,14 @@ describe("Frontend type shapes", () => {
     const model: PromotionQueueReadModel = {
       requests: [],
       pendingCount: 0,
+      page: 0,
+      size: 20,
+      hasMore: false,
       availableActions: actions,
     };
     assert.strictEqual(model.availableActions.canSubmit, true);
+    assert.strictEqual(model.page, 0);
+    assert.strictEqual(model.hasMore, false);
   });
 
   it("PromotionDetailReadModel includes availableActions", () => {
@@ -748,6 +758,14 @@ describe("Frontend client URL construction", () => {
     );
   });
 
+  it("frontendReviews builds query params for page and size", async () => {
+    await client.frontendReviews(1, 50);
+    assert.strictEqual(
+      captured!.url,
+      "http://localhost:8080/api/v1/frontend/reviews?page=1&size=50"
+    );
+  });
+
   it("frontendReviewDetail builds expected path", async () => {
     await client.frontendReviewDetail(7);
     assert.strictEqual(
@@ -761,6 +779,14 @@ describe("Frontend client URL construction", () => {
     assert.strictEqual(
       captured!.url,
       "http://localhost:8080/api/v1/frontend/promotions"
+    );
+  });
+
+  it("frontendPromotions builds query params for page and size", async () => {
+    await client.frontendPromotions(0, 50);
+    assert.strictEqual(
+      captured!.url,
+      "http://localhost:8080/api/v1/frontend/promotions?page=0&size=50"
     );
   });
 

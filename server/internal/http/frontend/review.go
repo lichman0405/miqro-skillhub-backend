@@ -8,14 +8,27 @@ import (
 
 	"miqro-skillhub/server/internal/http/middleware"
 	sdkerror "miqro-skillhub/server/sdk/skillhub/errors"
+	"miqro-skillhub/server/sdk/skillhub/namespace"
 	"miqro-skillhub/server/sdk/skillhub/review"
+	"miqro-skillhub/server/sdk/skillhub/skill"
 )
 
 // ReviewQueueReadModel is the page-level review queue response.
 type ReviewQueueReadModel struct {
 	Tasks            []ReviewTaskView   `json:"tasks"`
 	PendingCount     int64              `json:"pendingCount"`
+	Page             int                `json:"page"`
+	Size             int                `json:"size"`
+	HasMore          bool               `json:"hasMore"`
 	AvailableActions ReviewQueueActions `json:"availableActions"`
+}
+
+// reviewLookupCache holds request-local enrichment results so each
+// namespace/version/skill is resolved at most once per queue request.
+type reviewLookupCache struct {
+	nsCache      map[int64]*namespace.Namespace
+	versionCache map[int64]*skill.SkillVersion
+	skillCache   map[int64]*skill.Skill
 }
 
 // ReviewTaskView is a read-model projection of a review task for the UI.
@@ -46,6 +59,7 @@ type ReviewQueueActions struct {
 // handleReviewQueue returns the review queue read model.
 func handleReviewQueue(w http.ResponseWriter, r *http.Request, deps ReviewFrontendDeps) {
 	p := middleware.GetPrincipal(r)
+	page, size := pageParams(r)
 
 	canSubmit := p.IsAuthenticated
 	actions := ReviewQueueActions{
@@ -60,6 +74,9 @@ func handleReviewQueue(w http.ResponseWriter, r *http.Request, deps ReviewFronte
 		middleware.WriteJSON(w, http.StatusOK, ReviewQueueReadModel{
 			Tasks:            []ReviewTaskView{},
 			PendingCount:     0,
+			Page:             page,
+			Size:             size,
+			HasMore:          false,
 			AvailableActions: actions,
 		})
 		return
@@ -72,29 +89,93 @@ func handleReviewQueue(w http.ResponseWriter, r *http.Request, deps ReviewFronte
 		middleware.WriteJSON(w, http.StatusOK, ReviewQueueReadModel{
 			Tasks:            []ReviewTaskView{},
 			PendingCount:     0,
+			Page:             page,
+			Size:             size,
+			HasMore:          false,
 			AvailableActions: actions,
 		})
 		return
 	}
 
-	tasks, err := deps.ReviewTasks.FindByStatus(r.Context(), string(review.ReviewStatusPending))
+	tasks, hasMore, err := deps.ReviewTasks.FindByStatusPaged(r.Context(), string(review.ReviewStatusPending), page, size)
 	if err != nil {
 		middleware.WriteError(w, sdkerror.Wrap(err, sdkerror.ErrInternal, "review.queue.failed"))
 		return
 	}
 
+	cache := newReviewLookupCache()
 	views := make([]ReviewTaskView, 0, len(tasks))
 	for _, task := range tasks {
-		if canReviewTask(r.Context(), deps, task, p) {
-			views = append(views, reviewTaskViewFromTask(r.Context(), deps, task, p))
+		ns := cache.getNamespace(r.Context(), deps, task.NamespaceID)
+		if canReviewTaskNs(task, ns, p) {
+			views = append(views, reviewTaskViewFromTask(r.Context(), deps, task, p, cache))
 		}
 	}
 
 	middleware.WriteJSON(w, http.StatusOK, ReviewQueueReadModel{
 		Tasks:            views,
 		PendingCount:     int64(len(views)),
+		Page:             page,
+		Size:             size,
+		HasMore:          hasMore,
 		AvailableActions: actions,
 	})
+}
+
+func newReviewLookupCache() *reviewLookupCache {
+	return &reviewLookupCache{
+		nsCache:      make(map[int64]*namespace.Namespace),
+		versionCache: make(map[int64]*skill.SkillVersion),
+		skillCache:   make(map[int64]*skill.Skill),
+	}
+}
+
+func (c *reviewLookupCache) getNamespace(ctx context.Context, deps ReviewFrontendDeps, id int64) *namespace.Namespace {
+	if c.nsCache == nil {
+		c.nsCache = make(map[int64]*namespace.Namespace)
+	}
+	if ns, ok := c.nsCache[id]; ok {
+		return ns
+	}
+	if deps.Namespaces == nil {
+		c.nsCache[id] = nil
+		return nil
+	}
+	ns, _ := deps.Namespaces.FindByID(ctx, id)
+	c.nsCache[id] = ns
+	return ns
+}
+
+func (c *reviewLookupCache) getVersion(ctx context.Context, deps ReviewFrontendDeps, id int64) *skill.SkillVersion {
+	if c.versionCache == nil {
+		c.versionCache = make(map[int64]*skill.SkillVersion)
+	}
+	if v, ok := c.versionCache[id]; ok {
+		return v
+	}
+	if deps.Versions == nil {
+		c.versionCache[id] = nil
+		return nil
+	}
+	v, _ := deps.Versions.FindByID(ctx, id)
+	c.versionCache[id] = v
+	return v
+}
+
+func (c *reviewLookupCache) getSkill(ctx context.Context, deps ReviewFrontendDeps, id int64) *skill.Skill {
+	if c.skillCache == nil {
+		c.skillCache = make(map[int64]*skill.Skill)
+	}
+	if s, ok := c.skillCache[id]; ok {
+		return s
+	}
+	if deps.Skills == nil {
+		c.skillCache[id] = nil
+		return nil
+	}
+	s, _ := deps.Skills.FindByID(ctx, id)
+	c.skillCache[id] = s
+	return s
 }
 
 // ReviewDetailReadModel is the page-level review detail response.
@@ -152,7 +233,8 @@ func handleReviewDetail(w http.ResponseWriter, r *http.Request, deps ReviewFront
 		return
 	}
 
-	view := reviewTaskViewFromTask(r.Context(), deps, *task, p)
+	viewCache := newReviewLookupCache()
+	view := reviewTaskViewFromTask(r.Context(), deps, *task, p, viewCache)
 	canApproveReject := canReviewTask(r.Context(), deps, *task, p)
 	actions := ReviewDetailActions{
 		CanApprove:  canApproveReject,
@@ -168,8 +250,12 @@ func handleReviewDetail(w http.ResponseWriter, r *http.Request, deps ReviewFront
 	})
 }
 
-func reviewTaskViewFromTask(ctx context.Context, deps ReviewFrontendDeps, task review.ReviewTask, p middleware.Principal) ReviewTaskView {
-	canApproveReject := canReviewTask(ctx, deps, task, p)
+func reviewTaskViewFromTask(ctx context.Context, deps ReviewFrontendDeps, task review.ReviewTask, p middleware.Principal, cache *reviewLookupCache) ReviewTaskView {
+	if cache == nil {
+		cache = newReviewLookupCache()
+	}
+	ns := cache.getNamespace(ctx, deps, task.NamespaceID)
+	canApproveReject := canReviewTaskNs(task, ns, p)
 	view := ReviewTaskView{
 		ID:             task.ID,
 		SkillVersionID: task.SkillVersionID,
@@ -182,27 +268,22 @@ func reviewTaskViewFromTask(ctx context.Context, deps ReviewFrontendDeps, task r
 		CanWithdraw:    canWithdrawReviewTask(&task, p),
 	}
 
-	if deps.Versions != nil {
-		version, err := deps.Versions.FindByID(ctx, task.SkillVersionID)
-		if err == nil && version != nil {
-			view.Version = version.Version
-			view.SkillID = version.SkillID
-		}
+	version := cache.getVersion(ctx, deps, task.SkillVersionID)
+	if version != nil {
+		view.Version = version.Version
+		view.SkillID = version.SkillID
 	}
 
-	if deps.Skills != nil && view.SkillID != 0 {
-		skill, err := deps.Skills.FindByID(ctx, view.SkillID)
-		if err == nil && skill != nil {
+	if view.SkillID != 0 {
+		skill := cache.getSkill(ctx, deps, view.SkillID)
+		if skill != nil {
 			view.SkillSlug = skill.Slug
 			view.SkillName = skill.DisplayName
 		}
 	}
 
-	if deps.Namespaces != nil && task.NamespaceID != 0 {
-		ns, err := deps.Namespaces.FindByID(ctx, task.NamespaceID)
-		if err == nil && ns != nil {
-			view.NamespaceSlug = ns.Slug
-		}
+	if ns != nil {
+		view.NamespaceSlug = ns.Slug
 	}
 
 	return view
@@ -219,17 +300,27 @@ func canActAsReviewer(p middleware.Principal) bool {
 // review tasks within that namespace. If the namespace repository is missing or
 // the namespace cannot be resolved, the check falls back to platform roles only.
 func canReviewTask(ctx context.Context, deps ReviewFrontendDeps, task review.ReviewTask, p middleware.Principal) bool {
+	if deps.Namespaces == nil {
+		return canActAsReviewer(p)
+	}
+	ns, err := deps.Namespaces.FindByID(ctx, task.NamespaceID)
+	if err != nil || ns == nil {
+		return canActAsReviewer(p)
+	}
+	return canReviewTaskNs(task, ns, p)
+}
+
+// canReviewTaskNs is the namespace-resolved portion of the review permission
+// check. Callers should resolve the namespace once and reuse it to avoid N+1
+// lookups during queue rendering.
+func canReviewTaskNs(task review.ReviewTask, ns *namespace.Namespace, p middleware.Principal) bool {
 	if canActAsReviewer(p) {
 		return true
 	}
 	if !p.IsAuthenticated {
 		return false
 	}
-	if deps.Namespaces == nil {
-		return false
-	}
-	ns, err := deps.Namespaces.FindByID(ctx, task.NamespaceID)
-	if err != nil || ns == nil {
+	if ns == nil {
 		return false
 	}
 	if ns.Type == "GLOBAL" {

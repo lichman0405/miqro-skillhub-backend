@@ -208,6 +208,9 @@ export interface ReviewQueueActions {
 export interface ReviewQueueReadModel {
   tasks: ReviewTaskView[];
   pendingCount: number;
+  page: number;
+  size: number;
+  hasMore: boolean;
   availableActions: ReviewQueueActions;
 }
 
@@ -256,6 +259,9 @@ export interface PromotionQueueActions {
 export interface PromotionQueueReadModel {
   requests: PromotionRequestView[];
   pendingCount: number;
+  page: number;
+  size: number;
+  hasMore: boolean;
   availableActions: PromotionQueueActions;
 }
 
@@ -989,9 +995,16 @@ export class SkillHubClient {
     return this.fetch(`/api/v1/frontend/namespaces/${encodeURIComponent(slug)}`);
   }
 
-  /** Get review queue page read model. */
-  async frontendReviews(): Promise<Envelope<ReviewQueueReadModel>> {
-    return this.fetch("/api/v1/frontend/reviews");
+  /** Get review queue page read model. Supports optional page/size query params. */
+  async frontendReviews(
+    page?: number,
+    size?: number
+  ): Promise<Envelope<ReviewQueueReadModel>> {
+    const params = new URLSearchParams();
+    if (page !== undefined) params.set("page", String(page));
+    if (size !== undefined) params.set("size", String(size));
+    const qs = params.toString();
+    return this.fetch(`/api/v1/frontend/reviews${qs ? `?${qs}` : ""}`);
   }
 
   /** Get review detail page read model. */
@@ -1001,9 +1014,16 @@ export class SkillHubClient {
     return this.fetch(`/api/v1/frontend/reviews/${encodeURIComponent(String(id))}`);
   }
 
-  /** Get promotion queue page read model. */
-  async frontendPromotions(): Promise<Envelope<PromotionQueueReadModel>> {
-    return this.fetch("/api/v1/frontend/promotions");
+  /** Get promotion queue page read model. Supports optional page/size query params. */
+  async frontendPromotions(
+    page?: number,
+    size?: number
+  ): Promise<Envelope<PromotionQueueReadModel>> {
+    const params = new URLSearchParams();
+    if (page !== undefined) params.set("page", String(page));
+    if (size !== undefined) params.set("size", String(size));
+    const qs = params.toString();
+    return this.fetch(`/api/v1/frontend/promotions${qs ? `?${qs}` : ""}`);
   }
 
   /** Get promotion detail page read model. */

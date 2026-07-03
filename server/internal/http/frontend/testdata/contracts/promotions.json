@@ -21,6 +21,9 @@
       }
     ],
     "pendingCount": 1,
+    "page": 0,
+    "size": 20,
+    "hasMore": false,
     "availableActions": {
       "canReview": true,
       "canSubmit": true,

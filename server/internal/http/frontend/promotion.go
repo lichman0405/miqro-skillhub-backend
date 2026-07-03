@@ -8,14 +8,27 @@ import (
 
 	"miqro-skillhub/server/internal/http/middleware"
 	sdkerror "miqro-skillhub/server/sdk/skillhub/errors"
+	"miqro-skillhub/server/sdk/skillhub/namespace"
 	"miqro-skillhub/server/sdk/skillhub/review"
+	"miqro-skillhub/server/sdk/skillhub/skill"
 )
 
 // PromotionQueueReadModel is the page-level promotion queue response.
 type PromotionQueueReadModel struct {
 	Requests         []PromotionRequestView `json:"requests"`
 	PendingCount     int64                  `json:"pendingCount"`
+	Page             int                    `json:"page"`
+	Size             int                    `json:"size"`
+	HasMore          bool                   `json:"hasMore"`
 	AvailableActions PromotionQueueActions  `json:"availableActions"`
+}
+
+// promotionLookupCache holds request-local enrichment results so each
+// version/skill/namespace is resolved at most once per queue request.
+type promotionLookupCache struct {
+	versionCache   map[int64]*skill.SkillVersion
+	skillCache     map[int64]*skill.Skill
+	namespaceCache map[int64]*namespace.Namespace
 }
 
 // PromotionRequestView is a read-model projection of a promotion request.
@@ -57,11 +70,16 @@ func handlePromotionQueue(w http.ResponseWriter, r *http.Request, deps Promotion
 		CanWithdraw: canSubmit,
 	}
 
+	page, size := pageParams(r)
+
 	// Fallback behavior when dependencies are not wired (route-registration tests).
 	if deps.PromotionRequests == nil {
 		middleware.WriteJSON(w, http.StatusOK, PromotionQueueReadModel{
 			Requests:         []PromotionRequestView{},
 			PendingCount:     0,
+			Page:             page,
+			Size:             size,
+			HasMore:          false,
 			AvailableActions: actions,
 		})
 		return
@@ -73,25 +91,32 @@ func handlePromotionQueue(w http.ResponseWriter, r *http.Request, deps Promotion
 		middleware.WriteJSON(w, http.StatusOK, PromotionQueueReadModel{
 			Requests:         []PromotionRequestView{},
 			PendingCount:     0,
+			Page:             page,
+			Size:             size,
+			HasMore:          false,
 			AvailableActions: actions,
 		})
 		return
 	}
 
-	requests, err := deps.PromotionRequests.FindByStatus(r.Context(), string(review.ReviewStatusPending))
+	requests, hasMore, err := deps.PromotionRequests.FindByStatusPaged(r.Context(), string(review.ReviewStatusPending), page, size)
 	if err != nil {
 		middleware.WriteError(w, sdkerror.Wrap(err, sdkerror.ErrInternal, "promotion.queue.failed"))
 		return
 	}
 
+	cache := newPromotionLookupCache()
 	views := make([]PromotionRequestView, 0, len(requests))
 	for _, req := range requests {
-		views = append(views, promotionRequestViewFromRequest(r.Context(), deps, req, p))
+		views = append(views, promotionRequestViewFromRequest(r.Context(), deps, req, p, cache))
 	}
 
 	middleware.WriteJSON(w, http.StatusOK, PromotionQueueReadModel{
 		Requests:         views,
 		PendingCount:     int64(len(views)),
+		Page:             page,
+		Size:             size,
+		HasMore:          hasMore,
 		AvailableActions: actions,
 	})
 }
@@ -152,7 +177,8 @@ func handlePromotionDetail(w http.ResponseWriter, r *http.Request, deps Promotio
 		return
 	}
 
-	view := promotionRequestViewFromRequest(r.Context(), deps, *req, p)
+	cache := newPromotionLookupCache()
+	view := promotionRequestViewFromRequest(r.Context(), deps, *req, p, cache)
 	actions := PromotionDetailActions{
 		CanApprove:  canReview,
 		CanReject:   canReview,
@@ -166,7 +192,10 @@ func handlePromotionDetail(w http.ResponseWriter, r *http.Request, deps Promotio
 	})
 }
 
-func promotionRequestViewFromRequest(ctx context.Context, deps PromotionFrontendDeps, req review.PromotionRequest, p middleware.Principal) PromotionRequestView {
+func promotionRequestViewFromRequest(ctx context.Context, deps PromotionFrontendDeps, req review.PromotionRequest, p middleware.Principal, cache *promotionLookupCache) PromotionRequestView {
+	if cache == nil {
+		cache = newPromotionLookupCache()
+	}
 	view := PromotionRequestView{
 		ID:                req.ID,
 		SourceSkillID:     req.SourceSkillID,
@@ -181,29 +210,79 @@ func promotionRequestViewFromRequest(ctx context.Context, deps PromotionFrontend
 		CanWithdraw:       canWithdrawPromotionRequest(&req, p),
 	}
 
-	if deps.Versions != nil {
-		version, err := deps.Versions.FindByID(ctx, req.SourceVersionID)
-		if err == nil && version != nil {
-			view.SourceVersion = version.Version
-		}
+	version := cache.getVersion(ctx, deps, req.SourceVersionID)
+	if version != nil {
+		view.SourceVersion = version.Version
 	}
 
-	if deps.Skills != nil {
-		skill, err := deps.Skills.FindByID(ctx, req.SourceSkillID)
-		if err == nil && skill != nil {
-			view.SourceSkillSlug = skill.Slug
-			view.SourceSkillName = skill.DisplayName
-		}
+	skill := cache.getSkill(ctx, deps, req.SourceSkillID)
+	if skill != nil {
+		view.SourceSkillSlug = skill.Slug
+		view.SourceSkillName = skill.DisplayName
 	}
 
-	if deps.Namespaces != nil && req.TargetNamespaceID != 0 {
-		ns, err := deps.Namespaces.FindByID(ctx, req.TargetNamespaceID)
-		if err == nil && ns != nil {
-			view.TargetNamespaceSlug = ns.Slug
-		}
+	ns := cache.getNamespace(ctx, deps, req.TargetNamespaceID)
+	if ns != nil {
+		view.TargetNamespaceSlug = ns.Slug
 	}
 
 	return view
+}
+
+func newPromotionLookupCache() *promotionLookupCache {
+	return &promotionLookupCache{
+		versionCache:   make(map[int64]*skill.SkillVersion),
+		skillCache:     make(map[int64]*skill.Skill),
+		namespaceCache: make(map[int64]*namespace.Namespace),
+	}
+}
+
+func (c *promotionLookupCache) getVersion(ctx context.Context, deps PromotionFrontendDeps, id int64) *skill.SkillVersion {
+	if c.versionCache == nil {
+		c.versionCache = make(map[int64]*skill.SkillVersion)
+	}
+	if v, ok := c.versionCache[id]; ok {
+		return v
+	}
+	if deps.Versions == nil {
+		c.versionCache[id] = nil
+		return nil
+	}
+	v, _ := deps.Versions.FindByID(ctx, id)
+	c.versionCache[id] = v
+	return v
+}
+
+func (c *promotionLookupCache) getSkill(ctx context.Context, deps PromotionFrontendDeps, id int64) *skill.Skill {
+	if c.skillCache == nil {
+		c.skillCache = make(map[int64]*skill.Skill)
+	}
+	if s, ok := c.skillCache[id]; ok {
+		return s
+	}
+	if deps.Skills == nil {
+		c.skillCache[id] = nil
+		return nil
+	}
+	s, _ := deps.Skills.FindByID(ctx, id)
+	c.skillCache[id] = s
+	return s
+}
+
+func (c *promotionLookupCache) getNamespace(ctx context.Context, deps PromotionFrontendDeps, id int64) *namespace.Namespace {
+	if c.namespaceCache == nil {
+		c.namespaceCache = make(map[int64]*namespace.Namespace)
+	}
+	if ns, ok := c.namespaceCache[id]; ok {
+		return ns
+	}
+	if deps.Namespaces == nil {
+		c.namespaceCache[id] = nil
+		return nil
+	}
+	ns, _ := deps.Namespaces.FindByID(ctx, id)
+	c.namespaceCache[id] = ns
+	return ns
 }
 
 func canViewPromotionRequest(req *review.PromotionRequest, p middleware.Principal) bool {

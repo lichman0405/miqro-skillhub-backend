@@ -63,6 +63,24 @@ func (m *mockPromotionRequestRepo) FindByStatus(_ context.Context, status string
 	}
 	return out, nil
 }
+func (m *mockPromotionRequestRepo) FindByStatusPaged(_ context.Context, status string, page int, size int) ([]review.PromotionRequest, bool, error) {
+	var out []review.PromotionRequest
+	for _, r := range m.reqs {
+		if r.Status == status {
+			out = append(out, r)
+		}
+	}
+	offset := page * size
+	if offset >= len(out) {
+		return nil, false, nil
+	}
+	result := out[offset:]
+	hasMore := len(result) > size
+	if hasMore {
+		result = result[:size]
+	}
+	return result, hasMore, nil
+}
 func (m *mockPromotionRequestRepo) ExistsByTargetNamespaceID(_ context.Context, nsID int64) (bool, error) { return false, nil }
 func (m *mockPromotionRequestRepo) Delete(_ context.Context, id int64) error                    { delete(m.reqs, id); return nil }
 func (m *mockPromotionRequestRepo) DeleteBySourceOrTargetSkillID(_ context.Context, skillID int64) error { return nil }

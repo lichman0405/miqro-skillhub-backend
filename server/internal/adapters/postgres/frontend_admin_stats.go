@@ -16,9 +16,10 @@ func NewFrontendAdminStatsRepo(db *DB) *FrontendAdminStatsRepo {
 	return &FrontendAdminStatsRepo{DB: db}
 }
 
-// Stats returns aggregate counts for the admin dashboard. Missing tables or
-// unexpected errors surface as zero values for the specific stat so the
-// dashboard remains usable even when some features are not deployed.
+// Stats returns aggregate counts for the admin dashboard. Any stats query
+// failure returns an error, and the frontend handler returns the normal
+// error envelope (admin.stats.failed). Unauthorized viewers receive zero
+// stats with their available action flags.
 func (r *FrontendAdminStatsRepo) Stats(ctx context.Context) (frontend.AdminStatsView, error) {
 	var s frontend.AdminStatsView
 

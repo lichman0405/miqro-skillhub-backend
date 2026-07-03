@@ -2,6 +2,8 @@ package frontend
 
 import (
 	"context"
+	"net/http"
+	"strconv"
 	"strings"
 
 	"miqro-skillhub/server/internal/http/middleware"
@@ -37,4 +39,25 @@ func pathValueOrSegment(rPath, value string, indexFromEnd int) string {
 		return ""
 	}
 	return parts[idx]
+}
+
+// pageParams extracts page and size from the request query, applying the
+// frontend read-model defaults and cap used across queue/list endpoints.
+func pageParams(r *http.Request) (int, int) {
+	page := 0
+	size := 20
+	if p := r.URL.Query().Get("page"); p != "" {
+		if v, err := strconv.Atoi(p); err == nil && v >= 0 {
+			page = v
+		}
+	}
+	if s := r.URL.Query().Get("size"); s != "" {
+		if v, err := strconv.Atoi(s); err == nil && v > 0 {
+			size = v
+		}
+	}
+	if size > 100 {
+		size = 100
+	}
+	return page, size
 }
