@@ -98,9 +98,9 @@ func (s *SessionStore) Delete(ctx context.Context, sessionID string) error {
 	}
 
 	key := sessionKey(sessionID)
-	// Ignore error if key doesn't exist — deletion is idempotent.
-	_ = s.client.Del(ctx, key).Err()
-	return nil
+	// Redis DEL returns nil for missing keys, so this is safe to
+	// return directly — the error is only non-nil on connection failures.
+	return s.client.Del(ctx, key).Err()
 }
 
 // Ping checks connectivity to Redis.

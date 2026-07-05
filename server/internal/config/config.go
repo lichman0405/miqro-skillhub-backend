@@ -251,8 +251,12 @@ func (c *Config) validateProduction() error {
 	if c.RateLimitBackend != "redis" {
 		return fmt.Errorf("production mode: SKILLHUB_RATE_LIMIT_BACKEND=redis is required")
 	}
+	// Redis-backed sessions are required for production multi-instance deployments.
+	if c.SessionBackend != "redis" {
+		return fmt.Errorf("production mode: SKILLHUB_SESSION_BACKEND=redis is required")
+	}
 	// Redis-backed sessions require secure cookies in production.
-	if c.SessionBackend == "redis" && !c.SessionCookieSecure {
+	if !c.SessionCookieSecure {
 		return fmt.Errorf("production mode: SKILLHUB_SESSION_COOKIE_SECURE=true is required for Redis-backed sessions")
 	}
 	return nil

@@ -85,11 +85,11 @@ go run ./cmd/skillhub-worker
 | `SKILLHUB_DATABASE_URL` | `postgres://skillhub:skillhub@localhost:5432/skillhub?sslmode=disable` | PostgreSQL connection string |
 | `SKILLHUB_API_ADDR` | `:8080` | HTTP listen address |
 | `SKILLHUB_CORS_ALLOWED_ORIGINS` | empty | Comma-separated browser origins allowed to call the API |
-| `SKILLHUB_REDIS_URL` | `redis://localhost:6379/0` | Redis connection URL. Required when SKILLHUB_SESSION_BACKEND=redis or SKILLHUB_RATE_LIMIT_BACKEND=redis |
-| `SKILLHUB_SESSION_BACKEND` | `none` | Session storage backend: `none` (no cookies) or `redis` |
+| `SKILLHUB_REDIS_URL` | `redis://localhost:6379/0` | Redis connection URL. Required when `SKILLHUB_SESSION_BACKEND=redis` or `SKILLHUB_RATE_LIMIT_BACKEND=redis` |
+| `SKILLHUB_SESSION_BACKEND` | `none` | Session storage backend: `none` (no cookies) or `redis`. Production mode requires `redis` |
 | `SKILLHUB_SESSION_TTL` | `24h` | Server-side session TTL |
 | `SKILLHUB_SESSION_COOKIE_SECURE` | `false` | Set the Secure flag on the session cookie. Must be true in production with Redis sessions |
-| `SKILLHUB_RATE_LIMIT_BACKEND` | `memory` | Rate-limit backend: `memory` (in-process) or `redis` (distributed) |
+| `SKILLHUB_RATE_LIMIT_BACKEND` | `memory` | Rate-limit backend: `memory` (in-process) or `redis` (distributed). Use `redis` for production |
 | `SKILLHUB_STORAGE_PROVIDER` | `local` | Object storage backend: `local` (filesystem) or `s3` (S3-compatible / MinIO) |
 | `SKILLHUB_STORAGE_ROOT` | `./data/storage` | Local filesystem storage root (used when provider=local). Falls back to `STORAGE_ROOT` for backward compatibility. |
 | `SKILLHUB_STORAGE_ENDPOINT` | `localhost:9000` | S3-compatible endpoint (used when provider=s3) |
@@ -124,7 +124,8 @@ The quickstart defaults are for local development only. For production, see the 
 - Set explicit `SKILLHUB_CORS_ALLOWED_ORIGINS` and `SKILLHUB_TRUSTED_PROXY_CIDRS`.
 - Set `SKILLHUB_STORAGE_PROVIDER=s3` and configure endpoint, bucket, and credentials for production. Local filesystem storage is rejected in production mode unless `SKILLHUB_ALLOW_LOCAL_STORAGE_IN_PRODUCTION=true` is explicitly set.
 - Object storage must be shared across all server instances for multi-instance deployments.
-- Redis-backed sessions and distributed rate limiting are now implemented. Set `SKILLHUB_SESSION_BACKEND=redis` and `SKILLHUB_RATE_LIMIT_BACKEND=redis` for multi-instance production deployments. Production mode requires Redis-backed rate limiting. An in-memory rate limiter (`SKILLHUB_RATE_LIMIT_BACKEND=memory`) is available for local/single-instance deployments.
+- Redis-backed sessions and distributed rate limiting are implemented. Set `SKILLHUB_SESSION_BACKEND=redis` and `SKILLHUB_RATE_LIMIT_BACKEND=redis` for multi-instance production deployments. Production mode requires both Redis-backed sessions and Redis-backed rate limiting. An in-memory rate limiter (`SKILLHUB_RATE_LIMIT_BACKEND=memory`) is available only for local/single-instance deployments.
+- Treat Redis as a runtime production dependency when Redis-backed sessions or rate limiting are enabled. Startup fails if Redis is unreachable; runtime Redis failures affect session revocation and distributed throttling and should be alerted on.
 - Run migrations as an explicit rollout step before starting upgraded servers.
 - Back up PostgreSQL and object storage before migrations or schema changes.
 
@@ -140,7 +141,7 @@ Redis is optional for local development. By default, the server uses no session 
 - Login does not create a session cookie when `SKILLHUB_SESSION_BACKEND=none`.
 - Bearer token auth always works regardless of Redis availability.
 - The in-memory rate limiter works for single-instance deployments.
-- For multi-instance production, set `SKILLHUB_SESSION_BACKEND=redis` and `SKILLHUB_RATE_LIMIT_BACKEND=redis`.
+- For production, set `SKILLHUB_SESSION_BACKEND=redis` and `SKILLHUB_RATE_LIMIT_BACKEND=redis`.
 
 ## Running without MinIO / S3
 

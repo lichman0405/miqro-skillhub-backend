@@ -140,6 +140,45 @@ func TestSessionStore_IsAvailable(t *testing.T) {
 	}
 }
 
+func TestSessionStore_DeleteReturnsErrorWhenRedisUnavailable(t *testing.T) {
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis: %v", err)
+	}
+
+	store := newSessionStoreWithClient(redisClientFromAddr(mr.Addr()), 3600)
+	ctx := context.Background()
+
+	sid, err := store.Create(ctx, "user-1")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// Close miniredis to simulate Redis being unavailable.
+	mr.Close()
+
+	err = store.Delete(ctx, sid)
+	if err == nil {
+		t.Fatal("expected Delete to return error when Redis is unavailable")
+	}
+}
+
+func TestSessionStore_DeleteMissingKeySucceeds(t *testing.T) {
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis: %v", err)
+	}
+	defer mr.Close()
+
+	store := newSessionStoreWithClient(redisClientFromAddr(mr.Addr()), 3600)
+	ctx := context.Background()
+
+	// Delete a key that doesn't exist — should succeed (Redis DEL is idempotent).
+	if err := store.Delete(ctx, "nonexistent-session"); err != nil {
+		t.Fatalf("Delete missing key should succeed, got: %v", err)
+	}
+}
+
 func TestSessionStore_SessionIDLength(t *testing.T) {
 	mr, err := miniredis.Run()
 	if err != nil {

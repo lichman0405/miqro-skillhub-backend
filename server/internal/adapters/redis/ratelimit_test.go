@@ -183,6 +183,49 @@ func TestRedisRateLimiter_LimitMiddleware(t *testing.T) {
 	}
 }
 
+func TestRedisRateLimiter_FailClosedWhenRedisUnavailable(t *testing.T) {
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis: %v", err)
+	}
+
+	rl := &RateLimiter{
+		client:    redisClientFromAddr(mr.Addr()),
+		capacity:  10,
+		rate:      1.0,
+		bucketTTL: 15 * time.Minute,
+	}
+
+	nextCalled := false
+	handler := rl.Limit("test")(func(w http.ResponseWriter, r *http.Request) {
+		nextCalled = true
+		w.WriteHeader(http.StatusOK)
+	})
+
+	// Close miniredis to simulate Redis being unavailable.
+	mr.Close()
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req.RemoteAddr = "10.0.0.1:12345"
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if nextCalled {
+		t.Fatal("next handler must not be called when Redis is unavailable (fail-closed)")
+	}
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("expected 503 Service Unavailable, got %d", w.Code)
+	}
+	if w.Header().Get("Content-Type") != "application/json" {
+		t.Errorf("expected Content-Type application/json, got %q", w.Header().Get("Content-Type"))
+	}
+	// Response body must not leak Redis internals.
+	body := w.Body.String()
+	if strings.Contains(body, "redis") || strings.Contains(body, "REDIS") {
+		t.Errorf("response body must not leak Redis details: %q", body)
+	}
+}
+
 func TestRedisRateLimiter_Refill(t *testing.T) {
 	rl := testRedisLimiter(t, 2, 100.0)
 

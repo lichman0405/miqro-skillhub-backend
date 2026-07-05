@@ -74,9 +74,13 @@ func (rl *RateLimiter) Limit(category string) func(http.HandlerFunc) http.Handle
 			key := rateLimitKey(category, rl.clientIP(r))
 			allowed, err := rl.allow(r.Context(), key)
 			if err != nil {
-				// Redis unreachable — fail open (let the request through)
-				// rather than blocking all traffic.
-				next.ServeHTTP(w, r)
+				// Redis unreachable — fail closed.
+				// Do not leak Redis URL, password, or internal connection
+				// details to the HTTP response.
+				w.Header().Set("Retry-After", "1")
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusServiceUnavailable)
+				w.Write([]byte(`{"success":false,"error":{"code":"service_unavailable","message":"rate limit service temporarily unavailable"}}`))
 				return
 			}
 			if !allowed {

@@ -109,7 +109,8 @@ func TestValidate_ProductionAllowsLocalStorageWithOverride(t *testing.T) {
 		StorageAccessKey:              "prod-key",
 		StorageSecretKey:              "prod-secret",
 		AllowLocalStorageInProduction: true,
-		SessionBackend:                "none",
+		SessionBackend:                "redis",
+		SessionCookieSecure:           true,
 		SessionTTL:                    24 * time.Hour,
 		RateLimitBackend:              "redis",
 		RedisURL:                      "redis://redis:6379/0",
@@ -403,7 +404,7 @@ func TestValidate_ProductionRequiresSecureRedisSessionCookie(t *testing.T) {
 	}
 }
 
-func TestValidate_ProductionAllowsExplicitNoSessionWithRedisRateLimit(t *testing.T) {
+func TestValidate_ProductionRequiresRedisSessionBackend(t *testing.T) {
 	cfg := &Config{
 		DatabaseURL:                   "postgres://user:pass@prod-db.example.com:5432/skillhub?sslmode=require",
 		StorageProvider:               "s3",
@@ -420,8 +421,8 @@ func TestValidate_ProductionAllowsExplicitNoSessionWithRedisRateLimit(t *testing
 	}
 
 	err := cfg.validate()
-	if err != nil {
-		t.Fatalf("expected explicit no-session production config to pass: %v", err)
+	if err == nil {
+		t.Fatal("expected production mode to reject non-redis session backend")
 	}
 }
 
@@ -478,6 +479,29 @@ func TestValidate_LocalModeAllowsMemoryRateLimitAndRedisSessionWithInsecureCooki
 	err := cfg.validate()
 	if err != nil {
 		t.Fatalf("local mode should allow redis sessions with insecure cookie: %v", err)
+	}
+}
+
+func TestValidate_ProductionAllowsFullRedisConfig(t *testing.T) {
+	cfg := &Config{
+		DatabaseURL:                   "postgres://user:pass@prod-db.example.com:5432/skillhub?sslmode=require",
+		StorageProvider:               "s3",
+		StorageEndpoint:               "s3.example.com",
+		StorageBucket:                 "prod-bucket",
+		StorageAccessKey:              "prod-key",
+		StorageSecretKey:              "prod-secret",
+		AllowLocalStorageInProduction: true,
+		SessionBackend:                "redis",
+		SessionCookieSecure:           true,
+		SessionTTL:                    24 * time.Hour,
+		RateLimitBackend:              "redis",
+		RedisURL:                      "redis://redis:6379/0",
+		LocalMode:                     false,
+	}
+
+	err := cfg.validate()
+	if err != nil {
+		t.Fatalf("expected full production redis config to pass: %v", err)
 	}
 }
 
