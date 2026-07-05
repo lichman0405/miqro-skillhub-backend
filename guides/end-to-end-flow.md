@@ -126,14 +126,12 @@ For namespaces that require review, the version must go through review before re
 3. Reviewer approves (or rejects)
 
 ```
-POST /api/v1/frontend/reviews/{id}/approve
+POST /api/v1/reviews/{id}/approve
 ```
 
 **Gate enforcement during review:** When a reviewer approves, the `review_approve` trigger evaluates CI gates. If gates fail, approval is blocked (409).
 
-**Status:** ✅ Implemented (SDK-level gate enforcement). Review service has `GateEnforcer` wired in `main.go`.
-
-**Known gap:** No HTTP review approval handler exists yet. Review submission (`POST`) is implemented but the approve/reject endpoints are not yet exposed as HTTP routes. The SDK-level `ApproveReview` with gate enforcement is implemented and tested.
+**Status:** ✅ Implemented. Review approve/reject/withdraw HTTP handlers are exposed under `/api/v1/reviews/{id}/...`; SDK-level gate enforcement remains authoritative.
 
 ### 9. Create release
 
@@ -251,9 +249,9 @@ DRAFT ──→ PUBLISHED ──→ (can create release)
 | Step logs | 🔶 Not wired | `LogStore` remains nil — step logs not persisted |
 | CI gate evaluation | ✅ Implemented | Per-policy evaluation with pass/fail |
 | Review submission | ✅ Implemented | SDK complete |
-| Review approval HTTP | 🔶 Missing | SDK-level `ApproveReview` with gate works; HTTP handler not exposed |
+| Review approval HTTP | ✅ Implemented | Portal mutation routes expose approve/reject/withdraw; frontend read models remain read-only |
 | Create release (draft) | ✅ Implemented | Always draft; gate bypass blocked |
 | Publish release | ✅ Implemented | Gate enforcement at publish |
 | Release download | ✅ Implemented | ZIP download of latest published |
 | Install metadata | ✅ Implemented | Tool API returns target info |
-| S3/MinIO storage | 🔶 Not wired | Local filesystem only; MinIO adapter exists but not configured for agent CI |
+| S3/MinIO storage | ✅ Implemented | `SKILLHUB_STORAGE_PROVIDER=s3` wires the S3/MinIO adapter via the storage factory; local storage remains for local/single-instance use |
