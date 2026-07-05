@@ -358,6 +358,8 @@ const { data: proposals } = await client.frontendProposalList("ns", "my-skill");
 
 ## Frontend read-model methods
 
+Application routes, page ownership, and the page-to-SDK method matrix are documented in **[guides/frontend-information-architecture.md](frontend-information-architecture.md)**. That guide defines which SDK method powers each page and how pages should handle loading, mutation, authorization, and error states.
+
 All `/api/v1/frontend/*` methods return a typed `Envelope<T>` with `availableActions` computed for the authenticated viewer. Path parameters are URL-encoded automatically, so namespaces, slugs, version strings, and wiki page slugs can contain spaces or slashes.
 
 ```typescript
@@ -483,9 +485,22 @@ await client.createWikiPage("ns", "my-skill", {
 await client.createProposal("ns", "my-skill", { title: "Refactor module X" });
 ```
 
+## Import policy
+
+The SDK is internally modularized by domain under `src/domains/` and `src/types/`, while `src/index.ts` remains the public barrel. **Frontend apps must import only from `@miqro/skillhub-client`.** Internal module paths (e.g. `dist/domains/*`, `dist/types/*`) are not part of the public compatibility contract and may change without notice.
+
+```typescript
+// ✅ Correct
+import { SkillHubClient, SkillHubError } from "@miqro/skillhub-client";
+
+// ❌ Wrong — internal paths are not public API
+import { login } from "@miqro/skillhub-client/dist/domains/auth";
+import type { SkillDetail } from "@miqro/skillhub-client/dist/types/common";
+```
+
 ## Maintenance status
 
-The SDK is internally modularized by domain under `src/domains/` and `src/types/`, while `src/index.ts` remains the public barrel. Consumers should continue importing from `@miqro/skillhub-client`; internal module paths (e.g. `dist/domains/*`, `dist/types/*`) are not part of the public compatibility contract.
+The SDK is internally modularized by domain under `src/domains/` and `src/types/`, while `src/index.ts` remains the public barrel.
 
 ## API compatibility
 

@@ -65,7 +65,9 @@ miqro-skillhub/
 │   ├── api-usage.md
 │   ├── typescript-sdk.md
 │   ├── frontend-integration.md
+│   ├── frontend-information-architecture.md
 │   └── end-to-end-flow.md
+├── web/                     # Placeholder for future frontend; see web/README.md
 ├── docker-compose.yml
 └── README.md
 ```
@@ -235,4 +237,5 @@ See **[guides/typescript-sdk.md](guides/typescript-sdk.md)** for full usage.
 | [guides/api-usage.md](guides/api-usage.md) | API reference with request/response examples |
 | [guides/typescript-sdk.md](guides/typescript-sdk.md) | TS SDK installation and usage |
 | [guides/frontend-integration.md](guides/frontend-integration.md) | Per-page API calls, permission buttons, empty/error states |
+| [guides/frontend-information-architecture.md](guides/frontend-information-architecture.md) | Frontend IA: routes, app shell, page-to-SDK matrix, build phases |
 | [guides/end-to-end-flow.md](guides/end-to-end-flow.md) | Complete happy path from upload to release |

@@ -1,5 +1,7 @@
 # Frontend Integration Guide
 
+> **Companion document:** [guides/frontend-information-architecture.md](frontend-information-architecture.md) defines the product-level page plan: route inventory, app shell, page-to-SDK matrix, data loading rules, error/empty states, and future frontend build sequence. This guide covers concrete backend endpoint and SDK usage per page. Read the IA guide first for the page blueprint; use this guide for the endpoint details.
+
 How to call the SkillHub backend from each frontend page. Every page uses a **frontend read-model** endpoint that returns the page data plus `availableActions` — a set of boolean flags computed from the authenticated user's permissions.
 
 ## General patterns
