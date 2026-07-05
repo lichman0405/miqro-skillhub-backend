@@ -178,7 +178,7 @@ const { data: diff } = await client.toolDiff("ns", "skill", "1.0.0", "2.0.0");
 
 ## Maintenance status
 
-The SDK is currently a single package entry point (`src/index.ts`). The `dist/` directory is intentionally not committed. Future work (planned for Phase 25) will split the implementation into domain modules while preserving the public `SkillHubClient` API and existing tests.
+The SDK is internally modularized by domain under `src/domains/` and `src/types/`, while `src/index.ts` remains the public barrel. Consumers should continue importing from `@miqro/skillhub-client`; internal module paths are not part of the public compatibility contract.
 
 ## Building
 

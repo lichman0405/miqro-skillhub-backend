@@ -938,6 +938,24 @@ describe("Type exports", () => {
   });
 });
 
+// ── Public export surface ──────────────────────────────────────────────
+
+describe("public export surface", () => {
+  it("exports SkillHubClient and SkillHubError from the public barrel", () => {
+    assert.equal(typeof SkillHubClient, "function");
+    assert.equal(typeof SkillHubError, "function");
+  });
+
+  it("preserves representative exported type names at compile time", () => {
+    const review: ReviewMutationResponse = { task: { id: 1, skillVersionId: 1, namespaceId: 1, submittedBy: "u1", status: "APPROVED", submittedAt: "2025-01-01T00:00:00Z" } };
+    const promotion: PromotionMutationResponse = { request: { id: 2, sourceSkillId: 1, sourceVersionId: 1, targetNamespaceId: 1, submittedBy: "u1", status: "APPROVED", submittedAt: "2025-01-01T00:00:00Z" } };
+    const pageOptions: PageIteratorOptions = { page: 0, size: 20, maxPages: 1 };
+    assert.equal(review.task.status, "APPROVED");
+    assert.equal(promotion.request.status, "APPROVED");
+    assert.equal(pageOptions.maxPages, 1);
+  });
+});
+
 // ── Tool API type shapes ──────────────────────────────────────────────────
 
 describe("Tool API type shapes", () => {

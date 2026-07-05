@@ -485,9 +485,7 @@ await client.createProposal("ns", "my-skill", { title: "Refactor module X" });
 
 ## Maintenance status
 
-The SDK is currently published as a single package entry point (`src/index.ts`) with generated and hand-maintained endpoint methods, typed envelopes, `unwrap()`, and pagination iterators. The `dist/` directory is intentionally not committed.
-
-Future work (planned for Phase 25) will split the implementation into smaller domain modules (`auth`, `frontend`, `community`, `release`, `agentci`, `tooling`) while preserving the public `SkillHubClient` API and existing tests.
+The SDK is internally modularized by domain under `src/domains/` and `src/types/`, while `src/index.ts` remains the public barrel. Consumers should continue importing from `@miqro/skillhub-client`; internal module paths (e.g. `dist/domains/*`, `dist/types/*`) are not part of the public compatibility contract.
 
 ## API compatibility
 
