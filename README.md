@@ -147,11 +147,50 @@ cd clients/typescript/skillhub && npm install && npm run build && npm test
 | `skillhub-worker` | `server/cmd/skillhub-worker/` | Background CI worker |
 | `skillhub-migrate` | `server/cmd/skillhub-migrate/` | Database migration runner |
 
-## Production safety
+## Production readiness
 
-- Set `SKILLHUB_LOCAL_MODE=false` in production. This rejects known weak defaults (`minioadmin` credentials, localhost database URL).
-- `SKILLHUB_TRUSTED_PROXY_CIDRS` must only list your actual reverse proxy / load balancer CIDRs. When empty (default), `X-Forwarded-For` is never trusted — spoofed headers cannot bypass rate limiting.
-- Rate limiter buckets are bounded (10000 max, 15min TTL) to prevent unbounded memory growth.
+Before running outside local development:
+
+- Set `SKILLHUB_LOCAL_MODE=false`. Startup rejects known local defaults (`minioadmin` credentials, localhost database URL) in this mode.
+- Replace the default PostgreSQL URL and credentials; do not use `skillhub:skillhub`.
+- Replace object-storage credentials; do not use `minioadmin:minioadmin`.
+- Set explicit `SKILLHUB_CORS_ALLOWED_ORIGINS` for browser clients. Avoid wildcard origins for credentialed requests.
+- Set `SKILLHUB_TRUSTED_PROXY_CIDRS` only to real reverse proxy / load-balancer CIDRs. Leave empty if no trusted proxy exists — `X-Forwarded-For` is never trusted when empty, so spoofed headers cannot bypass rate limiting.
+- Use Redis or another shared backend for session and rate-limit behavior when running more than one server instance. The current in-process limiter is bounded (10000 max buckets, 15min TTL) but not distributed.
+- Run database migrations as an explicit rollout step before starting upgraded servers.
+- Back up PostgreSQL and object storage before migrations or data-model upgrades.
+- Scrape `/metrics` with Prometheus or equivalent monitoring (see `monitoring/prometheus.yml` for a starter config).
+- See `compose.release.yml` for a release-style Compose example, and replace all default credentials before using it outside development.
+
+## Coverage
+
+Cross-package coverage (more realistic than per-package default):
+
+```bash
+cd server
+go test -coverpkg=./... -coverprofile=coverage.out ./...
+go tool cover -func=coverage.out
+```
+
+The `-coverpkg=./...` flag ensures coverage is measured across all packages, even when tests in one package exercise adapters or HTTP handlers in another.
+
+## CI verification
+
+`.github/workflows/pr-tests.yml` runs on every PR against `main`/`master`:
+
+- `go vet ./...` — static analysis
+- `go test -race -count=1 ./...` — all tests with race detector and a real PostgreSQL service
+- Builds `skillhub-server`, `skillhub-migrate`, and `skillhub-worker`
+- Builds the server Docker image
+
+CI does **not** currently verify:
+- TypeScript SDK build/tests
+- OpenAPI spec validation (`go test ./openapi/`)
+- End-to-end or integration tests against external object storage (MinIO/S3)
+- Docker Compose stack or `compose.release.yml` configuration
+- Production deployment, Kubernetes, or npm publishing
+
+Local Docker and make availability are optional; direct Go commands are the baseline verification path.
 
 ## OpenAPI
 

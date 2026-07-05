@@ -4,12 +4,13 @@
 #   test            Run all Go tests
 #   test-server     Vet and build all server binaries
 #   openapi         Validate server/openapi/openapi.yaml structure
+#   coverage        Run tests with cross-package coverage profile
 #   run-server      Build and run the server locally
 #   compose-config  Validate docker-compose.yml
 #   db-reset        Reset and re-apply database migrations (requires PostgreSQL)
 #   help            Show this help
 
-.PHONY: test test-server openapi run-server compose-config db-reset help
+.PHONY: test test-server openapi coverage run-server compose-config db-reset help
 
 # Run all Go tests across the server module.
 test:
@@ -21,9 +22,16 @@ test-server:
 	cd server && go build ./cmd/skillhub-server
 
 # Validate that openapi.yaml is valid YAML and contains all required
-# OpenAPI 3.0 structural sections plus the 12 frontend read-model routes.
+# OpenAPI 3.0 structural sections plus the frontend read-model routes.
 openapi:
 	cd server && go test ./openapi/ -v -run TestOpenAPISpec
+
+# Run tests with cross-package coverage (more realistic than per-package default).
+# This is a thin wrapper around direct Go commands; Windows users can run the
+# equivalent commands without make.
+coverage:
+	cd server && go test -coverpkg=./... -coverprofile=coverage.out ./...
+	cd server && go tool cover -func=coverage.out
 
 # Build and run the server locally.
 run-server:

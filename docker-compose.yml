@@ -4,7 +4,7 @@
 #   postgres   PostgreSQL 16 (skillhub database)
 #   redis      Redis 7 (sessions, rate limits, streams)
 #   minio      MinIO S3-compatible object storage
-#   server     SkillHub Go API server (Phase 01: health only)
+#   server     SkillHub Go API server (full backend API; optional full profile)
 #
 # Usage:
 #   docker compose up -d postgres redis minio

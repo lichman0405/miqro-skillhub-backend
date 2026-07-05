@@ -100,6 +100,17 @@ go run ./cmd/skillhub-worker
 - The migrate command auto-creates all tables (50+ tables across 8 migration groups)
 - Seed data includes default platform roles and the global namespace
 
+## Production notes
+
+The quickstart defaults are for local development only. For production, see the [Production readiness](../README.md#production-readiness) checklist in the README. Key points:
+
+- Set `SKILLHUB_LOCAL_MODE=false`; startup will reject known weak defaults.
+- Replace all default credentials (PostgreSQL, object storage).
+- Set explicit `SKILLHUB_CORS_ALLOWED_ORIGINS` and `SKILLHUB_TRUSTED_PROXY_CIDRS`.
+- Use Redis for session/rate-limit behavior when running multiple server instances.
+- Run migrations as an explicit rollout step before starting upgraded servers.
+- Back up PostgreSQL and object storage before migrations or schema changes.
+
 ## Running without Redis
 
 The server works without Redis. When Redis is not configured:

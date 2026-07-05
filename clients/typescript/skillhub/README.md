@@ -176,6 +176,10 @@ const { data: install } = await client.toolInstall("ns", "skill");
 const { data: diff } = await client.toolDiff("ns", "skill", "1.0.0", "2.0.0");
 ```
 
+## Maintenance status
+
+The SDK is currently a single package entry point (`src/index.ts`). The `dist/` directory is intentionally not committed. Future work (planned for Phase 25) will split the implementation into domain modules while preserving the public `SkillHubClient` API and existing tests.
+
 ## Building
 
 ```bash

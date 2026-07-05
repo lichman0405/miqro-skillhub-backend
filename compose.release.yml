@@ -1,6 +1,9 @@
 # SkillHub — release Compose stack.
 # Mirrors source compose.release.yml structure.
 #
+# This file is a release-style compose example. Replace all default credentials,
+# storage secrets, and local endpoints before using it outside development.
+#
 # Usage: docker compose -f compose.release.yml up -d
 
 version: "3.9"

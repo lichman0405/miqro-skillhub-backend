@@ -483,6 +483,21 @@ await client.createWikiPage("ns", "my-skill", {
 await client.createProposal("ns", "my-skill", { title: "Refactor module X" });
 ```
 
+## Maintenance status
+
+The SDK is currently published as a single package entry point (`src/index.ts`) with generated and hand-maintained endpoint methods, typed envelopes, `unwrap()`, and pagination iterators. The `dist/` directory is intentionally not committed.
+
+Future work (planned for Phase 25) will split the implementation into smaller domain modules (`auth`, `frontend`, `community`, `release`, `agentci`, `tooling`) while preserving the public `SkillHubClient` API and existing tests.
+
+## API compatibility
+
+- `new SkillHubClient()` — connects to `http://localhost:8080`
+- `new SkillHubClient("http://...")` — custom base URL (backward compatible)
+- `new SkillHubClient({ ... })` — full options (baseUrl, credentials, token, getToken, headers, fetch)
+- Every method returns `Envelope<T>` (success/error envelope)
+- Use `client.unwrap()` to get `T` directly with throwing `SkillHubError` on failure
+- Bounded pagination iterators default to `maxPages: 10`
+
 ## Building and testing
 
 ```bash
