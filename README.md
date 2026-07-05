@@ -2,6 +2,8 @@
 
 Self-hosted Agent Skill Registry — a backend service for publishing, reviewing, releasing, and installing agent skills.
 
+中文文档入口：[README.zh-CN.md](README.zh-CN.md)
+
 ## What is Miqro-SkillHub?
 
 Miqro-SkillHub is an enterprise self-hosted registry for agent skills. It provides:
@@ -242,6 +244,8 @@ See **[guides/typescript-sdk.md](guides/typescript-sdk.md)** for full usage.
 
 | Guide | Description |
 |---|---|
+| [README.zh-CN.md](README.zh-CN.md) | 中文项目入口 |
+| [guides/zh-CN/README.md](guides/zh-CN/README.md) | 中文文档索引 |
 | [guides/backend-quickstart.md](guides/backend-quickstart.md) | Environment setup, env vars, Docker/Windows notes |
 | [guides/api-usage.md](guides/api-usage.md) | API reference with request/response examples |
 | [guides/typescript-sdk.md](guides/typescript-sdk.md) | TS SDK installation and usage |
