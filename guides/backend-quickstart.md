@@ -4,7 +4,7 @@ How to run the SkillHub backend for local development.
 
 ## Environment requirements
 
-- **Go** 1.24+
+- **Go** 1.25+
 - **PostgreSQL** 16+ (with the `skillhub` database created)
 - **Make** (optional — all commands can be run without it)
 - **Docker** (optional — only needed for Redis, MinIO, or if you want containerized PostgreSQL)
@@ -107,7 +107,7 @@ The quickstart defaults are for local development only. For production, see the 
 - Set `SKILLHUB_LOCAL_MODE=false`; startup will reject known weak defaults.
 - Replace all default credentials (PostgreSQL, object storage).
 - Set explicit `SKILLHUB_CORS_ALLOWED_ORIGINS` and `SKILLHUB_TRUSTED_PROXY_CIDRS`.
-- Use Redis for session/rate-limit behavior when running multiple server instances.
+- Built-in session and rate limiting are in-process (not distributed). Multi-instance deployments should use sticky sessions at the load balancer, external API gateway / load balancer rate limiting, or wait for future Redis-backed adapters.
 - Run migrations as an explicit rollout step before starting upgraded servers.
 - Back up PostgreSQL and object storage before migrations or schema changes.
 

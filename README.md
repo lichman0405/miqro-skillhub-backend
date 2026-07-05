@@ -156,7 +156,7 @@ Before running outside local development:
 - Replace object-storage credentials; do not use `minioadmin:minioadmin`.
 - Set explicit `SKILLHUB_CORS_ALLOWED_ORIGINS` for browser clients. Avoid wildcard origins for credentialed requests.
 - Set `SKILLHUB_TRUSTED_PROXY_CIDRS` only to real reverse proxy / load-balancer CIDRs. Leave empty if no trusted proxy exists — `X-Forwarded-For` is never trusted when empty, so spoofed headers cannot bypass rate limiting.
-- Use Redis or another shared backend for session and rate-limit behavior when running more than one server instance. The current in-process limiter is bounded (10000 max buckets, 15min TTL) but not distributed.
+- The server's built-in session and rate-limit implementations are in-process (not distributed). For multi-instance production deployments, use sticky sessions at your load balancer, external API gateway / load balancer rate limiting, or wait for future Redis-backed adapters. The current in-process rate limiter is bounded (10000 max buckets, 15min TTL).
 - Run database migrations as an explicit rollout step before starting upgraded servers.
 - Back up PostgreSQL and object storage before migrations or data-model upgrades.
 - Scrape `/metrics` with Prometheus or equivalent monitoring (see `monitoring/prometheus.yml` for a starter config).
@@ -185,10 +185,11 @@ The `-coverpkg=./...` flag ensures coverage is measured across all packages, eve
 
 CI does **not** currently verify:
 - TypeScript SDK build/tests
-- OpenAPI spec validation (`go test ./openapi/`)
 - End-to-end or integration tests against external object storage (MinIO/S3)
 - Docker Compose stack or `compose.release.yml` configuration
 - Production deployment, Kubernetes, or npm publishing
+
+OpenAPI spec validation is covered by `go test ./...` (which includes the `server/openapi` package). The explicit `go test ./openapi/ -v` command remains useful for local debugging.
 
 Local Docker and make availability are optional; direct Go commands are the baseline verification path.
 

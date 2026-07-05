@@ -3,7 +3,7 @@
 # Stage 1: build the binary.
 # Stage 2: minimal runtime image.
 
-FROM golang:1.22-alpine AS builder
+FROM golang:1.25-alpine AS builder
 WORKDIR /src
 COPY go.mod go.sum* ./
 RUN go mod download 2>/dev/null || true
