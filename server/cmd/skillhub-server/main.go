@@ -19,6 +19,7 @@ import (
 
 	"miqro-skillhub/server/internal/adapters/agentrunner"
 	"miqro-skillhub/server/internal/adapters/postgres"
+	redisadapter "miqro-skillhub/server/internal/adapters/redis"
 	"miqro-skillhub/server/internal/adapters/storagefactory"
 	"miqro-skillhub/server/internal/config"
 	httpx "miqro-skillhub/server/internal/http"
@@ -71,8 +72,10 @@ func main() {
 		reviewSvc      *review.ReviewService
 		promotionSvc   *promotion.PromotionService
 		objStore       storage.Store
-		limiter        *middleware.RateLimiter
+		limiter        middleware.Limiter
 		authMW         *middleware.AuthMiddleware
+		sessionStore   middleware.SessionStore
+		sessionManager portal.SessionManager
 		validator      *packagekit.SkillPackageValidator
 		metadataParser *packagekit.SkillMetadataParser
 
@@ -84,6 +87,46 @@ func main() {
 		promotionRequestRepo      review.PromotionRequestRepository
 		governanceNotificationSvc *governance.GovernanceNotificationService
 	)
+
+	// ── Redis session store ─────────────────────────────────────────────
+	if cfg.SessionBackend == "redis" {
+		redisSessions, err := redisadapter.NewSessionStore(ctx, redisadapter.SessionConfig{
+			URL: cfg.RedisURL,
+			TTL: cfg.SessionTTL,
+		})
+		if err != nil {
+			log.Fatalf("redis sessions: %v", err)
+		}
+		defer redisSessions.Close()
+		sessionStore = redisSessions
+		sessionManager = redisSessions
+		log.Printf("redis sessions: connected")
+	}
+
+	// ── Redis rate limiter ──────────────────────────────────────────────
+	switch cfg.RateLimitBackend {
+	case "redis":
+		redisLimiter, err := redisadapter.NewRateLimiter(ctx, redisadapter.RateLimiterConfig{
+			URL:               cfg.RedisURL,
+			Capacity:          100,
+			RatePerSecond:     10.0,
+			TrustedProxyCIDRs: cfg.TrustedProxyCIDRsList(),
+			BucketTTL:         15 * time.Minute,
+		})
+		if err != nil {
+			log.Fatalf("redis rate limiter: %v", err)
+		}
+		limiter = redisLimiter
+		log.Printf("redis rate limiter: connected")
+	default:
+		limiter = middleware.NewRateLimiterWithOptions(middleware.RateLimiterOptions{
+			Capacity:          100,
+			RatePerSecond:     10.0,
+			TrustedProxyCIDRs: cfg.TrustedProxyCIDRsList(),
+			BucketTTL:         15 * time.Minute,
+			MaxBuckets:        10000,
+		})
+	}
 
 	if db != nil {
 		// Repositories.
@@ -261,22 +304,13 @@ func main() {
 
 		// Auth middleware with full namespace projection.
 		authMW = middleware.NewAuthMiddleware(
-			nil,           // session store (not wired yet)
+			sessionStore,  // session store (nil when backend=none)
 			authSvc.Token, // bearer token validation
 			authSvc.RBAC,  // platform role lookup
 			userRepo,      // user profile lookup
 			nsMemberRepo,  // namespace membership projection
 		)
 	}
-
-	// Rate limiter — always available.
-	limiter = middleware.NewRateLimiterWithOptions(middleware.RateLimiterOptions{
-		Capacity:          100,
-		RatePerSecond:     10.0,
-		TrustedProxyCIDRs: cfg.TrustedProxyCIDRsList(),
-		BucketTTL:         15 * time.Minute,
-		MaxBuckets:        10000,
-	})
 
 	// ── HTTP route groups ─────────────────────────────────────────────────
 	var (
@@ -288,7 +322,12 @@ func main() {
 	)
 
 	if authSvc != nil && skillSvc != nil && nsSvc != nil && srcSvc != nil {
-		handlerAuth = &portal.AuthHandler{AuthSvc: authSvc}
+		handlerAuth = &portal.AuthHandler{
+			AuthSvc:       authSvc,
+			Sessions:      sessionManager,
+			SessionSecure: cfg.SessionCookieSecure,
+			SessionMaxAge: int(cfg.SessionTTL.Seconds()),
+		}
 		handlerNamespace = &portal.NamespaceHandler{NsSvc: nsSvc}
 		handlerSkill = &portal.SkillHandler{
 			SkillSvc:         skillSvc,

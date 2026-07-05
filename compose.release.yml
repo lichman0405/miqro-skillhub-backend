@@ -20,9 +20,8 @@
 # Storage: uses S3/MinIO. The MinIO bucket ("skillhub") must be created before
 # starting the server. See the MinIO service below for console access.
 #
-# Sessions and rate limiting: the server uses in-process implementations.
-# Redis is started as reserved infrastructure for future adapters; the server
-# does NOT currently consume Redis for sessions or distributed rate limiting.
+# Sessions and rate limiting: the server uses Redis-backed distributed
+# sessions and rate limiting.
 #
 # Usage: SKILLHUB_DATABASE_URL="..." SKILLHUB_STORAGE_ACCESS_KEY="..." SKILLHUB_STORAGE_SECRET_KEY="..." docker compose -f compose.release.yml up -d
 
@@ -46,8 +45,7 @@ services:
       timeout: 5s
       retries: 5
 
-  # Redis is reserved for future adapters (distributed sessions, rate limiting).
-  # The server does NOT currently use Redis at runtime.
+  # Redis-backed distributed sessions and rate limiting.
   redis:
     image: redis:7-alpine
     container_name: skillhub-redis
@@ -93,6 +91,11 @@ services:
       SKILLHUB_STORAGE_SECRET_KEY: "${SKILLHUB_STORAGE_SECRET_KEY:?set SKILLHUB_STORAGE_SECRET_KEY}"
       SKILLHUB_STORAGE_USE_SSL: "false"
       SKILLHUB_LOCAL_MODE: "false"
+      # Redis-backed distributed sessions and rate limiting.
+      SKILLHUB_SESSION_BACKEND: "redis"
+      SKILLHUB_SESSION_COOKIE_SECURE: "true"
+      SKILLHUB_SESSION_TTL: "24h"
+      SKILLHUB_RATE_LIMIT_BACKEND: "redis"
     ports:
       - "8080:8080"
     depends_on:

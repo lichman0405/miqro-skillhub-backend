@@ -18,7 +18,7 @@ import (
 type RouterConfig struct {
 	Health      *HealthHandler
 	AuthMW      *middleware.AuthMiddleware
-	RateLimiter *middleware.RateLimiter
+	RateLimiter middleware.Limiter
 
 	// Portal handlers.
 	PortalAuth      *portal.AuthHandler

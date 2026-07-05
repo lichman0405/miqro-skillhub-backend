@@ -46,9 +46,26 @@ paths:
                 password: { type: string }
       responses:
         "200":
-          description: Login successful; returns user principal
+          description: Login successful; returns user principal. When SKILLHUB_SESSION_BACKEND=redis, a Set-Cookie header with an HttpOnly skillhub_session cookie is included.
+          headers:
+            Set-Cookie:
+              description: Present when Redis-backed sessions are enabled. Contains an HttpOnly skillhub_session cookie.
+              schema:
+                type: string
         "401":
           description: Invalid credentials
+
+  /api/v1/auth/logout:
+    post:
+      summary: Logout — deletes server-side session and expires cookie
+      responses:
+        "200":
+          description: Logged out (always returns success — idempotent)
+          headers:
+            Set-Cookie:
+              description: Expired skillhub_session cookie (Max-Age=0) to remove the browser cookie.
+              schema:
+                type: string
 
   /api/v1/auth/register:
     post:

@@ -6,7 +6,7 @@
 #
 # Services:
 #   postgres     PostgreSQL 16 (skillhub database)
-#   redis        Redis 7 (reserved for future adapters; not currently consumed)
+#   redis        Redis 7 (distributed sessions and rate limiting for full profile)
 #   minio        MinIO S3-compatible object storage
 #   minio-init   Creates the "skillhub" bucket in MinIO (full profile)
 #   server       SkillHub Go API server (full backend API; full profile)
@@ -16,8 +16,10 @@
 # the server starts. For local development without MinIO, use
 # SKILLHUB_STORAGE_PROVIDER=local.
 #
-# Redis: started for future adapters or optional local infrastructure.
-# The server currently does NOT use Redis for sessions or rate limiting.
+# Redis: used for sessions and distributed rate limiting when the
+# full profile is active. The server uses Redis-backed sessions
+# (SKILLHUB_SESSION_BACKEND=redis) and Redis-backed rate limiting
+# (SKILLHUB_RATE_LIMIT_BACKEND=redis) in the full profile.
 #
 # Usage:
 #   docker compose up -d postgres redis minio
@@ -43,8 +45,7 @@ services:
       timeout: 5s
       retries: 5
 
-  # Redis is reserved for future adapters (distributed sessions, rate limiting).
-  # The server currently does not consume Redis at runtime.
+  # Redis for distributed sessions and rate limiting.
   redis:
     image: redis:7-alpine
     container_name: skillhub-redis
@@ -103,6 +104,11 @@ services:
       SKILLHUB_STORAGE_USE_SSL: "false"
       # Local-mode true so dev compose does not reject minioadmin credentials.
       SKILLHUB_LOCAL_MODE: "true"
+      # Redis-backed sessions and distributed rate limiting.
+      SKILLHUB_SESSION_BACKEND: "redis"
+      SKILLHUB_SESSION_COOKIE_SECURE: "false"
+      SKILLHUB_SESSION_TTL: "24h"
+      SKILLHUB_RATE_LIMIT_BACKEND: "redis"
     ports:
       - "8080:8080"
     depends_on:

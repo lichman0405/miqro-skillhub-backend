@@ -11,7 +11,7 @@ import (
 )
 
 // RegisterRoutes registers tool-facing /api/tool/v1/* routes.
-func (h *Handler) RegisterRoutes(mux *http.ServeMux, authMW *middleware.AuthMiddleware, rl *middleware.RateLimiter) {
+func (h *Handler) RegisterRoutes(mux *http.ServeMux, authMW *middleware.AuthMiddleware, rl middleware.Limiter) {
 	optAuth := func(next http.HandlerFunc) http.HandlerFunc {
 		if authMW != nil {
 			return authMW.Authenticate(next)

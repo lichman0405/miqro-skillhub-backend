@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Config holds all runtime configuration for the server process.
@@ -17,8 +18,8 @@ type Config struct {
 	// Database connection URL (PostgreSQL).
 	DatabaseURL string
 
-	// Redis connection URL. Reserved for future Redis-backed adapters
-	// (sessions, distributed rate limiting). Not currently consumed.
+	// Redis connection URL. Used when SessionBackend=redis or
+	// RateLimitBackend=redis.
 	RedisURL string
 
 	// StorageProvider selects the object storage backend: "local" or "s3".
@@ -59,6 +60,18 @@ type Config struct {
 	// TrustedProxyCIDRs is a comma-separated list of CIDR blocks for reverse
 	// proxies whose X-Forwarded-For header should be trusted.
 	TrustedProxyCIDRs string
+
+	// SessionBackend selects the session storage backend: "none" or "redis".
+	SessionBackend string
+
+	// SessionTTL is the time-to-live for server-side session records.
+	SessionTTL time.Duration
+
+	// SessionCookieSecure sets the Secure flag on the skillhub_session cookie.
+	SessionCookieSecure bool
+
+	// RateLimitBackend selects the rate-limit backend: "memory" or "redis".
+	RateLimitBackend string
 }
 
 // TrustedProxyCIDRsList parses the comma-separated CIDR list.
@@ -94,6 +107,16 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("config: SKILLHUB_ALLOW_LOCAL_STORAGE_IN_PRODUCTION: %w", err)
 	}
 
+	sessionCookieSecure, err := parseBoolEnv("SKILLHUB_SESSION_COOKIE_SECURE", false)
+	if err != nil {
+		return nil, fmt.Errorf("config: SKILLHUB_SESSION_COOKIE_SECURE: %w", err)
+	}
+
+	sessionTTL, err := parseDurationEnv("SKILLHUB_SESSION_TTL", 24*time.Hour)
+	if err != nil {
+		return nil, fmt.Errorf("config: SKILLHUB_SESSION_TTL: %w", err)
+	}
+
 	cfg := &Config{
 		APIAddr:    envOrDefault("SKILLHUB_API_ADDR", ":8080"),
 		DatabaseURL: envOrDefault("SKILLHUB_DATABASE_URL", "postgres://skillhub:skillhub@localhost:5432/skillhub?sslmode=disable"),
@@ -111,6 +134,10 @@ func Load() (*Config, error) {
 		LocalMode:                     localMode,
 		CORSAllowedOrigins:            os.Getenv("SKILLHUB_CORS_ALLOWED_ORIGINS"),
 		TrustedProxyCIDRs:             os.Getenv("SKILLHUB_TRUSTED_PROXY_CIDRS"),
+		SessionBackend:                envOrDefault("SKILLHUB_SESSION_BACKEND", "none"),
+		SessionTTL:                    sessionTTL,
+		SessionCookieSecure:           sessionCookieSecure,
+		RateLimitBackend:              envOrDefault("SKILLHUB_RATE_LIMIT_BACKEND", "memory"),
 	}
 
 	if err := cfg.validate(); err != nil {
@@ -141,6 +168,11 @@ func (c *Config) validate() error {
 		return fmt.Errorf("SKILLHUB_DATABASE_URL is required")
 	}
 
+	// Validate session and rate-limit backends.
+	if err := c.validateSessionAndRateLimit(); err != nil {
+		return err
+	}
+
 	// Validate storage provider selection and required fields.
 	if err := c.validateStorage(); err != nil {
 		return err
@@ -148,6 +180,27 @@ func (c *Config) validate() error {
 
 	// Production mode: reject known local-development defaults.
 	return c.validateProduction()
+}
+
+// validateSessionAndRateLimit validates session and rate-limit backend configuration.
+func (c *Config) validateSessionAndRateLimit() error {
+	switch c.SessionBackend {
+	case "none", "redis":
+	default:
+		return fmt.Errorf("unknown session backend: %q (must be \"none\" or \"redis\")", c.SessionBackend)
+	}
+	switch c.RateLimitBackend {
+	case "memory", "redis":
+	default:
+		return fmt.Errorf("unknown rate limit backend: %q (must be \"memory\" or \"redis\")", c.RateLimitBackend)
+	}
+	if c.SessionTTL <= 0 {
+		return fmt.Errorf("SKILLHUB_SESSION_TTL must be positive")
+	}
+	if (c.SessionBackend == "redis" || c.RateLimitBackend == "redis") && c.RedisURL == "" {
+		return fmt.Errorf("SKILLHUB_REDIS_URL is required when Redis-backed sessions or rate limiting are enabled")
+	}
+	return nil
 }
 
 // validateStorage validates the storage provider configuration.
@@ -194,6 +247,14 @@ func (c *Config) validateProduction() error {
 	if c.StorageSecretKey == "minioadmin" {
 		return fmt.Errorf("production mode: SKILLHUB_STORAGE_SECRET_KEY must not be the local development default (minioadmin)")
 	}
+	// Redis-backed rate limiting is required for production multi-instance deployments.
+	if c.RateLimitBackend != "redis" {
+		return fmt.Errorf("production mode: SKILLHUB_RATE_LIMIT_BACKEND=redis is required")
+	}
+	// Redis-backed sessions require secure cookies in production.
+	if c.SessionBackend == "redis" && !c.SessionCookieSecure {
+		return fmt.Errorf("production mode: SKILLHUB_SESSION_COOKIE_SECURE=true is required for Redis-backed sessions")
+	}
 	return nil
 }
 
@@ -214,4 +275,19 @@ func parseBoolEnv(key string, defaultVal bool) (bool, error) {
 		return false, fmt.Errorf("invalid boolean value %q for %s", v, key)
 	}
 	return b, nil
+}
+
+func parseDurationEnv(key string, defaultVal time.Duration) (time.Duration, error) {
+	v := os.Getenv(key)
+	if v == "" {
+		return defaultVal, nil
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		return 0, fmt.Errorf("invalid duration value %q for %s: %w", v, key, err)
+	}
+	if d <= 0 {
+		return 0, fmt.Errorf("duration value for %s must be positive", key)
+	}
+	return d, nil
 }

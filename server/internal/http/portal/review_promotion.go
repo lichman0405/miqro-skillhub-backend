@@ -20,7 +20,7 @@ type ReviewPromotionHandler struct {
 }
 
 // RegisterReviewPromotionRoutes registers review and promotion mutation routes.
-func (h *ReviewPromotionHandler) RegisterReviewPromotionRoutes(mux *http.ServeMux, authMW *middleware.AuthMiddleware, rl *middleware.RateLimiter) {
+func (h *ReviewPromotionHandler) RegisterReviewPromotionRoutes(mux *http.ServeMux, authMW *middleware.AuthMiddleware, rl middleware.Limiter) {
 	withLimit := func(category string, next http.HandlerFunc) http.HandlerFunc {
 		if rl != nil {
 			return rl.Limit(category)(next)

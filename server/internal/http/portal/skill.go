@@ -20,7 +20,7 @@ type SkillHandler struct {
 // RegisterSkillRoutes registers skill routes.
 // Public read routes use optional auth so the handler can apply
 // visibility scoping.  Publish and download are rate-limited by category.
-func (h *SkillHandler) RegisterSkillRoutes(mux *http.ServeMux, authMW *middleware.AuthMiddleware, rl *middleware.RateLimiter) {
+func (h *SkillHandler) RegisterSkillRoutes(mux *http.ServeMux, authMW *middleware.AuthMiddleware, rl middleware.Limiter) {
 	// Optional-auth helper — wraps a handler with Authenticate when authMW is non-nil.
 	optAuth := func(next http.HandlerFunc) http.HandlerFunc {
 		if authMW != nil {

@@ -16,7 +16,7 @@ type SearchHandler struct {
 // RegisterSearchRoutes registers search routes on the given mux.
 // Search is public but uses optional auth so that the handler can apply
 // visibility scoping when the caller is authenticated.
-func (h *SearchHandler) RegisterSearchRoutes(mux *http.ServeMux, authMW *middleware.AuthMiddleware, rl *middleware.RateLimiter) {
+func (h *SearchHandler) RegisterSearchRoutes(mux *http.ServeMux, authMW *middleware.AuthMiddleware, rl middleware.Limiter) {
 	handler := h.handleSearch
 	if authMW != nil {
 		handler = authMW.Authenticate(handler)

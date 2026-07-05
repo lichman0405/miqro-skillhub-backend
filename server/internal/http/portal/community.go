@@ -18,7 +18,7 @@ type CommunityHandler struct {
 }
 
 // RegisterCommunityRoutes registers community routes on the given mux.
-func (h *CommunityHandler) RegisterCommunityRoutes(mux *http.ServeMux, authMW *middleware.AuthMiddleware, rl *middleware.RateLimiter) {
+func (h *CommunityHandler) RegisterCommunityRoutes(mux *http.ServeMux, authMW *middleware.AuthMiddleware, rl middleware.Limiter) {
 	optAuth := func(next http.HandlerFunc) http.HandlerFunc {
 		if authMW != nil {
 			return authMW.Authenticate(next)

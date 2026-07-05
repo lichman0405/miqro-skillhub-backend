@@ -85,7 +85,11 @@ go run ./cmd/skillhub-worker
 | `SKILLHUB_DATABASE_URL` | `postgres://skillhub:skillhub@localhost:5432/skillhub?sslmode=disable` | PostgreSQL connection string |
 | `SKILLHUB_API_ADDR` | `:8080` | HTTP listen address |
 | `SKILLHUB_CORS_ALLOWED_ORIGINS` | empty | Comma-separated browser origins allowed to call the API |
-| `SKILLHUB_REDIS_URL` | `redis://localhost:6379/0` | Redis URL (reserved for future adapters; not currently consumed for sessions or rate limiting) |
+| `SKILLHUB_REDIS_URL` | `redis://localhost:6379/0` | Redis connection URL. Required when SKILLHUB_SESSION_BACKEND=redis or SKILLHUB_RATE_LIMIT_BACKEND=redis |
+| `SKILLHUB_SESSION_BACKEND` | `none` | Session storage backend: `none` (no cookies) or `redis` |
+| `SKILLHUB_SESSION_TTL` | `24h` | Server-side session TTL |
+| `SKILLHUB_SESSION_COOKIE_SECURE` | `false` | Set the Secure flag on the session cookie. Must be true in production with Redis sessions |
+| `SKILLHUB_RATE_LIMIT_BACKEND` | `memory` | Rate-limit backend: `memory` (in-process) or `redis` (distributed) |
 | `SKILLHUB_STORAGE_PROVIDER` | `local` | Object storage backend: `local` (filesystem) or `s3` (S3-compatible / MinIO) |
 | `SKILLHUB_STORAGE_ROOT` | `./data/storage` | Local filesystem storage root (used when provider=local). Falls back to `STORAGE_ROOT` for backward compatibility. |
 | `SKILLHUB_STORAGE_ENDPOINT` | `localhost:9000` | S3-compatible endpoint (used when provider=s3) |
@@ -120,22 +124,23 @@ The quickstart defaults are for local development only. For production, see the 
 - Set explicit `SKILLHUB_CORS_ALLOWED_ORIGINS` and `SKILLHUB_TRUSTED_PROXY_CIDRS`.
 - Set `SKILLHUB_STORAGE_PROVIDER=s3` and configure endpoint, bucket, and credentials for production. Local filesystem storage is rejected in production mode unless `SKILLHUB_ALLOW_LOCAL_STORAGE_IN_PRODUCTION=true` is explicitly set.
 - Object storage must be shared across all server instances for multi-instance deployments.
-- Built-in session and rate limiting are in-process (not distributed). Redis-backed sessions and distributed rate limiting are not implemented; `SKILLHUB_REDIS_URL` is reserved for future adapters. Multi-instance deployments should use sticky sessions at the load balancer, external API gateway / load balancer rate limiting, or wait for future Redis-backed adapters.
+- Redis-backed sessions and distributed rate limiting are now implemented. Set `SKILLHUB_SESSION_BACKEND=redis` and `SKILLHUB_RATE_LIMIT_BACKEND=redis` for multi-instance production deployments. Production mode requires Redis-backed rate limiting. An in-memory rate limiter (`SKILLHUB_RATE_LIMIT_BACKEND=memory`) is available for local/single-instance deployments.
 - Run migrations as an explicit rollout step before starting upgraded servers.
 - Back up PostgreSQL and object storage before migrations or schema changes.
 
 ### Compose differences
 
-- **`docker-compose.yml`** (dev): uses `SKILLHUB_LOCAL_MODE=true` and `minioadmin` credentials — safe for local development. The `--profile full` server is a local dev profile, not a production configuration. A `minio-init` helper container automatically creates the `skillhub` bucket before the server starts, so the full S3-backed profile works with a single `docker compose --profile full up -d`.
-- **`compose.release.yml`** (release example): uses `SKILLHUB_LOCAL_MODE=false` and requires production credentials as environment variables (`SKILLHUB_DATABASE_URL`, `SKILLHUB_STORAGE_ACCESS_KEY`, `SKILLHUB_STORAGE_SECRET_KEY`). The Compose will refuse to start if they are missing. MinIO and the server share the same `SKILLHUB_STORAGE_ACCESS_KEY` / `SKILLHUB_STORAGE_SECRET_KEY` — both must use the same production credentials (not `minioadmin`). Supply them via `export` or a `.env` file before running.
+- **`docker-compose.yml`** (dev): uses `SKILLHUB_LOCAL_MODE=true` and `minioadmin` credentials — safe for local development. The `--profile full` server is a local dev profile, not a production configuration. A `minio-init` helper container automatically creates the `skillhub` bucket before the server starts, so the full S3-backed profile works with a single `docker compose --profile full up -d`. The full profile enables Redis-backed sessions and rate limiting (`SKILLHUB_SESSION_BACKEND=redis`, `SKILLHUB_RATE_LIMIT_BACKEND=redis`) with insecure cookies acceptable for local dev.
+- **`compose.release.yml`** (release example): uses `SKILLHUB_LOCAL_MODE=false` and requires production credentials as environment variables (`SKILLHUB_DATABASE_URL`, `SKILLHUB_STORAGE_ACCESS_KEY`, `SKILLHUB_STORAGE_SECRET_KEY`). The Compose will refuse to start if they are missing. MinIO and the server share the same `SKILLHUB_STORAGE_ACCESS_KEY` / `SKILLHUB_STORAGE_SECRET_KEY` — both must use the same production credentials (not `minioadmin`). Redis-backed sessions and distributed rate limiting are enabled (`SKILLHUB_SESSION_BACKEND=redis`, `SKILLHUB_RATE_LIMIT_BACKEND=redis`) with secure cookies. Supply required env vars via `export` or a `.env` file before running.
 
 ## Running without Redis
 
-Redis is reserved for future adapters (distributed sessions, rate limiting). The server currently does **not** consume Redis at runtime. `SKILLHUB_REDIS_URL` is accepted as configuration but is not used.
+Redis is optional for local development. By default, the server uses no session cookies (`SKILLHUB_SESSION_BACKEND=none`) and an in-memory rate limiter (`SKILLHUB_RATE_LIMIT_BACKEND=memory`).
 
-- Session-based auth uses in-process storage (not persisted across restarts).
-- Rate limiting is in-process (bounded: 10000 max buckets, 15min TTL).
-- API tokens always work regardless of Redis availability.
+- Login does not create a session cookie when `SKILLHUB_SESSION_BACKEND=none`.
+- Bearer token auth always works regardless of Redis availability.
+- The in-memory rate limiter works for single-instance deployments.
+- For multi-instance production, set `SKILLHUB_SESSION_BACKEND=redis` and `SKILLHUB_RATE_LIMIT_BACKEND=redis`.
 
 ## Running without MinIO / S3
 

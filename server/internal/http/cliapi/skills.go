@@ -21,7 +21,7 @@ type Handler struct {
 
 // RegisterRoutes registers CLI API routes on the given mux.
 // Public read routes use optional auth so handlers can apply viewer scoping.
-func (h *Handler) RegisterRoutes(mux *http.ServeMux, authMW *middleware.AuthMiddleware, rl *middleware.RateLimiter) {
+func (h *Handler) RegisterRoutes(mux *http.ServeMux, authMW *middleware.AuthMiddleware, rl middleware.Limiter) {
 	// Optional-auth helper.
 	optAuth := func(next http.HandlerFunc) http.HandlerFunc {
 		if authMW != nil {

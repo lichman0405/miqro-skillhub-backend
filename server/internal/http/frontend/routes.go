@@ -24,7 +24,7 @@ import (
 func RegisterRoutes(
 	mux *http.ServeMux,
 	authMW *middleware.AuthMiddleware,
-	rl *middleware.RateLimiter,
+	rl middleware.Limiter,
 	searchH *portal.SearchHandler,
 	skillH *portal.SkillHandler,
 	nsH *portal.NamespaceHandler,

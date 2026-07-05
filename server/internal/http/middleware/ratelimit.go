@@ -8,6 +8,12 @@ import (
 	"time"
 )
 
+// Limiter is the interface for HTTP rate limiting, satisfied by both the
+// in-memory RateLimiter and the Redis-backed rate limiter.
+type Limiter interface {
+	Limit(category string) func(http.HandlerFunc) http.HandlerFunc
+}
+
 // RateLimiter is a simple in-memory token-bucket rate limiter.
 // Production deployments should replace this with a Redis-backed limiter
 // through the same interface.

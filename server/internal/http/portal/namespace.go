@@ -16,7 +16,7 @@ type NamespaceHandler struct {
 
 // RegisterNamespaceRoutes registers namespace routes.
 // Public read routes use optional auth so handlers can apply viewer scoping.
-func (h *NamespaceHandler) RegisterNamespaceRoutes(mux *http.ServeMux, authMW *middleware.AuthMiddleware, rl *middleware.RateLimiter) {
+func (h *NamespaceHandler) RegisterNamespaceRoutes(mux *http.ServeMux, authMW *middleware.AuthMiddleware, rl middleware.Limiter) {
 	// Optional-auth helper.
 	optAuth := func(next http.HandlerFunc) http.HandlerFunc {
 		if authMW != nil {

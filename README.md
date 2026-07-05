@@ -165,8 +165,8 @@ Before running outside local development:
 - Set explicit `SKILLHUB_CORS_ALLOWED_ORIGINS` for browser clients. Avoid wildcard origins for credentialed requests.
 - Set `SKILLHUB_TRUSTED_PROXY_CIDRS` only to real reverse proxy / load-balancer CIDRs. Leave empty if no trusted proxy exists — `X-Forwarded-For` is never trusted when empty, so spoofed headers cannot bypass rate limiting.
 - **Object storage must be shared across all server instances.** Local filesystem storage is unsafe for multi-instance deployments because each instance sees a different filesystem. Use S3/MinIO so every instance reads/writes the same package files, release assets, and CI artifacts.
-- The server's built-in session and rate-limit implementations are in-process (not distributed). For multi-instance production deployments, use sticky sessions at your load balancer, external API gateway / load balancer rate limiting, or wait for future Redis-backed adapters. The current in-process rate limiter is bounded (10000 max buckets, 15min TTL).
-- **Redis-backed sessions and distributed rate limiting are NOT implemented.** `SKILLHUB_REDIS_URL` is reserved for future adapters. The server does not consume Redis at runtime.
+- The server supports Redis-backed sessions (`SKILLHUB_SESSION_BACKEND=redis`) and Redis-backed distributed rate limiting (`SKILLHUB_RATE_LIMIT_BACKEND=redis`). Production mode requires both to be set to `redis`. An in-memory rate limiter is available for local/single-instance deployments (`SKILLHUB_RATE_LIMIT_BACKEND=memory`). The in-memory rate limiter is bounded (10000 max buckets, 15min TTL) and not suitable for multi-instance deployments.
+- Login creates a `skillhub_session` HttpOnly cookie when `SKILLHUB_SESSION_BACKEND=redis`. Logout deletes the server-side session and expires the cookie. Bearer token auth remains stateless and does not require Redis.
 - Run database migrations as an explicit rollout step before starting upgraded servers.
 - Back up PostgreSQL and object storage before migrations or data-model upgrades.
 - Scrape `/metrics` with Prometheus or equivalent monitoring (see `monitoring/prometheus.yml` for a starter config).

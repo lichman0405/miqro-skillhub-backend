@@ -64,7 +64,7 @@ func (h *AgentCIHandler) resolveCISkill(w http.ResponseWriter, r *http.Request, 
 // RegisterAgentCIRoutes registers agent CI query routes on the given mux.
 // Read routes use optional auth (like community read routes).
 // Mutating routes (gates evaluation) require authenticated users.
-func (h *AgentCIHandler) RegisterAgentCIRoutes(mux *http.ServeMux, authMW *middleware.AuthMiddleware, rl *middleware.RateLimiter) {
+func (h *AgentCIHandler) RegisterAgentCIRoutes(mux *http.ServeMux, authMW *middleware.AuthMiddleware, rl middleware.Limiter) {
 	optAuth := func(next http.HandlerFunc) http.HandlerFunc {
 		if authMW != nil {
 			return authMW.Authenticate(next)

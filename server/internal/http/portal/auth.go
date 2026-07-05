@@ -1,24 +1,35 @@
 package portal
 
 import (
+	"context"
 	"encoding/json"
-	"fmt"
+	"log"
 	"net/http"
 	"strconv"
+	"time"
 
 	"miqro-skillhub/server/internal/http/middleware"
 	"miqro-skillhub/server/sdk/skillhub/auth"
 )
 
+// SessionManager creates and deletes server-side sessions.
+type SessionManager interface {
+	Create(ctx context.Context, userID string) (sessionID string, err error)
+	Delete(ctx context.Context, sessionID string) error
+}
+
 // AuthHandler exposes /api/v1/auth/* routes.
 type AuthHandler struct {
-	AuthSvc *auth.Service
+	AuthSvc       *auth.Service
+	Sessions      SessionManager
+	SessionSecure bool
+	SessionMaxAge int // seconds; 0 means no Max-Age
 }
 
 // RegisterAuthRoutes registers auth routes on the given mux.
 // Login and register are rate-limited under the "auth" category to
 // mitigate brute-force attacks.
-func (h *AuthHandler) RegisterAuthRoutes(mux *http.ServeMux, authMW *middleware.AuthMiddleware, rl *middleware.RateLimiter) {
+func (h *AuthHandler) RegisterAuthRoutes(mux *http.ServeMux, authMW *middleware.AuthMiddleware, rl middleware.Limiter) {
 	// Rate-limit helper.
 	withLimit := func(category string, next http.HandlerFunc) http.HandlerFunc {
 		if rl != nil {
@@ -56,6 +67,28 @@ func (h *AuthHandler) handleLocalLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Create session cookie when session manager is wired.
+	if h.Sessions != nil {
+		sid, createErr := h.Sessions.Create(r.Context(), principal.UserID)
+		if createErr != nil {
+			log.Printf("auth: create session: %v", createErr)
+			middleware.WriteError(w, createErr)
+			return
+		}
+		c := &http.Cookie{
+			Name:     "skillhub_session",
+			Value:    sid,
+			Path:     "/",
+			HttpOnly: true,
+			Secure:   h.SessionSecure,
+			SameSite: http.SameSiteLaxMode,
+		}
+		if h.SessionMaxAge > 0 {
+			c.MaxAge = h.SessionMaxAge
+		}
+		http.SetCookie(w, c)
+	}
+
 	middleware.WriteJSON(w, http.StatusOK, map[string]any{
 		"userID":        principal.UserID,
 		"displayName":   principal.DisplayName,
@@ -90,7 +123,34 @@ func (h *AuthHandler) handleLocalRegister(w http.ResponseWriter, r *http.Request
 }
 
 func (h *AuthHandler) handleLogout(w http.ResponseWriter, r *http.Request) {
+	// Delete server-side session if present.
+	if h.Sessions != nil {
+		if c, err := r.Cookie("skillhub_session"); err == nil && c.Value != "" {
+			if delErr := h.Sessions.Delete(r.Context(), c.Value); delErr != nil {
+				log.Printf("auth: delete session: %v", delErr)
+			}
+		}
+	}
+
+	// Always expire the session cookie.
+	http.SetCookie(w, expiredSessionCookie(h.SessionSecure))
+
 	middleware.WriteJSON(w, http.StatusOK, map[string]string{"status": "logged_out"})
+}
+
+// expiredSessionCookie returns a cookie that instructs the browser to remove
+// the skillhub_session cookie.
+func expiredSessionCookie(secure bool) *http.Cookie {
+	return &http.Cookie{
+		Name:     "skillhub_session",
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   secure,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   -1,
+		Expires:  time.Unix(0, 0),
+	}
 }
 
 func (h *AuthHandler) handleMe(w http.ResponseWriter, r *http.Request) {
@@ -208,6 +268,3 @@ func (h *AuthHandler) handleConfirmPasswordReset(w http.ResponseWriter, r *http.
 	}
 	middleware.WriteJSON(w, http.StatusOK, map[string]string{"status": "password_reset"})
 }
-
-// Ensure fmt is used.
-var _ = fmt.Sprintf

@@ -19,7 +19,7 @@ type ReleaseHandler struct {
 }
 
 // RegisterReleaseRoutes registers release routes on the given mux.
-func (h *ReleaseHandler) RegisterReleaseRoutes(mux *http.ServeMux, authMW *middleware.AuthMiddleware, rl *middleware.RateLimiter) {
+func (h *ReleaseHandler) RegisterReleaseRoutes(mux *http.ServeMux, authMW *middleware.AuthMiddleware, rl middleware.Limiter) {
 	// Optional-auth helper.
 	optAuth := func(next http.HandlerFunc) http.HandlerFunc {
 		if authMW != nil {
