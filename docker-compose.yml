@@ -1,5 +1,9 @@
 # SkillHub — local development Compose stack.
 #
+# This is a LOCAL DEVELOPMENT compose. It uses SKILLHUB_LOCAL_MODE=true
+# and minioadmin credentials on purpose — they are acceptable for a dev
+# machine but must never reach production.
+#
 # Services:
 #   postgres   PostgreSQL 16 (skillhub database)
 #   redis      Redis 7 (reserved for future adapters; not currently consumed)
@@ -82,7 +86,8 @@ services:
       SKILLHUB_STORAGE_ACCESS_KEY: "minioadmin"
       SKILLHUB_STORAGE_SECRET_KEY: "minioadmin"
       SKILLHUB_STORAGE_USE_SSL: "false"
-      SKILLHUB_LOCAL_MODE: "false"
+      # Local-mode true so dev compose does not reject minioadmin credentials.
+      SKILLHUB_LOCAL_MODE: "true"
     ports:
       - "8080:8080"
     depends_on:

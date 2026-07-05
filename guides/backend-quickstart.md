@@ -124,6 +124,11 @@ The quickstart defaults are for local development only. For production, see the 
 - Run migrations as an explicit rollout step before starting upgraded servers.
 - Back up PostgreSQL and object storage before migrations or schema changes.
 
+### Compose differences
+
+- **`docker-compose.yml`** (dev): uses `SKILLHUB_LOCAL_MODE=true` and `minioadmin` credentials — safe for local development. The `--profile full` server is a local dev profile, not a production configuration.
+- **`compose.release.yml`** (release example): uses `SKILLHUB_LOCAL_MODE=false` and requires production credentials as environment variables (`SKILLHUB_DATABASE_URL`, `SKILLHUB_STORAGE_ACCESS_KEY`, `SKILLHUB_STORAGE_SECRET_KEY`). The Compose will refuse to start if they are missing. Supply them via `export` or a `.env` file before running.
+
 ## Running without Redis
 
 Redis is reserved for future adapters (distributed sessions, rate limiting). The server currently does **not** consume Redis at runtime. `SKILLHUB_REDIS_URL` is accepted as configuration but is not used.

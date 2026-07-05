@@ -109,6 +109,8 @@ SKILLHUB_DATABASE_URL="postgres://skillhub:skillhub@localhost:5432/skillhub?sslm
 SKILLHUB_DATABASE_URL="postgres://skillhub:skillhub@localhost:5432/skillhub?sslmode=disable" SKILLHUB_CORS_ALLOWED_ORIGINS="http://localhost:5173" SKILLHUB_STORAGE_PROVIDER=local SKILLHUB_STORAGE_ROOT=./data/storage go run ./cmd/skillhub-server
 ```
 
+The `--profile full` server in `docker-compose.yml` uses `SKILLHUB_LOCAL_MODE=true` and `minioadmin` credentials — it is a local development profile, not a production configuration. For a production-style Compose, see `compose.release.yml`.
+
 ### Quick start (Windows, no Docker)
 
 Install PostgreSQL 16, create the `skillhub` database, then:
@@ -168,7 +170,7 @@ Before running outside local development:
 - Run database migrations as an explicit rollout step before starting upgraded servers.
 - Back up PostgreSQL and object storage before migrations or data-model upgrades.
 - Scrape `/metrics` with Prometheus or equivalent monitoring (see `monitoring/prometheus.yml` for a starter config).
-- See `compose.release.yml` for a release-style Compose example, and replace all default credentials before using it outside development.
+- See `compose.release.yml` for a release-style Compose example. It requires production credentials as environment variables; the Compose will refuse to start if `SKILLHUB_DATABASE_URL`, `SKILLHUB_STORAGE_ACCESS_KEY`, or `SKILLHUB_STORAGE_SECRET_KEY` are not set. Supply them on the command line or via a `.env` file.
 
 ## Coverage
 

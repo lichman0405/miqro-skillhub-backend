@@ -31,6 +31,8 @@ import (
 	"miqro-skillhub/server/internal/adapters/storagefactory"
 	"miqro-skillhub/server/internal/config"
 	"miqro-skillhub/server/sdk/skillhub/agentci"
+	"miqro-skillhub/server/sdk/skillhub/skill"
+	"miqro-skillhub/server/sdk/skillhub/storage"
 )
 
 func main() {
@@ -78,8 +80,8 @@ func main() {
 	// Object storage via unified storage factory.
 	objStore, err := storagefactory.New(ctx, *cfg)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "skillhub-worker: WARNING: cannot create object storage: %v — checks will lack file content\n", err)
-		objStore = nil
+		fmt.Fprintf(os.Stderr, "skillhub-worker: object storage failed: %v\n", err)
+		os.Exit(1)
 	}
 
 	// Register the local deterministic runner.
@@ -88,7 +90,6 @@ func main() {
 	// Wire version file reader using version/file repos + object storage for content.
 	localRunner.SetVersionFileReader(func(ctx context.Context, versionID, skillID int64) ([]agentci.PackageFileEntry, error) {
 		versionRepo := postgres.NewSkillVersionRepo(db)
-		fileRepo := postgres.NewSkillFileRepo(db)
 		version, verr := versionRepo.FindByID(ctx, versionID)
 		if verr != nil {
 			return nil, fmt.Errorf("find version: %w", verr)
@@ -96,28 +97,8 @@ func main() {
 		if version == nil {
 			return nil, fmt.Errorf("version %d not found", versionID)
 		}
-		files, ferr := fileRepo.FindByVersionID(ctx, versionID)
-		if ferr != nil {
-			return nil, fmt.Errorf("find files: %w", ferr)
-		}
-		entries := make([]agentci.PackageFileEntry, 0, len(files))
-		for _, f := range files {
-			var content []byte
-			if f.StorageKey != "" && objStore != nil {
-				rc, getErr := objStore.GetObject(ctx, f.StorageKey)
-				if getErr == nil {
-					content, _ = io.ReadAll(rc)
-					rc.Close()
-				}
-			}
-			entries = append(entries, agentci.PackageFileEntry{
-				Path:        f.FilePath,
-				Content:     content,
-				Size:        f.FileSize,
-				ContentType: f.ContentType,
-			})
-		}
-		return entries, nil
+		fileRepo := postgres.NewSkillFileRepo(db)
+		return readPackageFileEntries(ctx, fileRepo, objStore, versionID)
 	})
 
 	agentciSvc.RegisterRunner(localRunner)
@@ -189,4 +170,40 @@ func main() {
 			poll()
 		}
 	}
+}
+
+// readPackageFileEntries reads package file content from object storage for
+// every file entry attached to the given version. Storage read errors and
+// I/O errors are propagated — CI checks must not run with missing content.
+func readPackageFileEntries(ctx context.Context, fileRepo skill.SkillFileRepository, objStore storage.Store, versionID int64) ([]agentci.PackageFileEntry, error) {
+	files, err := fileRepo.FindByVersionID(ctx, versionID)
+	if err != nil {
+		return nil, fmt.Errorf("find files: %w", err)
+	}
+	entries := make([]agentci.PackageFileEntry, 0, len(files))
+	for _, f := range files {
+		var content []byte
+		if f.StorageKey != "" {
+			rc, err := objStore.GetObject(ctx, f.StorageKey)
+			if err != nil {
+				return nil, fmt.Errorf("read file %q (storage key %s): %w", f.FilePath, f.StorageKey, err)
+			}
+			content, err = io.ReadAll(rc)
+			if closeErr := rc.Close(); closeErr != nil {
+				if err == nil {
+					err = closeErr
+				}
+			}
+			if err != nil {
+				return nil, fmt.Errorf("read file %q (storage key %s): %w", f.FilePath, f.StorageKey, err)
+			}
+		}
+		entries = append(entries, agentci.PackageFileEntry{
+			Path:        f.FilePath,
+			Content:     content,
+			Size:        f.FileSize,
+			ContentType: f.ContentType,
+		})
+	}
+	return entries, nil
 }

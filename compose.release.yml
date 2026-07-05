@@ -1,8 +1,14 @@
 # SkillHub — release Compose stack.
 # Mirrors source compose.release.yml structure.
 #
-# This file is a release-style compose example. Replace all default credentials,
-# storage secrets, and local endpoints before using it outside development.
+# This file is a release-style compose example.
+#
+# BEFORE using this file, set the required environment variables:
+#   SKILLHUB_DATABASE_URL       PostgreSQL connection string (production)
+#   SKILLHUB_STORAGE_ACCESS_KEY S3/MinIO access key (not minioadmin)
+#   SKILLHUB_STORAGE_SECRET_KEY S3/MinIO secret key (not minioadmin)
+#
+# The compose will refuse to start if any of these are missing.
 #
 # Storage: uses S3/MinIO. The MinIO bucket ("skillhub") must be created before
 # starting the server. See the MinIO service below for console access.
@@ -11,7 +17,7 @@
 # Redis is started as reserved infrastructure for future adapters; the server
 # does NOT currently consume Redis for sessions or distributed rate limiting.
 #
-# Usage: docker compose -f compose.release.yml up -d
+# Usage: SKILLHUB_DATABASE_URL="..." SKILLHUB_STORAGE_ACCESS_KEY="..." SKILLHUB_STORAGE_SECRET_KEY="..." docker compose -f compose.release.yml up -d
 
 version: "3.9"
 
@@ -71,13 +77,13 @@ services:
     container_name: skillhub-server
     environment:
       SKILLHUB_API_ADDR: ":8080"
-      SKILLHUB_DATABASE_URL: "postgres://skillhub:skillhub@postgres:5432/skillhub?sslmode=disable"
+      SKILLHUB_DATABASE_URL: "${SKILLHUB_DATABASE_URL:?set SKILLHUB_DATABASE_URL}"
       SKILLHUB_REDIS_URL: "redis://redis:6379/0"
       SKILLHUB_STORAGE_PROVIDER: "s3"
       SKILLHUB_STORAGE_ENDPOINT: "minio:9000"
       SKILLHUB_STORAGE_BUCKET: "skillhub"
-      SKILLHUB_STORAGE_ACCESS_KEY: "minioadmin"
-      SKILLHUB_STORAGE_SECRET_KEY: "minioadmin"
+      SKILLHUB_STORAGE_ACCESS_KEY: "${SKILLHUB_STORAGE_ACCESS_KEY:?set SKILLHUB_STORAGE_ACCESS_KEY}"
+      SKILLHUB_STORAGE_SECRET_KEY: "${SKILLHUB_STORAGE_SECRET_KEY:?set SKILLHUB_STORAGE_SECRET_KEY}"
       SKILLHUB_STORAGE_USE_SSL: "false"
       SKILLHUB_LOCAL_MODE: "false"
     ports:
