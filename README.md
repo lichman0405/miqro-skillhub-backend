@@ -245,6 +245,7 @@ See **[guides/typescript-sdk.md](guides/typescript-sdk.md)** for full usage.
 | [guides/backend-quickstart.md](guides/backend-quickstart.md) | Environment setup, env vars, Docker/Windows notes |
 | [guides/api-usage.md](guides/api-usage.md) | API reference with request/response examples |
 | [guides/typescript-sdk.md](guides/typescript-sdk.md) | TS SDK installation and usage |
+| [guides/frontend-start-here.md](guides/frontend-start-here.md) | First-week frontend onboarding guide: stack, setup, page order, integration rules |
 | [guides/frontend-integration.md](guides/frontend-integration.md) | Per-page API calls, permission buttons, empty/error states |
 | [guides/frontend-information-architecture.md](guides/frontend-information-architecture.md) | Frontend IA: routes, app shell, page-to-SDK matrix, build phases |
 | [guides/end-to-end-flow.md](guides/end-to-end-flow.md) | Complete happy path from upload to release |
