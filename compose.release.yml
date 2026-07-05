@@ -4,6 +4,13 @@
 # This file is a release-style compose example. Replace all default credentials,
 # storage secrets, and local endpoints before using it outside development.
 #
+# Storage: uses S3/MinIO. The MinIO bucket ("skillhub") must be created before
+# starting the server. See the MinIO service below for console access.
+#
+# Sessions and rate limiting: the server uses in-process implementations.
+# Redis is started as reserved infrastructure for future adapters; the server
+# does NOT currently consume Redis for sessions or distributed rate limiting.
+#
 # Usage: docker compose -f compose.release.yml up -d
 
 version: "3.9"
@@ -26,6 +33,8 @@ services:
       timeout: 5s
       retries: 5
 
+  # Redis is reserved for future adapters (distributed sessions, rate limiting).
+  # The server does NOT currently use Redis at runtime.
   redis:
     image: redis:7-alpine
     container_name: skillhub-redis
@@ -64,10 +73,12 @@ services:
       SKILLHUB_API_ADDR: ":8080"
       SKILLHUB_DATABASE_URL: "postgres://skillhub:skillhub@postgres:5432/skillhub?sslmode=disable"
       SKILLHUB_REDIS_URL: "redis://redis:6379/0"
+      SKILLHUB_STORAGE_PROVIDER: "s3"
       SKILLHUB_STORAGE_ENDPOINT: "minio:9000"
       SKILLHUB_STORAGE_BUCKET: "skillhub"
       SKILLHUB_STORAGE_ACCESS_KEY: "minioadmin"
       SKILLHUB_STORAGE_SECRET_KEY: "minioadmin"
+      SKILLHUB_STORAGE_USE_SSL: "false"
       SKILLHUB_LOCAL_MODE: "false"
     ports:
       - "8080:8080"

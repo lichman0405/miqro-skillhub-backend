@@ -2,9 +2,15 @@
 #
 # Services:
 #   postgres   PostgreSQL 16 (skillhub database)
-#   redis      Redis 7 (sessions, rate limits, streams)
+#   redis      Redis 7 (reserved for future adapters; not currently consumed)
 #   minio      MinIO S3-compatible object storage
 #   server     SkillHub Go API server (full backend API; optional full profile)
+#
+# Storage: the full server profile uses S3/MinIO object storage by default.
+# For local development without MinIO, use SKILLHUB_STORAGE_PROVIDER=local.
+#
+# Redis: started for future adapters or optional local infrastructure.
+# The server currently does NOT use Redis for sessions or rate limiting.
 #
 # Usage:
 #   docker compose up -d postgres redis minio
@@ -30,6 +36,8 @@ services:
       timeout: 5s
       retries: 5
 
+  # Redis is reserved for future adapters (distributed sessions, rate limiting).
+  # The server currently does not consume Redis at runtime.
   redis:
     image: redis:7-alpine
     container_name: skillhub-redis
@@ -68,10 +76,12 @@ services:
       SKILLHUB_API_ADDR: ":8080"
       SKILLHUB_DATABASE_URL: "postgres://skillhub:skillhub@postgres:5432/skillhub?sslmode=disable"
       SKILLHUB_REDIS_URL: "redis://redis:6379/0"
+      SKILLHUB_STORAGE_PROVIDER: "s3"
       SKILLHUB_STORAGE_ENDPOINT: "minio:9000"
       SKILLHUB_STORAGE_BUCKET: "skillhub"
       SKILLHUB_STORAGE_ACCESS_KEY: "minioadmin"
       SKILLHUB_STORAGE_SECRET_KEY: "minioadmin"
+      SKILLHUB_STORAGE_USE_SSL: "false"
       SKILLHUB_LOCAL_MODE: "false"
     ports:
       - "8080:8080"

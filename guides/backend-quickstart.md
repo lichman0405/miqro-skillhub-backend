@@ -23,12 +23,14 @@ SKILLHUB_DATABASE_URL="postgres://skillhub:skillhub@localhost:5432/skillhub?sslm
 # Start the server
 SKILLHUB_DATABASE_URL="postgres://skillhub:skillhub@localhost:5432/skillhub?sslmode=disable" \
   SKILLHUB_CORS_ALLOWED_ORIGINS="http://localhost:5173" \
-  STORAGE_ROOT=./data/storage \
+  SKILLHUB_STORAGE_PROVIDER=local \
+  SKILLHUB_STORAGE_ROOT=./data/storage \
   go run ./cmd/skillhub-server
 
 # Start the worker (in another terminal)
 SKILLHUB_DATABASE_URL="postgres://skillhub:skillhub@localhost:5432/skillhub?sslmode=disable" \
-  STORAGE_ROOT=./data/storage \
+  SKILLHUB_STORAGE_PROVIDER=local \
+  SKILLHUB_STORAGE_ROOT=./data/storage \
   go run ./cmd/skillhub-worker
 ```
 
@@ -50,7 +52,8 @@ CREATE DATABASE skillhub OWNER skillhub;
 ```powershell
 $env:SKILLHUB_DATABASE_URL = "postgres://skillhub:skillhub@localhost:5432/skillhub?sslmode=disable"
 $env:SKILLHUB_CORS_ALLOWED_ORIGINS = "http://localhost:5173"
-$env:STORAGE_ROOT = "./data/storage"
+$env:SKILLHUB_STORAGE_PROVIDER = "local"
+$env:SKILLHUB_STORAGE_ROOT = "./data/storage"
 ```
 
 ### 3. Run migrations
@@ -82,8 +85,16 @@ go run ./cmd/skillhub-worker
 | `SKILLHUB_DATABASE_URL` | `postgres://skillhub:skillhub@localhost:5432/skillhub?sslmode=disable` | PostgreSQL connection string |
 | `SKILLHUB_API_ADDR` | `:8080` | HTTP listen address |
 | `SKILLHUB_CORS_ALLOWED_ORIGINS` | empty | Comma-separated browser origins allowed to call the API |
-| `REDIS_URL` | (optional) | Redis URL for sessions and rate limiting |
-| `STORAGE_ROOT` | `./data/storage` | Local filesystem storage root for package files |
+| `SKILLHUB_REDIS_URL` | `redis://localhost:6379/0` | Redis URL (reserved for future adapters; not currently consumed for sessions or rate limiting) |
+| `SKILLHUB_STORAGE_PROVIDER` | `local` | Object storage backend: `local` (filesystem) or `s3` (S3-compatible / MinIO) |
+| `SKILLHUB_STORAGE_ROOT` | `./data/storage` | Local filesystem storage root (used when provider=local). Falls back to `STORAGE_ROOT` for backward compatibility. |
+| `SKILLHUB_STORAGE_ENDPOINT` | `localhost:9000` | S3-compatible endpoint (used when provider=s3) |
+| `SKILLHUB_STORAGE_BUCKET` | `skillhub` | Object storage bucket (used when provider=s3) |
+| `SKILLHUB_STORAGE_ACCESS_KEY` | `minioadmin` | Object storage access key (used when provider=s3) |
+| `SKILLHUB_STORAGE_SECRET_KEY` | `minioadmin` | Object storage secret key (used when provider=s3) |
+| `SKILLHUB_STORAGE_USE_SSL` | `false` | Enable TLS for S3 endpoint (used when provider=s3) |
+| `SKILLHUB_STORAGE_REGION` | `us-east-1` | S3 region (used when provider=s3) |
+| `SKILLHUB_ALLOW_LOCAL_STORAGE_IN_PRODUCTION` | `false` | Allow local storage when `SKILLHUB_LOCAL_MODE=false` (emergency override only) |
 | `SKILLHUB_LOCAL_MODE` | `true` | When `true`, the server auto-creates a local admin user and uses permissive auth. Production must set `false`. |
 | `SKILLHUB_TRUSTED_PROXY_CIDRS` | empty | Comma-separated CIDR blocks (e.g. `10.0.0.0/8`) for reverse proxies whose `X-Forwarded-For` header should be trusted. Leave empty to never trust `X-Forwarded-For`. |
 | `AGENTCI_LLM_BASE_URL` | (optional) | LLM API base URL for agent CI LLM checks |
@@ -107,20 +118,25 @@ The quickstart defaults are for local development only. For production, see the 
 - Set `SKILLHUB_LOCAL_MODE=false`; startup will reject known weak defaults.
 - Replace all default credentials (PostgreSQL, object storage).
 - Set explicit `SKILLHUB_CORS_ALLOWED_ORIGINS` and `SKILLHUB_TRUSTED_PROXY_CIDRS`.
-- Built-in session and rate limiting are in-process (not distributed). Multi-instance deployments should use sticky sessions at the load balancer, external API gateway / load balancer rate limiting, or wait for future Redis-backed adapters.
+- Set `SKILLHUB_STORAGE_PROVIDER=s3` and configure endpoint, bucket, and credentials for production. Local filesystem storage is rejected in production mode unless `SKILLHUB_ALLOW_LOCAL_STORAGE_IN_PRODUCTION=true` is explicitly set.
+- Object storage must be shared across all server instances for multi-instance deployments.
+- Built-in session and rate limiting are in-process (not distributed). Redis-backed sessions and distributed rate limiting are not implemented; `SKILLHUB_REDIS_URL` is reserved for future adapters. Multi-instance deployments should use sticky sessions at the load balancer, external API gateway / load balancer rate limiting, or wait for future Redis-backed adapters.
 - Run migrations as an explicit rollout step before starting upgraded servers.
 - Back up PostgreSQL and object storage before migrations or schema changes.
 
 ## Running without Redis
 
-The server works without Redis. When Redis is not configured:
-- Session-based auth still works (in-memory, not persisted across restarts)
-- Rate limiting is disabled
-- API tokens always work
+Redis is reserved for future adapters (distributed sessions, rate limiting). The server currently does **not** consume Redis at runtime. `SKILLHUB_REDIS_URL` is accepted as configuration but is not used.
+
+- Session-based auth uses in-process storage (not persisted across restarts).
+- Rate limiting is in-process (bounded: 10000 max buckets, 15min TTL).
+- API tokens always work regardless of Redis availability.
 
 ## Running without MinIO / S3
 
-By default, the server uses **local filesystem storage** at the path specified by `STORAGE_ROOT` (default `./data/storage`). No MinIO or S3 configuration is needed for development.
+Set `SKILLHUB_STORAGE_PROVIDER=local` for local development. The server uses **local filesystem storage** at the path specified by `SKILLHUB_STORAGE_ROOT` (default `./data/storage`, also reads legacy `STORAGE_ROOT` as a fallback). No MinIO or S3 configuration is needed.
+
+For production, set `SKILLHUB_STORAGE_PROVIDER=s3` and configure endpoint, bucket, and credentials. Production mode rejects local storage unless `SKILLHUB_ALLOW_LOCAL_STORAGE_IN_PRODUCTION=true` is explicitly set. Local filesystem storage is unsafe for multi-instance deployments because each instance sees a different filesystem.
 
 ## Common issues
 
@@ -150,11 +166,11 @@ All `make` targets have equivalent direct commands. `make test` = `go test ./...
 
 ### "storage root not writable"
 
-The local storage adapter creates the directory automatically. If you see permission errors, check that the process has write access to the `STORAGE_ROOT` directory.
+The local storage adapter creates the directory automatically. If you see permission errors, check that the process has write access to the `SKILLHUB_STORAGE_ROOT` directory.
 
 ### "worker can't read package file content"
 
-The worker needs `STORAGE_ROOT` to be set to the same directory the server uses for uploads. In development, this is typically `./data/storage` relative to the project root.
+The worker needs `SKILLHUB_STORAGE_ROOT` to be set to the same directory the server uses for uploads. In development, this is typically `./data/storage` relative to the project root.
 
 ## Binary locations
 

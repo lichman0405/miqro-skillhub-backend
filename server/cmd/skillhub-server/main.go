@@ -18,8 +18,8 @@ import (
 	"time"
 
 	"miqro-skillhub/server/internal/adapters/agentrunner"
-	"miqro-skillhub/server/internal/adapters/localstorage"
 	"miqro-skillhub/server/internal/adapters/postgres"
+	"miqro-skillhub/server/internal/adapters/storagefactory"
 	"miqro-skillhub/server/internal/config"
 	httpx "miqro-skillhub/server/internal/http"
 	"miqro-skillhub/server/internal/http/cliapi"
@@ -127,12 +127,8 @@ func main() {
 		metadataParser = packagekit.NewSkillMetadataParser()
 		validator = packagekit.NewSkillPackageValidator(metadataParser)
 
-		// Object storage for development — local filesystem.
-		storageRoot := os.Getenv("STORAGE_ROOT")
-		if storageRoot == "" {
-			storageRoot = "./data/storage"
-		}
-		objStore, err = localstorage.New(storageRoot)
+		// Object storage via unified storage factory.
+		objStore, err = storagefactory.New(ctx, *cfg)
 		if err != nil {
 			log.Fatalf("object storage: %v", err)
 		}

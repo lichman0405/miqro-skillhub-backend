@@ -27,8 +27,9 @@ import (
 	"time"
 
 	"miqro-skillhub/server/internal/adapters/agentrunner"
-	"miqro-skillhub/server/internal/adapters/localstorage"
 	"miqro-skillhub/server/internal/adapters/postgres"
+	"miqro-skillhub/server/internal/adapters/storagefactory"
+	"miqro-skillhub/server/internal/config"
 	"miqro-skillhub/server/sdk/skillhub/agentci"
 )
 
@@ -45,10 +46,14 @@ func main() {
 		cancel()
 	}()
 
-	connStr := os.Getenv("DATABASE_URL")
-	if connStr == "" {
-		connStr = "postgres://skillhub:skillhub@localhost:5432/skillhub?sslmode=disable"
+	// Load configuration.
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "skillhub-worker: config: %v\n", err)
+		os.Exit(1)
 	}
+
+	connStr := cfg.DatabaseURL
 
 	// Connect to database.
 	db, err := postgres.NewDB(ctx, connStr)
@@ -70,12 +75,8 @@ func main() {
 		nil, // log store not yet wired
 	)
 
-	// Object storage for reading package file content.
-	storageRoot := os.Getenv("STORAGE_ROOT")
-	if storageRoot == "" {
-		storageRoot = "./data/storage"
-	}
-	objStore, err := localstorage.New(storageRoot)
+	// Object storage via unified storage factory.
+	objStore, err := storagefactory.New(ctx, *cfg)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "skillhub-worker: WARNING: cannot create object storage: %v — checks will lack file content\n", err)
 		objStore = nil

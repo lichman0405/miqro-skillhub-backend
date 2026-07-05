@@ -39,9 +39,11 @@ miqro-skillhub/
 │   │   └── uow/             # Unit-of-work / transaction boundary
 │   ├── internal/
 │   │   ├── adapters/
-│   │   │   ├── postgres/    # PostgreSQL repository implementations
-│   │   │   ├── localstorage/# Local filesystem object storage
-│   │   │   └── agentrunner/ # CI runner (local + LLM)
+│   │   │   ├── postgres/       # PostgreSQL repository implementations
+│   │   │   ├── localstorage/   # Local filesystem object storage
+│   │   │   ├── s3/             # S3/MinIO object storage adapter
+│   │   │   ├── storagefactory/ # Unified storage factory (local vs s3)
+│   │   │   └── agentrunner/    # CI runner (local + LLM)
 │   │   ├── config/          # Environment configuration
 │   │   ├── http/            # HTTP routes and handlers
 │   │   │   ├── portal/      # /api/v1/* routes
@@ -104,7 +106,7 @@ See **[guides/backend-quickstart.md](guides/backend-quickstart.md)** for step-by
 docker compose up -d postgres
 cd server
 SKILLHUB_DATABASE_URL="postgres://skillhub:skillhub@localhost:5432/skillhub?sslmode=disable" go run ./cmd/skillhub-migrate
-SKILLHUB_DATABASE_URL="postgres://skillhub:skillhub@localhost:5432/skillhub?sslmode=disable" SKILLHUB_CORS_ALLOWED_ORIGINS="http://localhost:5173" STORAGE_ROOT=./data/storage go run ./cmd/skillhub-server
+SKILLHUB_DATABASE_URL="postgres://skillhub:skillhub@localhost:5432/skillhub?sslmode=disable" SKILLHUB_CORS_ALLOWED_ORIGINS="http://localhost:5173" SKILLHUB_STORAGE_PROVIDER=local SKILLHUB_STORAGE_ROOT=./data/storage go run ./cmd/skillhub-server
 ```
 
 ### Quick start (Windows, no Docker)
@@ -114,7 +116,8 @@ Install PostgreSQL 16, create the `skillhub` database, then:
 ```powershell
 $env:SKILLHUB_DATABASE_URL = "postgres://skillhub:skillhub@localhost:5432/skillhub?sslmode=disable"
 $env:SKILLHUB_CORS_ALLOWED_ORIGINS = "http://localhost:5173"
-$env:STORAGE_ROOT = "./data/storage"
+$env:SKILLHUB_STORAGE_PROVIDER = "local"
+$env:SKILLHUB_STORAGE_ROOT = "./data/storage"
 cd server
 go run ./cmd/skillhub-migrate
 go run ./cmd/skillhub-server
@@ -154,11 +157,14 @@ cd clients/typescript/skillhub && npm install && npm run build && npm test
 Before running outside local development:
 
 - Set `SKILLHUB_LOCAL_MODE=false`. Startup rejects known local defaults (`minioadmin` credentials, localhost database URL) in this mode.
+- Set `SKILLHUB_STORAGE_PROVIDER=s3` for production. Local filesystem storage is allowed in production only with the explicit emergency override `SKILLHUB_ALLOW_LOCAL_STORAGE_IN_PRODUCTION=true`. Without this override, production mode rejects local storage so multi-instance deployments are not silently broken.
 - Replace the default PostgreSQL URL and credentials; do not use `skillhub:skillhub`.
 - Replace object-storage credentials; do not use `minioadmin:minioadmin`.
 - Set explicit `SKILLHUB_CORS_ALLOWED_ORIGINS` for browser clients. Avoid wildcard origins for credentialed requests.
 - Set `SKILLHUB_TRUSTED_PROXY_CIDRS` only to real reverse proxy / load-balancer CIDRs. Leave empty if no trusted proxy exists — `X-Forwarded-For` is never trusted when empty, so spoofed headers cannot bypass rate limiting.
+- **Object storage must be shared across all server instances.** Local filesystem storage is unsafe for multi-instance deployments because each instance sees a different filesystem. Use S3/MinIO so every instance reads/writes the same package files, release assets, and CI artifacts.
 - The server's built-in session and rate-limit implementations are in-process (not distributed). For multi-instance production deployments, use sticky sessions at your load balancer, external API gateway / load balancer rate limiting, or wait for future Redis-backed adapters. The current in-process rate limiter is bounded (10000 max buckets, 15min TTL).
+- **Redis-backed sessions and distributed rate limiting are NOT implemented.** `SKILLHUB_REDIS_URL` is reserved for future adapters. The server does not consume Redis at runtime.
 - Run database migrations as an explicit rollout step before starting upgraded servers.
 - Back up PostgreSQL and object storage before migrations or data-model upgrades.
 - Scrape `/metrics` with Prometheus or equivalent monitoring (see `monitoring/prometheus.yml` for a starter config).
