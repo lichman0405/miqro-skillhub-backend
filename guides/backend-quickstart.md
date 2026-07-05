@@ -126,8 +126,8 @@ The quickstart defaults are for local development only. For production, see the 
 
 ### Compose differences
 
-- **`docker-compose.yml`** (dev): uses `SKILLHUB_LOCAL_MODE=true` and `minioadmin` credentials — safe for local development. The `--profile full` server is a local dev profile, not a production configuration.
-- **`compose.release.yml`** (release example): uses `SKILLHUB_LOCAL_MODE=false` and requires production credentials as environment variables (`SKILLHUB_DATABASE_URL`, `SKILLHUB_STORAGE_ACCESS_KEY`, `SKILLHUB_STORAGE_SECRET_KEY`). The Compose will refuse to start if they are missing. Supply them via `export` or a `.env` file before running.
+- **`docker-compose.yml`** (dev): uses `SKILLHUB_LOCAL_MODE=true` and `minioadmin` credentials — safe for local development. The `--profile full` server is a local dev profile, not a production configuration. A `minio-init` helper container automatically creates the `skillhub` bucket before the server starts, so the full S3-backed profile works with a single `docker compose --profile full up -d`.
+- **`compose.release.yml`** (release example): uses `SKILLHUB_LOCAL_MODE=false` and requires production credentials as environment variables (`SKILLHUB_DATABASE_URL`, `SKILLHUB_STORAGE_ACCESS_KEY`, `SKILLHUB_STORAGE_SECRET_KEY`). The Compose will refuse to start if they are missing. MinIO and the server share the same `SKILLHUB_STORAGE_ACCESS_KEY` / `SKILLHUB_STORAGE_SECRET_KEY` — both must use the same production credentials (not `minioadmin`). Supply them via `export` or a `.env` file before running.
 
 ## Running without Redis
 
