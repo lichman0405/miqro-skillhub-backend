@@ -351,7 +351,7 @@ func TestPromotionApprove_PostgresTransaction_RollsBackPartialWritesOnFileCopyFa
 		t.Fatal("expected error from injected file copy failure")
 	}
 	if !errors.Is(err, errInjectedFileCopy) {
-		t.Logf("error: %v", err)
+		t.Fatalf("expected injected file copy failure, got %v", err)
 	}
 
 	// ── promotion_request rolled back ─────────────────────────────────
