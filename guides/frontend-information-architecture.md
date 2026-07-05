@@ -128,10 +128,10 @@ Every route the frontend must support. Each is classified by priority, access, a
 
 | Route | Page | Priority | Access | Type |
 |---|---|---|---|---|
-| `/reviews` | Review queue | MVP | Auth-only (reviewer) | Read-model only |
-| `/reviews/:reviewId` | Review detail | MVP | Auth-only (reviewer) | Mutation-capable |
-| `/promotions` | Promotion queue | MVP | Auth-only (platform reviewer) | Read-model only |
-| `/promotions/:promotionId` | Promotion detail | MVP | Auth-only (platform reviewer) | Mutation-capable |
+| `/reviews` | Review queue | MVP | Auth-only | Read-model only |
+| `/reviews/:reviewId` | Review detail | MVP | Auth-only | Mutation-capable |
+| `/promotions` | Promotion queue | MVP | Auth-only | Read-model only |
+| `/promotions/:promotionId` | Promotion detail | MVP | Auth-only | Mutation-capable |
 | `/governance` | Governance workbench | MVP | Auth-only | Read-model only |
 | `/admin` | Admin dashboard | Post-MVP | Admin-only (SUPER_ADMIN) | Read-model only |
 
@@ -167,12 +167,12 @@ Every page maps to specific `SkillHubClient` methods. This matrix is the contrac
 | Proposal list | `frontendProposalList(ns, slug, page, size)` | none | Skill-scoped proposal list. |
 | Proposal detail | `frontendProposalDetail(ns, slug, id)` | `createProposal`, `updateProposal` | After mutation, refetch `frontendProposalDetail`. |
 | Review queue | `frontendReviews(page, size)` | none | Paginated queue with `hasMore`. |
-| Review detail | `frontendReviewDetail(id)` | `approveReview`, `rejectReview`, `withdrawReview` | Portal mutations. After mutation, refetch `frontendReviewDetail` (and queue if returning to it). |
+| Review detail | `frontendReviewDetail(id)` | `approveReview`, `rejectReview`, `withdrawReview` | Portal mutations. After mutation, refetch `frontendReviewDetail` (and queue if returning to it). Detail is visible to: authenticated reviewers (platform or namespace-scoped), and the task submitter. The submitter may withdraw when `availableActions.canWithdraw` is true. Frontend route guards should not assume only reviewers can view this page. |
 | Promotion queue | `frontendPromotions(page, size)` | none | Paginated queue with `hasMore`. |
-| Promotion detail | `frontendPromotionDetail(id)` | `approvePromotion`, `rejectPromotion`, `withdrawPromotion` | Portal mutations. After mutation, refetch `frontendPromotionDetail` (and queue if returning to it). |
+| Promotion detail | `frontendPromotionDetail(id)` | `approvePromotion`, `rejectPromotion`, `withdrawPromotion` | Portal mutations. After mutation, refetch `frontendPromotionDetail` (and queue if returning to it). Detail is visible to: SUPER_ADMIN (platform governance), and the request submitter. The submitter may withdraw when `availableActions.canWithdraw` is true. Frontend route guards should not assume only platform reviewers can view this page. |
 | Governance | `frontendGovernance()` | none | Role-aware workbench: summary counts, recent activity, `availableActions`. |
 | Admin | `frontendAdmin()` | none | SUPER_ADMIN only. Aggregate stats. Unauthorized viewers receive zero stats. |
-| Login | `login(username, password)` | `me`, `logout` | Session cookie or bearer token. After login, refetch `me` to populate auth state. |
+| Login | `login(username, password)`, `me()` | none | Session cookie or bearer token. After login, refetch `me` to populate auth state. Logout is currently not exposed as a public TS SDK method; the backend route (`POST /api/v1/auth/logout`) exists and frontend should call it via a thin portal route adapter or wait for a future SDK `logout()` method. |
 | Settings/Profile | `me()` | user profile mutations (future) | Read current user info. |
 | Settings/Tokens | none | API token CRUD (future) | Manage personal access tokens. |
 
