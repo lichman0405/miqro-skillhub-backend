@@ -163,7 +163,7 @@ func setupPromotionFixture(t *testing.T) *promotionFixture {
 
 	sourceVersion, err := f.versionRepo.Save(ctx, skill.SkillVersion{
 		SkillID: f.sourceSkillID, Version: "1.0.0", Status: "PUBLISHED",
-		FileCount: 2, TotalSize: 200,
+		FileCount: 2, TotalSize: 200, CreatedBy: f.submitterID,
 	})
 	if err != nil {
 		t.Fatalf("create source version: %v", err)
