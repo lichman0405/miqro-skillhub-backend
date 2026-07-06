@@ -19,7 +19,7 @@ func NewNamespaceRepo(db *DB) *NamespaceRepo {
 func (r *NamespaceRepo) FindByID(ctx context.Context, id int64) (*namespace.Namespace, error) {
 	var n namespace.Namespace
 	err := r.DB.queryRow(ctx,
-		`SELECT id, slug, display_name, type, description, avatar_url, status, created_by, created_at, updated_at
+		`SELECT id, slug, display_name, type, COALESCE(description, ''), COALESCE(avatar_url, ''), status, created_by, created_at, updated_at
 		 FROM namespace WHERE id = $1`, id,
 	).Scan(&n.ID, &n.Slug, &n.DisplayName, &n.Type, &n.Description, &n.AvatarURL, &n.Status, &n.CreatedBy, &n.CreatedAt, &n.UpdatedAt)
 	if err != nil {
@@ -30,7 +30,7 @@ func (r *NamespaceRepo) FindByID(ctx context.Context, id int64) (*namespace.Name
 
 func (r *NamespaceRepo) FindByIDs(ctx context.Context, ids []int64) ([]namespace.Namespace, error) {
 	rows, err := r.DB.query(ctx,
-		`SELECT id, slug, display_name, type, description, avatar_url, status, created_by, created_at, updated_at
+		`SELECT id, slug, display_name, type, COALESCE(description, ''), COALESCE(avatar_url, ''), status, created_by, created_at, updated_at
 		 FROM namespace WHERE id = ANY($1)`, ids)
 	if err != nil {
 		return nil, err
@@ -51,7 +51,7 @@ func (r *NamespaceRepo) FindByIDs(ctx context.Context, ids []int64) ([]namespace
 func (r *NamespaceRepo) FindBySlug(ctx context.Context, slug string) (*namespace.Namespace, error) {
 	var n namespace.Namespace
 	err := r.DB.queryRow(ctx,
-		`SELECT id, slug, display_name, type, description, avatar_url, status, created_by, created_at, updated_at
+		`SELECT id, slug, display_name, type, COALESCE(description, ''), COALESCE(avatar_url, ''), status, created_by, created_at, updated_at
 		 FROM namespace WHERE slug = $1`, slug,
 	).Scan(&n.ID, &n.Slug, &n.DisplayName, &n.Type, &n.Description, &n.AvatarURL, &n.Status, &n.CreatedBy, &n.CreatedAt, &n.UpdatedAt)
 	if err != nil {
@@ -62,7 +62,7 @@ func (r *NamespaceRepo) FindBySlug(ctx context.Context, slug string) (*namespace
 
 func (r *NamespaceRepo) FindByStatus(ctx context.Context, status string) ([]namespace.Namespace, error) {
 	rows, err := r.DB.query(ctx,
-		`SELECT id, slug, display_name, type, description, avatar_url, status, created_by, created_at, updated_at
+		`SELECT id, slug, display_name, type, COALESCE(description, ''), COALESCE(avatar_url, ''), status, created_by, created_at, updated_at
 		 FROM namespace WHERE status = $1 ORDER BY created_at DESC`, status)
 	if err != nil {
 		return nil, err
