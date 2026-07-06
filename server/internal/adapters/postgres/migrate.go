@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 
@@ -21,6 +22,32 @@ func init() {
 	MigrationsDir = "migrations"
 }
 
+func resolveMigrationsDir() (string, error) {
+	candidates := []string{
+		MigrationsDir,
+		filepath.Join("server", "migrations"),
+	}
+
+	if _, file, _, ok := runtime.Caller(0); ok {
+		candidates = append(candidates, filepath.Join(filepath.Dir(file), "..", "..", "..", "migrations"))
+	}
+
+	for _, candidate := range candidates {
+		if candidate == "" {
+			continue
+		}
+		if entries, err := os.ReadDir(candidate); err == nil {
+			for _, entry := range entries {
+				if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".sql") {
+					return candidate, nil
+				}
+			}
+		}
+	}
+
+	return "", fmt.Errorf("migrations directory not found; tried %s", strings.Join(candidates, ", "))
+}
+
 // MigrateUp applies all SQL migration files in order from the filesystem.
 // It tracks applied migrations in a schema_migrations table so that each
 // migration is executed only once. Seed files that use DROP + INSERT should
@@ -35,9 +62,14 @@ func MigrateUp(ctx context.Context, pool *pgxpool.Pool) error {
 		return fmt.Errorf("migrate: create tracking table: %w", err)
 	}
 
-	entries, err := os.ReadDir(MigrationsDir)
+	migrationsDir, err := resolveMigrationsDir()
 	if err != nil {
-		return fmt.Errorf("migrate: read dir %s: %w", MigrationsDir, err)
+		return fmt.Errorf("migrate: resolve migrations dir: %w", err)
+	}
+
+	entries, err := os.ReadDir(migrationsDir)
+	if err != nil {
+		return fmt.Errorf("migrate: read dir %s: %w", migrationsDir, err)
 	}
 
 	sort.Slice(entries, func(i, j int) bool {
@@ -59,7 +91,7 @@ func MigrateUp(ctx context.Context, pool *pgxpool.Pool) error {
 			continue
 		}
 
-		filePath := filepath.Join(MigrationsDir, entry.Name())
+		filePath := filepath.Join(migrationsDir, entry.Name())
 		data, err := os.ReadFile(filePath)
 		if err != nil {
 			return fmt.Errorf("migrate: read %s: %w", entry.Name(), err)
