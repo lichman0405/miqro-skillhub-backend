@@ -136,6 +136,14 @@ Release compose 示例见：
 - [compose.release.yml](compose.release.yml)
 - [guides/backend-quickstart.md](guides/backend-quickstart.md)
 
+## 前端开发者网页文档
+
+`site/` 目录下的静态站点提供了前端对接文档。包括 frontend read-model API、TypeScript SDK、本地开发和 contract fixtures 说明。
+
+- **本地查看：** 直接打开 `site/index.html`。
+- **GitHub Pages：** push 到 `master` 后，`.github/workflows/pages.yml` 会自动部署。部署成功后可通过仓库的 Pages URL（如 `https://lichman0405.github.io/miqro-skillhub-backend/`）访问。
+- **启用 Pages：** 如果 workflow 成功后站点未显示，需要在 GitHub 仓库 **Settings → Pages** 中将来源设为 **GitHub Actions**。
+
 ## 当前已知非目标
 
 - 没有正式前端 UI；

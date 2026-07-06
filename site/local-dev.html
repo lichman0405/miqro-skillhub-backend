@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Local Dev — Miqro-SkillHub</title>
+  <link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+
+<header>
+  <div class="container">
+    <h1><a href="./">Miqro-SkillHub</a></h1>
+    <nav>
+      <a href="./">Home</a>
+      <a href="frontend.html">Frontend API</a>
+      <a href="sdk.html">TypeScript SDK</a>
+      <a href="local-dev.html">Local Dev</a>
+      <a href="fixtures.html">Fixtures</a>
+      <a href="zh-CN.html" class="lang-badge">中文</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+<div class="container">
+
+<h2>Local development setup</h2>
+
+<p>
+  The backend is a single Go binary. For frontend development you need the
+  backend running with CORS enabled for your frontend origin.
+</p>
+
+<h3>Minimal backend (local storage mode)</h3>
+
+<p>Suitable for a single frontend developer on one machine.</p>
+
+<pre><code># PowerShell (Windows)
+$env:SKILLHUB_DATABASE_URL = "postgres://skillhub:skillhub@localhost:5432/skillhub?sslmode=disable"
+$env:SKILLHUB_CORS_ALLOWED_ORIGINS = "http://localhost:5173"
+$env:SKILLHUB_STORAGE_PROVIDER = "local"
+$env:SKILLHUB_STORAGE_ROOT = "./data/storage"
+$env:SKILLHUB_LOCAL_MODE = "true"
+cd server
+go run ./cmd/skillhub-migrate
+go run ./cmd/skillhub-server</code></pre>
+
+<pre><code># Bash (Linux/macOS)
+export SKILLHUB_DATABASE_URL="postgres://skillhub:skillhub@localhost:5432/skillhub?sslmode=disable"
+export SKILLHUB_CORS_ALLOWED_ORIGINS="http://localhost:5173"
+export SKILLHUB_STORAGE_PROVIDER="local"
+export SKILLHUB_STORAGE_ROOT="./data/storage"
+export SKILLHUB_LOCAL_MODE=true
+cd server
+go run ./cmd/skillhub-migrate
+go run ./cmd/skillhub-server</code></pre>
+
+<h3>Full Docker Compose stack</h3>
+
+<p>Runs PostgreSQL, Redis, MinIO, and the server with all integrations wired.</p>
+
+<pre><code># Start infrastructure services
+docker compose up -d postgres redis minio
+
+# Start the full development profile (server + worker + minio-init)
+docker compose --profile full up -d</code></pre>
+
+<div class="callout">
+  The <code>--profile full</code> Compose uses <code>SKILLHUB_LOCAL_MODE=true</code>
+  and <code>minioadmin</code> credentials — it is a <strong>local development
+  profile</strong>, not a production configuration.
+</div>
+
+<h3>Windows notes</h3>
+
+<div class="callout warn">
+  <strong>Docker Desktop</strong> and <strong>make</strong> may not be available
+  on Windows. Direct Go commands are the baseline verification path:
+</div>
+
+<pre><code># These work on any platform with Go installed
+cd server
+go test ./...
+go vet ./...
+go build ./cmd/skillhub-server
+go build ./cmd/skillhub-migrate
+go build ./cmd/skillhub-worker</code></pre>
+
+<h2>CORS configuration</h2>
+
+<p>
+  The backend must explicitly allow the frontend origin.
+  Cookie-based auth requires an explicit origin, not a wildcard.
+</p>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr><th>Env var</th><th>Example</th><th>Notes</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>SKILLHUB_CORS_ALLOWED_ORIGINS</code></td>
+      <td><code>http://localhost:5173</code></td>
+      <td>Comma-separated origins. No wildcard for credentialed requests.</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<h2>Environment variables for frontend devs</h2>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr><th>Variable</th><th>Dev value</th><th>Purpose</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><code>SKILLHUB_DATABASE_URL</code></td><td><code>postgres://skillhub:skillhub@localhost:5432/skillhub?sslmode=disable</code></td><td>PostgreSQL connection</td></tr>
+    <tr><td><code>SKILLHUB_CORS_ALLOWED_ORIGINS</code></td><td><code>http://localhost:5173</code></td><td>Allowed frontend origin</td></tr>
+    <tr><td><code>SKILLHUB_STORAGE_PROVIDER</code></td><td><code>local</code></td><td>Local filesystem storage</td></tr>
+    <tr><td><code>SKILLHUB_STORAGE_ROOT</code></td><td><code>./data/storage</code></td><td>Local storage directory</td></tr>
+    <tr><td><code>SKILLHUB_LOCAL_MODE</code></td><td><code>true</code></td><td>Permissive auth, auto-creates admin:admin</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2>Redis / S3 / MinIO: dev vs production</h2>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr><th>Component</th><th>Dev (local)</th><th>Production</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Object storage</td><td>Local filesystem (<code>SKILLHUB_STORAGE_PROVIDER=local</code>)</td><td>S3 / MinIO (<code>SKILLHUB_STORAGE_PROVIDER=s3</code>)</td></tr>
+    <tr><td>Sessions</td><td>In-memory (local mode)</td><td>Redis (<code>SKILLHUB_SESSION_BACKEND=redis</code>)</td></tr>
+    <tr><td>Rate limiting</td><td>In-memory (<code>SKILLHUB_RATE_LIMIT_BACKEND=memory</code>)</td><td>Redis (<code>SKILLHUB_RATE_LIMIT_BACKEND=redis</code>)</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="callout warn">
+  <strong>Production must use:</strong> S3/MinIO object storage, Redis-backed
+  sessions, and Redis-backed rate limiting. Local filesystem storage is unsafe
+  for multi-instance deployments. The production mode rejects local storage
+  unless <code>SKILLHUB_ALLOW_LOCAL_STORAGE_IN_PRODUCTION=true</code> is set as
+  an explicit emergency override.
+</div>
+
+<h2>Key environment variables (reference)</h2>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr><th>Variable</th><th>Required?</th><th>Notes</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><code>SKILLHUB_DATABASE_URL</code></td><td>Yes</td><td>PostgreSQL connection string</td></tr>
+    <tr><td><code>SKILLHUB_CORS_ALLOWED_ORIGINS</code></td><td>Yes (browser clients)</td><td>Comma-separated origins</td></tr>
+    <tr><td><code>SKILLHUB_STORAGE_PROVIDER</code></td><td>Yes</td><td><code>local</code> or <code>s3</code></td></tr>
+    <tr><td><code>SKILLHUB_STORAGE_ROOT</code></td><td>With local storage</td><td>Directory path for local files</td></tr>
+    <tr><td><code>SKILLHUB_LOCAL_MODE</code></td><td>No</td><td>Set <code>true</code> for dev; <code>false</code> for production</td></tr>
+    <tr><td><code>SKILLHUB_SESSION_BACKEND</code></td><td>Production: <code>redis</code></td><td><code>memory</code> (dev) or <code>redis</code></td></tr>
+    <tr><td><code>SKILLHUB_RATE_LIMIT_BACKEND</code></td><td>Production: <code>redis</code></td><td><code>memory</code> (dev) or <code>redis</code></td></tr>
+    <tr><td><code>SKILLHUB_REDIS_URL</code></td><td>With Redis backends</td><td>Redis connection string</td></tr>
+    <tr><td><code>SKILLHUB_STORAGE_ACCESS_KEY</code></td><td>With S3 storage</td><td>S3/MinIO access key</td></tr>
+    <tr><td><code>SKILLHUB_STORAGE_SECRET_KEY</code></td><td>With S3 storage</td><td>S3/MinIO secret key</td></tr>
+    <tr><td><code>SKILLHUB_STORAGE_BUCKET</code></td><td>With S3 storage</td><td>Bucket name (default: <code>skillhub</code>)</td></tr>
+    <tr><td><code>SKILLHUB_STORAGE_ENDPOINT</code></td><td>With S3 storage</td><td>S3-compatible endpoint</td></tr>
+    <tr><td><code>SKILLHUB_TRUSTED_PROXY_CIDRS</code></td><td>No</td><td>CIDRs for reverse proxy (X-Forwarded-For)</td></tr>
+  </tbody>
+</table>
+</div>
+
+</div>
+</main>
+
+<footer>
+  <div class="container">
+    Miqro-SkillHub — self-hosted agent skill registry.
+    <a href="https://github.com/lichman0405/miqro-skillhub-backend">GitHub</a>
+  </div>
+</footer>
+
+</body>
+</html>

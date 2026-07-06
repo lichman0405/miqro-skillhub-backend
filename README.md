@@ -253,3 +253,12 @@ See **[guides/typescript-sdk.md](guides/typescript-sdk.md)** for full usage.
 | [guides/frontend-integration.md](guides/frontend-integration.md) | Per-page API calls, permission buttons, empty/error states |
 | [guides/frontend-information-architecture.md](guides/frontend-information-architecture.md) | Frontend IA: routes, app shell, page-to-SDK matrix, build phases |
 | [guides/end-to-end-flow.md](guides/end-to-end-flow.md) | Complete happy path from upload to release |
+| [site/index.html](site/index.html) | GitHub Pages / Developer Docs — frontend integration site |
+
+## Frontend developer docs
+
+A lightweight static site at `site/` serves as the frontend integration docs. It covers the frontend read-model API, TypeScript SDK, local dev setup, and contract fixtures — no build step needed.
+
+- **Local file:** open `site/index.html` in a browser.
+- **GitHub Pages:** push to `master` deploys the site via `.github/workflows/pages.yml`. After the first successful deployment, the site is available at the repository's Pages URL (e.g. `https://lichman0405.github.io/miqro-skillhub-backend/`).
+- **Enable Pages:** if the site does not appear after the workflow succeeds, go to the GitHub repository **Settings → Pages** and set the source to **GitHub Actions**.

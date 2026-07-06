@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TypeScript SDK — Miqro-SkillHub</title>
+  <link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+
+<header>
+  <div class="container">
+    <h1><a href="./">Miqro-SkillHub</a></h1>
+    <nav>
+      <a href="./">Home</a>
+      <a href="frontend.html">Frontend API</a>
+      <a href="sdk.html">TypeScript SDK</a>
+      <a href="local-dev.html">Local Dev</a>
+      <a href="fixtures.html">Fixtures</a>
+      <a href="zh-CN.html" class="lang-badge">中文</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+<div class="container">
+
+<h2>TypeScript SDK</h2>
+
+<p>
+  The TypeScript SDK lives at <code>clients/typescript/skillhub/</code> and is
+  published as <code>@miqro/skillhub-client</code>. It is <strong>not yet
+  published to npm</strong> — reference it as a local file dependency.
+</p>
+
+<h3>Installation (local file dependency)</h3>
+
+<pre><code># In your frontend project
+{
+  "dependencies": {
+    "@miqro/skillhub-client": "file:../clients/typescript/skillhub"
+  }
+}
+
+# Build the SDK first
+cd clients/typescript/skillhub
+npm install
+npm run build</code></pre>
+
+<div class="callout">
+  <strong>Import policy:</strong> Import only from <code>@miqro/skillhub-client</code>.
+  Internal paths (<code>dist/domains/*</code>, <code>dist/types/*</code>) are not
+  part of the public compatibility contract.
+</div>
+
+<h2>Client initialization</h2>
+
+<pre><code>import { SkillHubClient } from "@miqro/skillhub-client";
+
+// Default: http://localhost:8080
+const client = new SkillHubClient();
+
+// Custom base URL (string form)
+const client = new SkillHubClient("https://skillhub.example.com");
+
+// Full options object (recommended)
+const client = new SkillHubClient({
+  baseUrl: "http://localhost:8080",
+  credentials: "include",        // cookie-based session auth
+  token: "sk_abc123",            // static bearer token
+  getToken: () =&gt; localStorage.getItem("token") ?? undefined, // dynamic
+  headers: { "X-Client": "web" },
+  fetch: customFetch,            // SSR / test polyfill
+});</code></pre>
+
+<h2>Auth modes</h2>
+
+<h3>Cookie session mode</h3>
+
+<pre><code>const client = new SkillHubClient({
+  baseUrl: "http://localhost:8080",
+  credentials: "include",
+});
+
+const { data: user } = await client.login("username", "password");
+// Cookie is set; subsequent requests use the session.</code></pre>
+
+<h3>Bearer token mode</h3>
+
+<pre><code>// Static token
+const client = new SkillHubClient({
+  baseUrl: "https://skillhub.example.com",
+  token: "sk_abc123",
+});
+
+// Dynamic token
+const client = new SkillHubClient({
+  getToken: () =&gt; localStorage.getItem("skillhub_token") ?? undefined,
+});</code></pre>
+
+<h2>Error handling</h2>
+
+<h3>Envelope mode (backward compatible)</h3>
+
+<pre><code>const result = await client.search({ keyword: "agent" });
+if (result.success &amp;&amp; result.data) {
+  console.log(result.data.skillIds);
+} else {
+  console.error(result.error?.code, result.error?.message);
+}</code></pre>
+
+<h3>Unwrap mode (throwing — recommended for page loaders)</h3>
+
+<pre><code>import { SkillHubClient, SkillHubError } from "@miqro/skillhub-client";
+
+try {
+  const data = await client.unwrap(client.frontendSearch({ keyword: "agent" }));
+  console.log(data.skillIds);
+} catch (err) {
+  if (err instanceof SkillHubError) {
+    console.error(err.code, err.message, err.status);
+    // err.code: "not_found", "unauthorized", "client.network_error"
+    // err.status: HTTP status (404, 401, ...)
+    // err.details: optional server-provided details
+  }
+}</code></pre>
+
+<h3>When to use which</h3>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr><th>Context</th><th>Mode</th><th>Reason</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Page loader</td><td><code>unwrap()</code></td><td>Fail loudly; error boundary catches it</td></tr>
+    <tr><td>Inline form error</td><td>envelope</td><td>Show server message next to the field</td></tr>
+    <tr><td>Background prefetch</td><td>envelope</td><td>Silently skip on failure</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2>Pagination iterators</h2>
+
+<p>
+  Bounded async iterators for list endpoints. Default: max 10 pages.
+  Always set <code>maxPages</code> explicitly.
+</p>
+
+<pre><code>// Review queue
+for await (const page of client.iterFrontendReviews({ size: 50, maxPages: 5 })) {
+  for (const task of page.tasks) {
+    console.log(task.skillName);
+  }
+}
+
+// Search
+for await (const page of client.iterFrontendSearch({
+  keyword: "agent", maxPages: 3
+})) {
+  console.log(page.searchResult.skillIds);
+}
+
+// Community
+for await (const page of client.iterFrontendIssues("ns", "slug", { maxPages: 3 })) {
+  cacheIssues(page.issues);
+}
+
+// Releases
+for await (const page of client.iterReleases("ns", "slug", { maxPages: 5 })) {
+  console.log(page.releases);
+}</code></pre>
+
+<p>Available iterators:</p>
+
+<ul>
+  <li><code>iterFrontendSearch(query)</code></li>
+  <li><code>iterFrontendReviews(options?)</code></li>
+  <li><code>iterFrontendPromotions(options?)</code></li>
+  <li><code>iterFrontendIssues(namespace, slug, options?)</code></li>
+  <li><code>iterFrontendDiscussions(namespace, slug, options?)</code></li>
+  <li><code>iterFrontendProposals(namespace, slug, options?)</code></li>
+  <li><code>iterReleases(namespace, slug, options?)</code></li>
+  <li><code>iterPipelineRuns(skillId, options?)</code></li>
+</ul>
+
+<h2>Logout</h2>
+
+<div class="callout warn">
+  The SDK does not currently expose a public <code>logout()</code> method.
+  Use a raw fetch call for now:
+</div>
+
+<pre><code>await fetch(`${apiBase}/api/v1/auth/logout`, {
+  method: "POST",
+  credentials: "include",
+});
+// After logout: clear frontend auth state, redirect to /login</code></pre>
+
+<h2>Common error handling</h2>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr><th>Status</th><th>Code</th><th>Cause</th><th>Frontend action</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>401</td><td><code>unauthorized</code></td><td>Missing/expired credentials</td><td>Redirect to <code>/login</code></td></tr>
+    <tr><td>403</td><td><code>forbidden</code></td><td>Not authorized for this action</td><td>Show "No permission"; check <code>availableActions</code> first</td></tr>
+    <tr><td>404</td><td><code>not_found</code></td><td>Resource doesn't exist</td><td>Show "Not found" page</td></tr>
+    <tr><td>409</td><td><code>conflict</code></td><td>Gate enforcement failed, duplicate</td><td>Show server-provided reason</td></tr>
+    <tr><td>429</td><td><code>rate_limited</code></td><td>Too many requests</td><td>Show retry affordance with delay</td></tr>
+    <tr><td>503</td><td><code>internal</code></td><td>Backend unavailable</td><td>Show "Service unavailable" with retry</td></tr>
+    <tr><td>—</td><td><code>client.network_error</code></td><td>fetch() rejected (DNS, CORS)</td><td>Show "Cannot reach server" with retry</td></tr>
+    <tr><td>—</td><td><code>client.invalid_json</code></td><td>Response not valid JSON</td><td>Show generic error; check backend logs</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2>Community CRUD quick reference</h2>
+
+<pre><code>// Issues
+const { data: issues } = await client.listIssues("ns", "slug", { status: "OPEN" });
+await client.createIssue("ns", "slug", { title: "Bug report", body: "..." });
+await client.updateIssue("ns", "slug", 1, { status: "CLOSED" });
+await client.addIssueComment("ns", "slug", 1, { body: "Fixed in v2." });
+
+// Discussions
+await client.createDiscussion("ns", "slug", {
+  title: "Feature idea", category: "IDEAS", body: "..."
+});
+
+// Wiki
+await client.createWikiPage("ns", "slug", {
+  title: "Getting Started", slug: "getting-started", body: "# Hello"
+});
+
+// Proposals
+await client.createProposal("ns", "slug", { title: "Refactor module X" });</code></pre>
+
+</div>
+</main>
+
+<footer>
+  <div class="container">
+    Miqro-SkillHub — self-hosted agent skill registry.
+    <a href="https://github.com/lichman0405/miqro-skillhub-backend">GitHub</a>
+  </div>
+</footer>
+
+</body>
+</html>

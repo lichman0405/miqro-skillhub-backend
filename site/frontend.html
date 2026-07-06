@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Frontend API — Miqro-SkillHub</title>
+  <link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+
+<header>
+  <div class="container">
+    <h1><a href="./">Miqro-SkillHub</a></h1>
+    <nav>
+      <a href="./">Home</a>
+      <a href="frontend.html">Frontend API</a>
+      <a href="sdk.html">TypeScript SDK</a>
+      <a href="local-dev.html">Local Dev</a>
+      <a href="fixtures.html">Fixtures</a>
+      <a href="zh-CN.html" class="lang-badge">中文</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+<div class="container">
+
+<h2>Frontend read-model API</h2>
+
+<p>
+  Every frontend page calls a dedicated <strong>read-model endpoint</strong>
+  under <code>/api/v1/frontend/</code>. Each response includes the page data
+  plus an <code>availableActions</code> object — boolean flags computed from the
+  authenticated user's permissions. The frontend uses these flags to show or
+  hide buttons, never role strings.
+</p>
+
+<div class="callout">
+  <strong>Rule:</strong> Read-model endpoints are the page contract. Mutations
+  use portal routes (<code>/api/v1/...</code>). After any mutation, refetch the
+  corresponding frontend read model so <code>availableActions</code> stays current.
+</div>
+
+<h2>Page-to-endpoint matrix</h2>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>Page</th>
+      <th>Frontend read model</th>
+      <th>SDK method</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Search / Home</td>
+      <td><code>GET /api/v1/frontend/search</code></td>
+      <td><code>frontendSearch(query)</code></td>
+    </tr>
+    <tr>
+      <td>Skill detail</td>
+      <td><code>GET /api/v1/frontend/skills/{ns}/{slug}</code></td>
+      <td><code>frontendSkillDetail(ns, slug)</code></td>
+    </tr>
+    <tr>
+      <td>Version detail</td>
+      <td><code>GET /api/v1/frontend/skills/{ns}/{slug}/versions/{v}</code></td>
+      <td><code>frontendVersionDetail(ns, slug, version)</code></td>
+    </tr>
+    <tr>
+      <td>Publish validate</td>
+      <td><code>GET /api/v1/frontend/skills/{ns}/publish/validate</code></td>
+      <td><code>frontendPublishValidate(ns)</code></td>
+    </tr>
+    <tr>
+      <td>Namespace list</td>
+      <td><code>GET /api/v1/frontend/namespaces</code></td>
+      <td><code>frontendNamespaces()</code></td>
+    </tr>
+    <tr>
+      <td>Namespace detail</td>
+      <td><code>GET /api/v1/frontend/namespaces/{slug}</code></td>
+      <td><code>frontendNamespaceDetail(slug)</code></td>
+    </tr>
+    <tr>
+      <td>Release list</td>
+      <td><code>GET /api/v1/frontend/skills/{ns}/{slug}/releases</code></td>
+      <td><code>frontendReleaseList(ns, slug)</code></td>
+    </tr>
+    <tr>
+      <td>Release detail</td>
+      <td><code>GET /api/v1/frontend/skills/{ns}/{slug}/releases/{id}</code></td>
+      <td><code>frontendReleaseDetail(ns, slug, id)</code></td>
+    </tr>
+    <tr>
+      <td>Issue list</td>
+      <td><code>GET /api/v1/frontend/skills/{ns}/{slug}/issues</code></td>
+      <td><code>frontendIssueList(ns, slug, page, size)</code></td>
+    </tr>
+    <tr>
+      <td>Issue detail</td>
+      <td><code>GET /api/v1/frontend/skills/{ns}/{slug}/issues/{id}</code></td>
+      <td><code>frontendIssueDetail(ns, slug, id)</code></td>
+    </tr>
+    <tr>
+      <td>Discussion list</td>
+      <td><code>GET /api/v1/frontend/skills/{ns}/{slug}/discussions</code></td>
+      <td><code>frontendDiscussionList(ns, slug, page, size)</code></td>
+    </tr>
+    <tr>
+      <td>Discussion detail</td>
+      <td><code>GET /api/v1/frontend/skills/{ns}/{slug}/discussions/{id}</code></td>
+      <td><code>frontendDiscussionDetail(ns, slug, id)</code></td>
+    </tr>
+    <tr>
+      <td>Wiki list</td>
+      <td><code>GET /api/v1/frontend/skills/{ns}/{slug}/wiki</code></td>
+      <td><code>frontendWikiList(ns, slug)</code></td>
+    </tr>
+    <tr>
+      <td>Wiki detail</td>
+      <td><code>GET /api/v1/frontend/skills/{ns}/{slug}/wiki/{pageSlug}</code></td>
+      <td><code>frontendWikiDetail(ns, slug, pageSlug)</code></td>
+    </tr>
+    <tr>
+      <td>Proposal list</td>
+      <td><code>GET /api/v1/frontend/skills/{ns}/{slug}/proposals</code></td>
+      <td><code>frontendProposalList(ns, slug, page, size)</code></td>
+    </tr>
+    <tr>
+      <td>Proposal detail</td>
+      <td><code>GET /api/v1/frontend/skills/{ns}/{slug}/proposals/{id}</code></td>
+      <td><code>frontendProposalDetail(ns, slug, id)</code></td>
+    </tr>
+    <tr>
+      <td>Review queue</td>
+      <td><code>GET /api/v1/frontend/reviews</code></td>
+      <td><code>frontendReviews(page, size)</code></td>
+    </tr>
+    <tr>
+      <td>Review detail</td>
+      <td><code>GET /api/v1/frontend/reviews/{id}</code></td>
+      <td><code>frontendReviewDetail(id)</code></td>
+    </tr>
+    <tr>
+      <td>Promotion queue</td>
+      <td><code>GET /api/v1/frontend/promotions</code></td>
+      <td><code>frontendPromotions(page, size)</code></td>
+    </tr>
+    <tr>
+      <td>Promotion detail</td>
+      <td><code>GET /api/v1/frontend/promotions/{id}</code></td>
+      <td><code>frontendPromotionDetail(id)</code></td>
+    </tr>
+    <tr>
+      <td>Governance</td>
+      <td><code>GET /api/v1/frontend/governance</code></td>
+      <td><code>frontendGovernance()</code></td>
+    </tr>
+    <tr>
+      <td>Admin</td>
+      <td><code>GET /api/v1/frontend/admin</code></td>
+      <td><code>frontendAdmin()</code></td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<h2>CI routes (portal, no frontend read model)</h2>
+
+<p>
+  Agent CI does not have a dedicated frontend read model. Use portal routes
+  directly with the SDK's portal methods:
+</p>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr><th>Page</th><th>Endpoint</th><th>SDK method</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Pipeline runs</td>
+      <td><code>GET /api/v1/skills/{skillId}/ci/runs</code></td>
+      <td><code>listPipelineRuns(skillId, page, size)</code></td>
+    </tr>
+    <tr>
+      <td>Pipeline run detail</td>
+      <td><code>GET /api/v1/skills/{skillId}/ci/runs/{runId}</code></td>
+      <td><code>getPipelineRun(skillId, runId)</code></td>
+    </tr>
+    <tr>
+      <td>Check runs</td>
+      <td><code>GET /api/v1/skills/{skillId}/ci/runs/{runId}/checks</code></td>
+      <td><code>listCheckRuns(skillId, runId)</code></td>
+    </tr>
+    <tr>
+      <td>Check detail</td>
+      <td><code>GET /api/v1/skills/{skillId}/ci/checks/{checkId}</code></td>
+      <td><code>getCheckRun(skillId, checkId)</code></td>
+    </tr>
+    <tr>
+      <td>Artifacts</td>
+      <td><code>GET /api/v1/skills/{skillId}/ci/checks/{checkId}/artifacts</code></td>
+      <td><code>listCheckArtifacts(skillId, checkId)</code></td>
+    </tr>
+    <tr>
+      <td>Gate evaluation</td>
+      <td><code>GET /api/v1/skills/{skillId}/ci/gates?trigger=publish&amp;versionId=5</code></td>
+      <td><code>evaluateGates(skillId, params)</code></td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<h2>Review / promotion mutations</h2>
+
+<p>
+  Review and promotion frontend endpoints are <strong>read-model only</strong>.
+  Mutations (approve, reject, withdraw) use portal routes. After a mutation,
+  refetch the frontend read model:
+</p>
+
+<pre><code>// Approve a review
+await client.unwrap(client.approveReview(reviewId, { comment: "LGTM" }));
+
+// Refetch the read model so availableActions stays current
+const updated = await client.unwrap(client.frontendReviewDetail(reviewId));
+
+// Promotion mutations work the same way
+await client.unwrap(client.approvePromotion(promotionId, { comment: "Promoting" }));
+await client.unwrap(client.rejectPromotion(promotionId, { comment: "Not ready" }));
+await client.unwrap(client.withdrawPromotion(promotionId));</code></pre>
+
+<h2>Loading flow for every page</h2>
+
+<ol>
+  <li><strong>Check auth</strong> — call <code>client.me()</code>. If 401, show login.</li>
+  <li><strong>Fetch read model</strong> — call the page's frontend SDK method.</li>
+  <li><strong>Render</strong> — use data for content, <code>availableActions</code> to show/hide controls.</li>
+  <li><strong>Mutations</strong> — call the corresponding SDK portal method, then re-fetch the read model.</li>
+</ol>
+
+<h2>Button visibility</h2>
+
+<p>
+  <strong>Never hard-code role checks on the frontend.</strong>
+  Use <code>availableActions</code> from the read model:
+</p>
+
+<pre><code>const { data } = await client.frontendSkillDetail(ns, slug);
+if (data.availableActions.canEdit) {
+  // show edit button
+}</code></pre>
+
+<h2>Error states</h2>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr><th>Status</th><th>Frontend behavior</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>400</td><td>Show validation error near the form/action</td></tr>
+    <tr><td>401</td><td>Redirect to <code>/login</code>, preserving intended destination</td></tr>
+    <tr><td>403</td><td>Show "You do not have permission"</td></tr>
+    <tr><td>404</td><td>Show not-found page</td></tr>
+    <tr><td>409</td><td>Show conflict reason, especially gate failures</td></tr>
+    <tr><td>429</td><td>Show rate-limit message and retry affordance</td></tr>
+    <tr><td>503</td><td>Show "Service unavailable" with retry</td></tr>
+  </tbody>
+</table>
+</div>
+
+</div>
+</main>
+
+<footer>
+  <div class="container">
+    Miqro-SkillHub — self-hosted agent skill registry.
+    <a href="https://github.com/lichman0405/miqro-skillhub-backend">GitHub</a>
+  </div>
+</footer>
+
+</body>
+</html>

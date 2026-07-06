@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>中文入口 — Miqro-SkillHub 前端对接</title>
+  <link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+
+<header>
+  <div class="container">
+    <h1><a href="./">Miqro-SkillHub</a></h1>
+    <nav>
+      <a href="./">Home</a>
+      <a href="frontend.html">Frontend API</a>
+      <a href="sdk.html">TypeScript SDK</a>
+      <a href="local-dev.html">Local Dev</a>
+      <a href="fixtures.html">Fixtures</a>
+      <a href="zh-CN.html" class="lang-badge">中文</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+<div class="container">
+
+<h2>Miqro-SkillHub 前端对接 — 中文快速入口</h2>
+
+<div class="callout">
+  <strong>一句话结论：</strong> 后端能力足够前端开工。当前缺的不是后端接口，而是
+  UI 工程。你可以开始写前端页面了。
+</div>
+
+<h3>英文文档链接（细节以英文为准）</h3>
+
+<div class="quick-links">
+  <a href="frontend.html">
+    Frontend API
+    <span class="sub">页面到 API 的完整对照表</span>
+  </a>
+  <a href="sdk.html">
+    TypeScript SDK
+    <span class="sub">SkillHubClient 初始化、auth、unwrap、分页、错误处理</span>
+  </a>
+  <a href="local-dev.html">
+    Local Dev
+    <span class="sub">后端本地运行、CORS、Docker、Windows 注意事项</span>
+  </a>
+  <a href="fixtures.html">
+    Fixtures
+    <span class="sub">Contract 响应示例，可用于 mock / Storybook</span>
+  </a>
+</div>
+
+<h2>推荐技术栈</h2>
+
+<ul>
+  <li>Vue 3</li>
+  <li>Vite</li>
+  <li>TypeScript</li>
+  <li>Vue Router</li>
+  <li>Pinia 或 TanStack Query / Vue Query</li>
+</ul>
+
+<p>
+  第一个可用页面应该是 <strong>skill discovery / search</strong>，不是营销首页。
+</p>
+
+<h2>第一周开发顺序</h2>
+
+<ol>
+  <li>
+    <strong>App shell</strong><br>
+    Header、navigation、search box、error boundary、SDK provider。
+  </li>
+  <li>
+    <strong>Auth</strong><br>
+    Login 页。用 <code>client.login(username, password)</code> 和
+    <code>client.me()</code>。<br>
+    401 跳 <code>/login</code>，403 显示无权限。<br>
+    logout 暂时 raw fetch <code>POST /api/v1/auth/logout</code>。
+  </li>
+  <li>
+    <strong>Search</strong><br>
+    <code>/</code> 和 <code>/search</code>。<br>
+    调用 <code>client.frontendSearch(...)</code>。filters、sort、pagination。
+  </li>
+  <li>
+    <strong>Skill detail</strong><br>
+    <code>/skills/:namespace/:slug</code><br>
+    <code>/skills/:namespace/:slug/versions/:version</code><br>
+    使用 frontend read-model，不要自己拼底层接口。
+  </li>
+  <li>
+    <strong>Namespace</strong><br>
+    <code>/namespaces</code>、<code>/namespaces/:namespace</code>
+  </li>
+  <li>
+    <strong>Release + CI</strong><br>
+    release list/detail、CI pipeline runs、checks / artifacts / gates
+  </li>
+  <li>
+    <strong>Community</strong><br>
+    issues、discussions、wiki、proposals
+  </li>
+  <li>
+    <strong>Review / Promotion / Governance / Admin</strong><br>
+    review queue/detail、promotion queue/detail、governance workbench、admin dashboard
+  </li>
+</ol>
+
+<h2>核心规则</h2>
+
+<h3>1. 优先用 SkillHubClient</h3>
+
+<pre><code>import { SkillHubClient } from "@miqro/skillhub-client";
+
+export const skillhub = new SkillHubClient({
+  baseUrl: import.meta.env.VITE_SKILLHUB_API_URL ?? "http://localhost:8080",
+  credentials: "include",
+});</code></pre>
+
+<p>不要一开始就手写大量 <code>fetch</code>。</p>
+
+<h3>2. 权限按钮看 availableActions</h3>
+
+<pre><code>const { data } = await skillhub.frontendSkillDetail(ns, slug);
+if (data.availableActions.canApprove) {
+  showApproveButton();
+}</code></pre>
+
+<p>
+  <strong>不要在前端自己推导 RBAC。</strong> 权限由后端返回的 boolean flags 决定。
+  即使前端显示了按钮，后端也会对未授权的 mutation 返回 403。
+</p>
+
+<h3>3. mutation 后必须 refetch</h3>
+
+<pre><code>await skillhub.unwrap(skillhub.approveReview(reviewId, { comment: "OK" }));
+// mutation 后重新拉取 read-model
+const updated = await skillhub.unwrap(skillhub.frontendReviewDetail(reviewId));</code></pre>
+
+<h3>4. 页面 loader 用 unwrap，表单错误用 envelope</h3>
+
+<pre><code>// 页面 loader
+try {
+  const page = await skillhub.unwrap(skillhub.frontendSearch({ keyword: "agent" }));
+} catch (err) {
+  // error boundary 捕获
+}
+
+// 表单错误
+const result = await skillhub.createIssue(ns, slug, input);
+if (!result.success) {
+  showError(result.error.message);
+}</code></pre>
+
+<h3>5. 不要无界预取</h3>
+
+<p>
+  列表页使用 <code>page</code> / <code>size</code> 手动分页。SDK iterator
+  只用于有限后台预取，并且要设置 <code>maxPages</code>。
+</p>
+
+<h3>6. logout 临时方案</h3>
+
+<p>SDK 目前还没有公开的 <code>logout()</code> 方法。临时做法：</p>
+
+<pre><code>await fetch(`${apiBase}/api/v1/auth/logout`, {
+  method: "POST",
+  credentials: "include",
+});</code></pre>
+
+<h2>错误处理速查</h2>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr><th>HTTP 状态</th><th>含义</th><th>前端行为</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>401</td><td>未认证或凭证过期</td><td>跳转 <code>/login</code></td></tr>
+    <tr><td>403</td><td>已认证但无权限</td><td>显示"你没有权限执行此操作"</td></tr>
+    <tr><td>404</td><td>资源不存在</td><td>显示"未找到"页面</td></tr>
+    <tr><td>409</td><td>冲突（gate 失败等）</td><td>显示后端返回的冲突原因</td></tr>
+    <tr><td>429</td><td>请求过多</td><td>显示限流提示 + 重试</td></tr>
+    <tr><td>503</td><td>服务不可用</td><td>显示"服务暂不可用"+ 重试</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2>本地开发快速启动</h2>
+
+<h3>SDK 引入（本地 file dependency）</h3>
+
+<pre><code>// 前端项目的 package.json
+{
+  "dependencies": {
+    "@miqro/skillhub-client": "file:../clients/typescript/skillhub"
+  }
+}
+
+// 先构建 SDK
+cd clients/typescript/skillhub
+npm install
+npm run build</code></pre>
+
+<h3>后端启动（Windows PowerShell）</h3>
+
+<pre><code>cd server
+$env:SKILLHUB_DATABASE_URL = "postgres://skillhub:skillhub@localhost:5432/skillhub?sslmode=disable"
+$env:SKILLHUB_CORS_ALLOWED_ORIGINS = "http://localhost:5173"
+$env:SKILLHUB_STORAGE_PROVIDER = "local"
+$env:SKILLHUB_STORAGE_ROOT = "./data/storage"
+$env:SKILLHUB_LOCAL_MODE = "true"
+go run ./cmd/skillhub-server</code></pre>
+
+<h2>当前已知缺口</h2>
+
+<ul>
+  <li><code>web/</code> 目录还没有正式前端工程</li>
+  <li>TS SDK 还没有发布到 npm，需要本地 file dependency</li>
+  <li>SDK 暂时没有 <code>logout()</code> 方法，先 raw fetch</li>
+  <li>CI step logs 暂未持久化</li>
+  <li>前端页面设计系统还没确定</li>
+</ul>
+
+<p>以上不是前端开工 blocker。</p>
+
+<h2>更多文档</h2>
+
+<ul>
+  <li><a href="../README.zh-CN.md">README.zh-CN.md</a> — 中文项目入口</li>
+  <li><a href="../guides/zh-CN/frontend-start-here.md">guides/zh-CN/frontend-start-here.md</a> — 中文前端上手</li>
+  <li><a href="../guides/frontend-start-here.md">guides/frontend-start-here.md</a> — 英文前端上手（更完整）</li>
+  <li><a href="../guides/frontend-integration.md">guides/frontend-integration.md</a> — 每页 API 调用详情</li>
+  <li><a href="../guides/typescript-sdk.md">guides/typescript-sdk.md</a> — TS SDK 完整参考</li>
+</ul>
+
+</div>
+</main>
+
+<footer>
+  <div class="container">
+    Miqro-SkillHub — self-hosted agent skill registry.
+    <a href="https://github.com/lichman0405/miqro-skillhub-backend">GitHub</a>
+  </div>
+</footer>
+
+</body>
+</html>

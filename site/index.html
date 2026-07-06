@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Miqro-SkillHub — Frontend Integration Docs</title>
+  <link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+
+<header>
+  <div class="container">
+    <h1><a href="./">Miqro-SkillHub</a></h1>
+    <nav>
+      <a href="./">Home</a>
+      <a href="frontend.html">Frontend API</a>
+      <a href="sdk.html">TypeScript SDK</a>
+      <a href="local-dev.html">Local Dev</a>
+      <a href="fixtures.html">Fixtures</a>
+      <a href="zh-CN.html" class="lang-badge">中文</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+<div class="container">
+
+<section class="hero">
+  <h1>Frontend Integration</h1>
+  <p>
+    Miqro-SkillHub is a self-hosted agent skill registry backend.
+    This site is the <strong>frontend developer documentation</strong> — it explains how
+    a browser SPA (Vue, React, etc.) connects to the backend via the
+    <strong>TypeScript SDK</strong> and the <strong>frontend read-model API</strong>.
+  </p>
+</section>
+
+<h2>Quick links</h2>
+
+<div class="quick-links">
+  <a href="frontend.html">
+    Frontend API
+    <span class="sub">Page-to-endpoint mapping with availableActions</span>
+  </a>
+  <a href="sdk.html">
+    TypeScript SDK
+    <span class="sub">SkillHubClient: init, auth, unwrap, pagination, errors</span>
+  </a>
+  <a href="local-dev.html">
+    Local Dev
+    <span class="sub">Backend setup, CORS, Docker compose, Windows notes</span>
+  </a>
+  <a href="fixtures.html">
+    Fixtures
+    <span class="sub">Contract response envelopes for mocks &amp; Storybook</span>
+  </a>
+  <a href="zh-CN.html">
+    中文入口
+    <span class="sub">中国开发者快速入口 — 推荐栈、第一周顺序、核心规则</span>
+  </a>
+</div>
+
+<div class="callout">
+  <strong>Start here:</strong> Import <code>SkillHubClient</code> from
+  <code>@miqro/skillhub-client</code>, call
+  <code>client.frontendSearch(...)</code>, and render
+  <code>availableActions</code>. Everything else follows from these three.
+</div>
+
+<h2>Core principles</h2>
+
+<ul class="principles">
+  <li><strong>Use SkillHubClient</strong> — the TypeScript SDK handles auth,
+    URL encoding, error normalization, and pagination. Do not start with raw
+    <code>fetch</code>.</li>
+  <li><strong>Use availableActions</strong> — never derive permissions from
+    role strings on the frontend. Every read model includes boolean action flags.
+    Render buttons only when the matching flag is <code>true</code>.</li>
+  <li><strong>Refetch the read model after every mutation</strong> — a successful
+    mutation (approve, reject, create, update, delete) makes the previously
+    fetched read model stale. Always refetch so <code>availableActions</code> and
+    data stay current.</li>
+  <li><strong>Do not infer permissions from role strings</strong> — authorization
+    is enforced server-side. The frontend renders UI hints; the backend denies
+    unauthorized mutations with 403.</li>
+  <li><strong>Do not prefetch unbounded queues</strong> — review and promotion
+    queues cap at 100 items per page. Use explicit <code>page</code> /
+    <code>size</code> for user-driven paging. SDK iterators are for bounded
+    background prefetch only — always set <code>maxPages</code>.</li>
+</ul>
+
+<h2>What's in the repo</h2>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr><th>Path</th><th>Purpose</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><code>clients/typescript/skillhub/</code></td><td>TypeScript SDK (@miqro/skillhub-client)</td></tr>
+    <tr><td><code>server/openapi/openapi.yaml</code></td><td>OpenAPI 3.0.3 specification</td></tr>
+    <tr><td><code>guides/frontend-start-here.md</code></td><td>First-week frontend onboarding</td></tr>
+    <tr><td><code>guides/frontend-integration.md</code></td><td>Per-page API calls, permission buttons, states</td></tr>
+    <tr><td><code>guides/frontend-information-architecture.md</code></td><td>Routes, app shell, page-to-SDK matrix</td></tr>
+    <tr><td><code>guides/typescript-sdk.md</code></td><td>Full TS SDK reference</td></tr>
+    <tr><td><code>guides/api-usage.md</code></td><td>Raw HTTP API reference</td></tr>
+    <tr><td><code>server/internal/http/frontend/testdata/contracts/</code></td><td>Contract fixtures for mocks</td></tr>
+  </tbody>
+</table>
+</div>
+
+</div>
+</main>
+
+<footer>
+  <div class="container">
+    Miqro-SkillHub — self-hosted agent skill registry.
+    <a href="https://github.com/lichman0405/miqro-skillhub-backend">GitHub</a>
+  </div>
+</footer>
+
+</body>
+</html>

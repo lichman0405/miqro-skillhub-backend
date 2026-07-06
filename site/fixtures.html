@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Contract Fixtures — Miqro-SkillHub</title>
+  <link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+
+<header>
+  <div class="container">
+    <h1><a href="./">Miqro-SkillHub</a></h1>
+    <nav>
+      <a href="./">Home</a>
+      <a href="frontend.html">Frontend API</a>
+      <a href="sdk.html">TypeScript SDK</a>
+      <a href="local-dev.html">Local Dev</a>
+      <a href="fixtures.html">Fixtures</a>
+      <a href="zh-CN.html" class="lang-badge">中文</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+<div class="container">
+
+<h2>Contract fixtures</h2>
+
+<p>
+  Committed example response envelopes for frontend read-model pages.
+  Use them for mocks, Storybook stories, page skeletons, and UI demos.
+</p>
+
+<h3>Fixture location</h3>
+
+<pre><code>server/internal/http/frontend/testdata/contracts/</code></pre>
+
+<p>
+  Each file is a full <code>{ "success": true, "data": { ... } }</code>
+  envelope covering one of the ready frontend read-model routes.
+</p>
+
+<div class="callout">
+  These fixtures are <strong>example payloads</strong>, not a replacement for
+  API tests. They represent current response shapes and are useful for UI
+  development, but the backend is authoritative — fixture fields may drift
+  from runtime responses over time.
+</div>
+
+<h3>Fixture inventory</h3>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr><th>Fixture file</th><th>Category</th><th>Page / purpose</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><code>search.json</code></td><td>search</td><td>Home / Discover page — search results, labels, pagination</td></tr>
+    <tr><td><code>skill-detail.json</code></td><td>skill</td><td>Skill detail page — skill info, versions, files, availableActions</td></tr>
+    <tr><td><code>version-detail.json</code></td><td>skill</td><td>Version detail page — version quality view</td></tr>
+    <tr><td><code>publish-validate.json</code></td><td>skill</td><td>Publish validation page</td></tr>
+    <tr><td><code>namespaces.json</code></td><td>namespace</td><td>Namespace list page</td></tr>
+    <tr><td><code>namespace-detail.json</code></td><td>namespace</td><td>Namespace detail page — info, members, actions</td></tr>
+    <tr><td><code>releases.json</code></td><td>release</td><td>Release list page</td></tr>
+    <tr><td><code>release-detail.json</code></td><td>release</td><td>Release detail page — release, assets, actions</td></tr>
+    <tr><td><code>community-issue-list.json</code></td><td>community</td><td>Issue list page</td></tr>
+    <tr><td><code>community-issue-detail.json</code></td><td>community</td><td>Issue detail page — issue, comments, actions</td></tr>
+    <tr><td><code>community-discussion-list.json</code></td><td>community</td><td>Discussion list page</td></tr>
+    <tr><td><code>community-discussion-detail.json</code></td><td>community</td><td>Discussion detail page</td></tr>
+    <tr><td><code>community-wiki-list.json</code></td><td>community</td><td>Wiki page list</td></tr>
+    <tr><td><code>community-wiki-page.json</code></td><td>community</td><td>Wiki page detail</td></tr>
+    <tr><td><code>community-proposal-list.json</code></td><td>community</td><td>Proposal list page</td></tr>
+    <tr><td><code>community-proposal-detail.json</code></td><td>community</td><td>Proposal detail page</td></tr>
+    <tr><td><code>reviews.json</code></td><td>review</td><td>Review queue page — tasks, pendingCount, hasMore</td></tr>
+    <tr><td><code>review-detail.json</code></td><td>review</td><td>Review detail page — task, skillName, version</td></tr>
+    <tr><td><code>promotions.json</code></td><td>promotion</td><td>Promotion queue page — requests, pendingCount</td></tr>
+    <tr><td><code>promotion-detail.json</code></td><td>promotion</td><td>Promotion detail page</td></tr>
+    <tr><td><code>governance.json</code></td><td>governance</td><td>Governance workbench — summary, activity, actions</td></tr>
+    <tr><td><code>admin.json</code></td><td>admin</td><td>Admin dashboard — aggregate stats</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3>How to use fixtures</h3>
+
+<h4>Mock API (e.g., MSW)</h4>
+
+<pre><code>import { http, HttpResponse } from "msw";
+import searchFixture from "./contracts/search.json";
+
+export const handlers = [
+  http.get("/api/v1/frontend/search", () =&gt; {
+    return HttpResponse.json(searchFixture);
+  }),
+];</code></pre>
+
+<h4>Storybook stories</h4>
+
+<pre><code>import searchFixture from "../../contracts/search.json";
+
+export const Default = {
+  args: {
+    data: searchFixture.data,
+  },
+};</code></pre>
+
+<h4>Page skeleton / layout work</h4>
+
+<pre><code>// During early layout development, import fixtures to populate components
+// before the backend is wired
+const mockData = searchFixture.data;
+render(&lt;SearchPage searchResult={mockData.searchResult} /&gt;);</code></pre>
+
+<h4>Empty / error state reference</h4>
+
+<p>
+  Fixtures show the shape for populated data. Use the fixture structure to
+  derive empty-state and error-state shapes:
+</p>
+
+<ul>
+  <li>Empty list: <code>{ tasks: [], pendingCount: 0, hasMore: false }</code></li>
+  <li>Error: <code>{ success: false, error: { code: "unauthorized", message: "..." } }</code></li>
+</ul>
+
+</div>
+</main>
+
+<footer>
+  <div class="container">
+    Miqro-SkillHub — self-hosted agent skill registry.
+    <a href="https://github.com/lichman0405/miqro-skillhub-backend">GitHub</a>
+  </div>
+</footer>
+
+</body>
+</html>
