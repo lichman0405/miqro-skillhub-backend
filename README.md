@@ -260,5 +260,5 @@ See **[guides/typescript-sdk.md](guides/typescript-sdk.md)** for full usage.
 A lightweight static site at `site/` serves as the frontend integration docs. It covers the frontend read-model API, TypeScript SDK, local dev setup, and contract fixtures — no build step needed.
 
 - **Local file:** open `site/index.html` in a browser.
-- **GitHub Pages:** push to `master` deploys the site via `.github/workflows/pages.yml`. After the first successful deployment, the site is available at the repository's Pages URL (e.g. `https://lichman0405.github.io/miqro-skillhub-backend/`).
-- **Enable Pages:** if the site does not appear after the workflow succeeds, go to the GitHub repository **Settings → Pages** and set the source to **GitHub Actions**.
+- **GitHub Pages:** first enable Pages in the GitHub repository **Settings → Pages** and set the source to **GitHub Actions**. Then run the `Deploy GitHub Pages` workflow manually from the Actions tab. The site will be available at the repository's Pages URL (e.g. `https://lichman0405.github.io/miqro-skillhub-backend/`).
+- **Why manual:** GitHub's default Actions token may not be allowed to create the Pages site automatically for a new repository, so the workflow intentionally does not run on every push until Pages is enabled.

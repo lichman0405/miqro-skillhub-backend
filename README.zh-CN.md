@@ -141,8 +141,8 @@ Release compose 示例见：
 `site/` 目录下的静态站点提供了前端对接文档。包括 frontend read-model API、TypeScript SDK、本地开发和 contract fixtures 说明。
 
 - **本地查看：** 直接打开 `site/index.html`。
-- **GitHub Pages：** push 到 `master` 后，`.github/workflows/pages.yml` 会自动部署。部署成功后可通过仓库的 Pages URL（如 `https://lichman0405.github.io/miqro-skillhub-backend/`）访问。
-- **启用 Pages：** 如果 workflow 成功后站点未显示，需要在 GitHub 仓库 **Settings → Pages** 中将来源设为 **GitHub Actions**。
+- **GitHub Pages：** 先在 GitHub 仓库 **Settings → Pages** 中将来源设为 **GitHub Actions**，然后到 Actions 页面手动运行 `Deploy GitHub Pages` workflow。部署成功后可通过仓库的 Pages URL（如 `https://lichman0405.github.io/miqro-skillhub-backend/`）访问。
+- **为什么手动运行：** 新仓库的默认 Actions token 可能没有权限自动创建 Pages site，所以 workflow 不再随每次 push 自动运行，避免 CI 因仓库设置未启用而失败。
 
 ## 当前已知非目标
 
@@ -173,4 +173,3 @@ cd clients/typescript/skillhub
 npm run build
 npm test
 ```
-
